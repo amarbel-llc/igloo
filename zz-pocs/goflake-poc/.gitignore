@@ -1,0 +1,4 @@
+.flake-inputs/
+flake.lock
+result
+result-*

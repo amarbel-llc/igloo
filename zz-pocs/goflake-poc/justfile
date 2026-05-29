@@ -1,0 +1,112 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# Run a command inside the PoC devShell (go toolchain).
+# Deletes flake.lock first to dodge NAR-hash mismatches caused by the live
+# worktree input. See zz-pocs/rolldown-poc/README.md for full explanation.
+_in-shell +cmd:
+    rm -f flake.lock
+    nix develop --command bash -c {{ quote(cmd) }}
+
+# Stage any untracked files so Nix's dirty-tree scan can see them.
+_stage-untracked:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    untracked=$(git ls-files --others --exclude-standard -- . || true)
+    if [[ -n "$untracked" ]]; then
+        echo "$untracked" | xargs -r git add -N --
+    fi
+
+# Phase 1: host-side go build, with `.flake-inputs/poc-lib` symlinked to
+# the local `./upstream/` source. Confirms Go accepts the replace pattern
+# before involving nix.
+[group('explore')]
+host-build: _stage-untracked
+    just _in-shell '\
+      mkdir -p .flake-inputs && \
+      ln -sfn ../upstream .flake-inputs/poc-lib && \
+      go build -o result-host . && \
+      ./result-host'
+
+# Phase 2: build the derivation in the nix sandbox via buildGoModule.
+# preBuild symlinks ${inputs.poc-lib} into `.flake-inputs/poc-lib`.
+[group('explore')]
+nix-build: _stage-untracked
+    rm -f flake.lock
+    nix build --print-build-logs .#default
+    ./result/bin/goflake-poc
+
+# Phase 3: build via the fork's buildGoApplication (gomod2nix). Now PASSes
+# via the goFlakeInputs arg — buildGoApplication constructs a merged
+# go.mod with synthetic require/replace lines pointing at the flake-input
+# store path, and the vendor tree symlinks the absolute path directly.
+[group('explore')]
+nix-build-via-gomod2nix: _stage-untracked
+    rm -f flake.lock
+    nix build --print-build-logs .#via-gomod2nix
+    ./result/bin/goflake-poc
+
+# Phase 5: smoke test that buildGoRace wraps a goFlakeInputs-using
+# derivation cleanly (composition invariant: race wrapper's overrideAttrs
+# leaves the merged-derivation closure intact).
+[group('explore')]
+nix-build-race: _stage-untracked
+    rm -f flake.lock
+    nix build --print-build-logs .#via-gomod2nix-race
+    ./result/bin/goflake-poc
+
+# Phase 6: smoke test that overrideAttrs preserves the merged-derivation
+# closure (composition invariant 3 from the design doc).
+[group('explore')]
+nix-build-overridden: _stage-untracked
+    rm -f flake.lock
+    nix build --print-build-logs .#via-gomod2nix-overridden
+    ./result/bin/goflake-poc
+
+# Phase 7: verify goSourceFilter's return value passes the flake-schema
+# check for packages.<system>.<name>. Tracks amarbel-llc/nixpkgs#38 and #43.
+# Before the fix: fails with "expected ... derivation or path but found a set".
+# After the fix: builds cleanly, result/ is the filtered store path.
+[group('explore')]
+nix-build-go-pkgs: _stage-untracked
+    rm -f flake.lock
+    nix build --print-build-logs .#go-pkgs-test
+    ls -la result
+
+# Phase 7b: verify goSourceFilter passes the strictest gate, `nix flake
+# check`. Tracks amarbel-llc/nixpkgs#44. `nix flake check` requires
+# `lib.isDerivation` to be true on every `packages.<system>.<name>` —
+# strictly stronger than `nix build`, which accepts strings-with-context.
+# A bare `builtins.path` (the post-#38 form) passes `nix build` but
+# fails this check; the runCommand wrap satisfies both.
+[group('explore')]
+nix-flake-check-go-pkgs: _stage-untracked
+    rm -f flake.lock
+    nix flake check --keep-going .
+
+# Devshell parity (Task 6): mkGoEnv with goFlakeInputs must produce the
+# same merged go.mod and vendorEnv as buildGoApplication. Asserts the
+# store paths match — strongest possible parity, since equal store paths
+# imply bit-identical content.
+[group('explore')]
+mkgoenv-parity: _stage-untracked
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -f flake.lock
+    build_gomod=$(nix build --no-link --print-out-paths .#via-gomod2nix.passthru.mergedGoMod)
+    env_gomod=$(nix build --no-link --print-out-paths .#mkgoenv-test.passthru.mergedGoMod)
+    if [[ "$build_gomod" != "$env_gomod" ]]; then
+      echo "PARITY MISMATCH (mergedGoMod): build=$build_gomod env=$env_gomod" >&2
+      exit 1
+    fi
+    build_vendor=$(nix build --no-link --print-out-paths .#via-gomod2nix.passthru.vendorEnv)
+    env_vendor=$(nix build --no-link --print-out-paths .#mkgoenv-test.passthru.vendorEnv)
+    if [[ "$build_vendor" != "$env_vendor" ]]; then
+      echo "PARITY MISMATCH (vendorEnv): build=$build_vendor env=$env_vendor" >&2
+      exit 1
+    fi
+    echo "PARITY OK: mergedGoMod=$build_gomod vendorEnv=$build_vendor"
+
+# Clean transient artifacts.
+[group('explore')]
+clean:
+    rm -rf .flake-inputs result result-host flake.lock

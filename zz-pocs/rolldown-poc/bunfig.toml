@@ -1,0 +1,5 @@
+# Make install behavior explicit for the PoC:
+# optional = true is Bun's default, but we set it explicitly so if Nix
+# passes a --production=true or similar it's still obvious what we expect.
+[install]
+optional = true

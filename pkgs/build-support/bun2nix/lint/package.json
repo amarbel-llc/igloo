@@ -1,0 +1,11 @@
+{
+  "name": "bun-fork-lint",
+  "version": "0.0.1",
+  "private": true,
+  "description": "eslint stack used by buildBunBinary / buildZxScript at nix build time. See amarbel-llc/bun:docs/decisions/0001-vendor-eslint-stack-for-buildbunbinary-lint.md.",
+  "dependencies": {
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "eslint-plugin-n": "^17.0.0"
+  }
+}

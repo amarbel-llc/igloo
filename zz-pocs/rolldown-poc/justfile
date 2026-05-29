@@ -1,0 +1,47 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# Run a command inside the PoC devShell (bun + bun2nix CLI).
+# Deletes flake.lock first because the parent worktree's narHash keeps
+# shifting (git state mutates, PoC files move). Regenerating the lock each
+# time is cheap for a throwaway PoC and avoids "NAR hash mismatch" breakage.
+_in-shell +cmd:
+    rm -f flake.lock
+    nix develop --command bash -c {{ quote(cmd) }}
+
+# Stage any untracked files so Nix's dirty-tree scan can see them.
+_stage-untracked:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # git add -N (intent-to-add) for anything not yet tracked in the parent
+    # repo. Avoids the "file X is not tracked by Git" error from Nix.
+    untracked=$(git ls-files --others --exclude-standard -- . || true)
+    if [[ -n "$untracked" ]]; then
+        echo "$untracked" | xargs -r git add -N --
+    fi
+
+# Install deps with bun on the host. Produces bun.lock + node_modules/.
+[group('explore')]
+bootstrap: _stage-untracked
+    just _in-shell "bun install"
+
+# Run rolldown on the host to confirm the non-Nix path works.
+# BROWSER_TYPE is read by rolldown.config.mjs to name the output dir.
+[group('explore')]
+host-build: _stage-untracked
+    just _in-shell "BROWSER_TYPE=chrome bun run build"
+
+# Generate bun.nix from package.json + bun.lock via the external bun2nix CLI.
+[group('explore')]
+regen-bun-nix: _stage-untracked
+    just _in-shell "bun2nix -o bun.nix"
+
+# Run the experiment: build the PoC derivation in the Nix sandbox.
+[group('explore')]
+nix-build: _stage-untracked
+    rm -f flake.lock
+    nix build --print-build-logs .#default
+
+# Clean everything except the hand-written sources.
+[group('explore')]
+clean:
+    rm -rf node_modules dist-* result bun.lock bun.nix
