@@ -1,0 +1,8 @@
+result
+result-*
+flake.lock
+.tmp
+# stray `go build` artifacts from compile-checks (the real builds use $out)
+toy/godyn
+toy-m4/godyn
+toy-single/godyn-single

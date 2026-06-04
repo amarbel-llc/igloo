@@ -1,0 +1,184 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# POC: native per-package Go builder via recursive-nix + CA + dynamic-derivations.
+# Throwaway. See ../../docs/features/0001-numtide-go2nix-overlay-builder.md and
+# the plan at ~/.claude/plans/structured-brewing-grove.md.
+
+# --- system prereq (run as root) -------------------------------------------
+
+# Enable the recursive-nix / dynamic-derivations stack this POC needs.
+# Idempotent (guarded by a marker comment). Appends ADDITIVE `extra-*`
+# settings to /etc/nix/nix.custom.conf — the Determinate user-config file
+# that /etc/nix/nix.conf `!include`s — then restarts the daemon.
+#
+# Run as root, e.g.:
+#   pkexec env PATH="$PATH" just -f /abs/path/zz-pocs/godyn-poc/justfile enable-recursive-nix
+[group('explore')]
+enable-recursive-nix:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    conf=/etc/nix/nix.custom.conf
+    marker="# igloo godyn-poc: recursive-nix + dynamic-derivations"
+    if grep -qF "$marker" "$conf"; then
+        echo "already enabled (marker present in $conf); not re-appending"
+    else
+        cp -a "$conf" "${conf}.bak.$(date +%s)" 2>/dev/null || true
+        {
+            printf '\n%s\n' "$marker"
+            printf '%s\n' 'extra-experimental-features = recursive-nix dynamic-derivations'
+            printf '%s\n' 'extra-system-features = recursive-nix'
+            printf '%s\n' 'extra-trusted-users = sasha'
+        } >> "$conf"
+        echo "appended POC config to $conf (backup saved alongside)"
+    fi
+    echo "restarting nix-daemon..."
+    systemctl restart nix-daemon
+    echo "--- effective settings (as root) ---"
+    nix config show experimental-features || true
+    nix config show system-features || true
+    nix config show trusted-users || true
+    echo "done. now run (as your normal user): just preflight"
+
+# --- M0 preflight (run as your normal user, NOT root) ----------------------
+
+# Verify the POC's environment prerequisites are met. Prints the exact
+# remediation (enable-recursive-nix) if anything is missing. Gates M2+.
+[group('explore')]
+preflight:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    fail=0
+    need_feat() {
+        if nix config show experimental-features | tr ' ' '\n' | grep -qx "$1"; then
+            echo "ok   experimental-feature: $1"
+        else
+            echo "MISS experimental-feature: $1"; fail=1
+        fi
+    }
+    ver=$(nix --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
+    if [ "$(printf '%s\n2.34.0\n' "$ver" | sort -V | head -n1)" = "2.34.0" ]; then
+        echo "ok   nix >= 2.34 (have $ver)"
+    else
+        echo "MISS nix >= 2.34 (have $ver)"; fail=1
+    fi
+    need_feat recursive-nix
+    need_feat ca-derivations
+    need_feat dynamic-derivations
+    if nix config show system-features | tr ' ' '\n' | grep -qx recursive-nix; then
+        echo "ok   system-feature: recursive-nix"
+    else
+        echo "MISS system-feature: recursive-nix"; fail=1
+    fi
+    me=$(id -un)
+    if nix config show trusted-users | tr ' ' '\n' | grep -qx "$me"; then
+        echo "ok   trusted-user: $me"
+    else
+        echo "MISS trusted-user: $me"; fail=1
+    fi
+    if nix eval --impure --expr 'builtins ? outputOf' 2>/dev/null | grep -qx true; then
+        echo "ok   builtins ? outputOf"
+    else
+        echo "MISS builtins ? outputOf (needs dynamic-derivations)"; fail=1
+    fi
+    if [ "$fail" -ne 0 ]; then
+        echo ""
+        echo "PREFLIGHT FAILED. Remediation (run as root):"
+        echo "  pkexec env PATH=\"\$PATH\" just -f $(pwd)/justfile enable-recursive-nix"
+        exit 1
+    fi
+    echo ""
+    echo "PREFLIGHT OK — M2+ unblocked."
+
+# --- milestones ------------------------------------------------------------
+
+# M1: build the shared Go stdlib derivation and assert its importcfg points
+# at real .a archives. Plain input-addressed build — no recursive-nix needed,
+# so this works before the M0 root change.
+[group('explore')]
+m1: _stage-untracked
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -f flake.lock
+    nix build -L --show-trace .#stdlib
+    test -s result/importcfg
+    echo "--- importcfg (first 5 lines) ---"
+    head -n5 result/importcfg
+    echo "--- verifying every packagefile target exists ---"
+    n=0
+    while read -r _ kv; do
+        f="${kv#*=}"
+        test -f "$f" || { echo "MISSING: $f" >&2; exit 1; }
+        n=$((n + 1))
+    done < result/importcfg
+    echo "M1 OK: $n stdlib archives, all present."
+
+# M5: the cache-isolation proof. Runs the resolver directly (no wrapper) on
+# throwaway $TMPDIR variants of the toy and compares internal/greet's compiled
+# CA store path. S2 = private mathx change leaves greet unchanged; S3 =
+# exported mathx change cascades. The noinline control isolates the R6
+# cross-package-inlining question.
+[group('explore')]
+m5: _stage-untracked
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -f flake.lock
+    echo "resolving toolchain (via ambient nix)..."
+    resolver=$(nix build --no-link --print-out-paths '.#godyn-resolver^out')/bin/godyn-resolver
+    stdlib=$(nix build --no-link --print-out-paths '.#stdlib^out')
+    goStore=$(nix build --no-link --print-out-paths '.#go-toolchain^out')
+    bashStore=$(nix build --no-link --print-out-paths '.#bash^out')
+    coreStore=$(nix build --no-link --print-out-paths '.#coreutils^out')
+    nixBin=$(command -v nix)
+
+    greet_caout() {
+        local src="$1" log top
+        top=$(mktemp -d); log=$(mktemp)
+        NIX_BUILD_TOP="$top" "$resolver" --src "$src" --stdlib "$stdlib" \
+            --go "$goStore" --bash "$bashStore" --coreutils "$coreStore" \
+            --nix "$nixBin" --pname godyn --go-version go1.26 \
+            --system x86_64-linux --out "$top/link.drv" >"$log" 2>&1 \
+            || { sed 's/^/    resolver: /' "$log" >&2; return 1; }
+        grep -oE 'compiled github.com/poc/godyn/internal/greet -> [^ ]+' "$log" | awk '{print $NF}'
+    }
+    copyToy() { local d; d=$(mktemp -d); cp -r toy/. "$d"/; echo "$d"; }
+    noinline='s#^func Add#//go:noinline\nfunc Add#; s#^func addImpl#//go:noinline\nfunc addImpl#'
+    privbody='s/return a + b$/return a + b + 1/'
+
+    base=$(greet_caout toy)
+
+    vi=$(copyToy);  sed -i "$privbody" "$vi/internal/mathx/mathx.go";   ci=$(greet_caout "$vi")
+
+    vnb=$(copyToy); sed -i "$noinline" "$vnb/internal/mathx/mathx.go";  nb=$(greet_caout "$vnb")
+    vnp=$(copyToy); sed -i "$noinline; $privbody" "$vnp/internal/mathx/mathx.go"; np=$(greet_caout "$vnp")
+
+    ve=$(copyToy)
+    sed -i 's/func Add(a, b int) int/func Add(a, b, c int) int/' "$ve/internal/mathx/mathx.go"
+    sed -i 's/mathx.Add(2, 3)/mathx.Add(2, 3, 0)/' "$ve/internal/greet/greet.go"
+    ce=$(greet_caout "$ve")
+
+    echo ""
+    echo "greet compiled-CA store paths:"
+    echo "  baseline              $base"
+    echo "  private (inlinable)   $ci"
+    echo "  noinline baseline     $nb"
+    echo "  noinline private      $np"
+    echo "  exported change       $ce"
+    echo ""
+    echo "=== verdicts ==="
+    if [ "$base" = "$ci" ]; then echo "S2 inline:   greet UNCHANGED — isolated even with an inlinable dep"
+    else echo "S2 inline:   greet CHANGED — cross-package inlining couples mathx's body into greet (R6)"; fi
+    if [ "$nb" = "$np" ]; then echo "S2 noinline: greet UNCHANGED — per-package CA isolation HOLDS"
+    else echo "S2 noinline: greet CHANGED — isolation FAILED even without inlining (investigate)"; fi
+    if [ "$base" != "$ce" ]; then echo "S3 exported: greet CHANGED — cascade fires on interface change [expected]"
+    else echo "S3 exported: greet UNCHANGED — cascade did NOT fire [unexpected]"; fi
+
+# --- helpers (used by later milestone recipes) -----------------------------
+
+# Stage untracked files so Nix's dirty-tree scan sees them (live worktree).
+_stage-untracked:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    untracked=$(git ls-files --others --exclude-standard -- . || true)
+    if [[ -n "$untracked" ]]; then
+        echo "$untracked" | xargs -r git add -N --
+    fi

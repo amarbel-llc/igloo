@@ -1,0 +1,2 @@
+# godyn-poc lockfile (M4). Format: <module-path> <version> <nar-sri> <h1-ziphash>
+github.com/google/uuid v1.6.0 sha256-VWl9sqUzdOuhW0KzQlv0gwwUQClYkmZwSydHG2sALYw= h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=

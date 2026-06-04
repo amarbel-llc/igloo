@@ -1,0 +1,41 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# Measurement POC: dodder cross-package inlining density. See README.md.
+# Snapshots dodder/go into .work/ (gitignored), materialises its vendor tree
+# from the nix build, and runs `go build -gcflags=-m` to count inlining.
+
+godyn_poc := "/home/sasha/eng/repos/igloo/.worktrees/sharp-mahogany/zz-pocs/godyn-poc"
+
+# Measure dodder's inlining. Pass a dodder checkout path as the first arg.
+[group('explore')]
+measure dodder="/home/sasha/eng/repos/dodder":
+    #!/usr/bin/env bash
+    set -uo pipefail
+    echo "resolving go toolchain..."
+    goStore=$(nix build --no-link --print-out-paths '{{godyn_poc}}#go-toolchain^out')
+    export PATH="$goStore/bin:$PATH"
+
+    echo "snapshotting dodder/go + materialising vendor..."
+    W=.work; rm -rf "$W"; mkdir -p "$W"
+    cp -r '{{dodder}}/go/.' "$W"/; chmod -R +w "$W"
+    vendorEnv=$(nix build --no-link --print-out-paths '{{dodder}}#dodder.passthru.vendorEnv')
+    mergedGoMod=$(nix build --no-link --print-out-paths '{{dodder}}#dodder.passthru.mergedGoMod')
+    cp "$mergedGoMod" "$W/go.mod"
+    rm -rf "$W/vendor"; cp -rL "$vendorEnv" "$W/vendor"; chmod -R +w "$W/vendor"
+
+    cd "$W"
+    # Same env the gomod2nix go-config-hook uses; GO_NO_VENDOR_CHECKS is the
+    # load-bearing one (the merged go.mod's explicit requires don't match the
+    # vendor modules.txt markers). cgo lib/bravo/pivy fails under CGO=0 (it is
+    # compiled last) — the inline data for everything else is complete.
+    export GOFLAGS=-mod=vendor GOCACHE=$(mktemp -d) CGO_ENABLED=0 \
+        GO_NO_VENDOR_CHECKS=1 GOPROXY=off GOSUMDB=off GO111MODULE=on
+    echo "compiling dodder with -gcflags=-m (slow)..."
+    go build -gcflags=-m ./... >/dev/null 2>m.txt || true
+
+    echo ""
+    echo "inlinable functions: $(grep -c 'can inline' m.txt)"
+    echo "inlined call sites:  $(grep -c 'inlining call to' m.txt)"
+    echo "--- top 25 inline sources (token before first dot) ---"
+    grep 'inlining call to' m.txt | sed 's/.*inlining call to //; s/\..*//' \
+        | sort | uniq -c | sort -rn | head -25
