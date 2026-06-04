@@ -1,0 +1,56 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+# godyn-dewey POC. See README.md. The dewey/purse-first source is a gitignored
+# clone at $PF (cloned to avoid cross-worktree perms).
+
+pf := "/home/sasha/eng/repos/igloo/.worktrees/sharp-mahogany/.tmp/purse-first"
+godyn_poc := "/home/sasha/eng/repos/igloo/.worktrees/sharp-mahogany/zz-pocs/godyn-poc"
+
+# D1: generate the godyn lockfile for dewey's module closure by joining
+# purse-first's gomod2nix.toml (path/version + recursive-NAR SRI hash) with
+# dewey's go.sum (the h1 ziphash). Excludes bridged tommy. awk uses \047 for
+# the single-quote so the program needs no shell-quote escaping.
+[group('explore')]
+gen-lock:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    awk '
+    function val(l,   s,r,e){ s=index(l,"\047"); r=substr(l,s+1); e=index(r,"\047"); return substr(r,1,e-1) }
+    NR==FNR { if ($2 !~ /\/go\.mod$/) h1[$1" "$2]=$3; next }
+    /\[mod\./ { p=val($0); ver=""; hash="" }
+    /^[[:space:]]+version = / { ver=val($0) }
+    /^[[:space:]]+hash = / {
+      hash=val($0)
+      if (p=="github.com/amarbel-llc/tommy") next
+      key=p" "ver
+      if (key in h1) print p, ver, hash, h1[key]
+    }
+    ' '{{pf}}/libs/dewey/go.sum' '{{pf}}/gomod2nix.toml' | sort > dewey.lock
+    echo "wrote $(wc -l < dewey.lock) modules to dewey.lock"
+    echo "--- first 3 ---"; head -3 dewey.lock
+    # sanity: every dewey go.sum module (minus tommy) should be covered
+    missing=$(comm -23 \
+      <(awk '$2 !~ /\/go\.mod$/ {print $1" "$2}' '{{pf}}/libs/dewey/go.sum' | grep -v '^github.com/amarbel-llc/tommy ' | sort -u) \
+      <(awk '{print $1" "$2}' dewey.lock | sort -u) | wc -l)
+    echo "go.sum modules not covered by the lockfile: $missing (expect 0)"
+
+# D0: dewey inlining density. Materialises dewey's vendor into the clone and
+# runs go build -gcflags=-m. CGO off, so the zstd package fails last; the rest
+# of the inline data is complete.
+[group('explore')]
+measure:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    goStore=$(nix build --no-link --print-out-paths '{{godyn_poc}}#go-toolchain^out')
+    export PATH="$goStore/bin:$PATH"
+    vendorEnv=$(nix build --no-link --print-out-paths '{{pf}}#defererr.passthru.vendorEnv')
+    cd '{{pf}}'
+    rm -rf vendor; cp -rL "$vendorEnv" vendor; chmod -R +w vendor
+    export GOFLAGS=-mod=vendor GOCACHE=$(mktemp -d) CGO_ENABLED=0 \
+      GO_NO_VENDOR_CHECKS=1 GOPROXY=off GOSUMDB=off GO111MODULE=on
+    go build -gcflags=-m ./libs/dewey/... >/dev/null 2>m-dewey.txt || true
+    echo "inlinable:     $(grep -c 'can inline' m-dewey.txt)"
+    echo "inlined-calls: $(grep -c 'inlining call to' m-dewey.txt)"
+    echo "--- top 22 inline sources ---"
+    grep 'inlining call to' m-dewey.txt | sed 's/.*inlining call to //; s/\..*//' \
+      | sort | uniq -c | sort -rn | head -22

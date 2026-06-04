@@ -1,0 +1,7 @@
+.work
+snapshot
+m*.txt
+result
+result-*
+flake.lock
+*.lock.generated
