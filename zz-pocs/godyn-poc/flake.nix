@@ -31,6 +31,7 @@
           nix
           ;
         inherit go;
+        cc = pkgs.stdenv.cc;
       };
 
       # M2 system-under-test: a single stdlib-only main package.
@@ -56,6 +57,15 @@
         lockfile = ./toy-m4/godyn.lock;
         inherit stdlib;
       };
+
+      # D3 system-under-test: main imports a cgo third-party module
+      # (github.com/DataDog/zstd, self-contained C). Exercises the cgo path.
+      cgomod = mkDynamic {
+        src = ./toy-cgo;
+        pname = "godyn-cgo";
+        lockfile = ./toy-cgo/godyn.lock;
+        inherit stdlib;
+      };
     in
     {
       packages.${system} = {
@@ -76,6 +86,9 @@
         # M4: third-party module via FOD.
         m4-wrapper = m4mod.wrapper;
         m4 = m4mod.target;
+        # D3: cgo third-party module.
+        cgo-wrapper = cgomod.wrapper;
+        cgo = cgomod.target;
       };
 
       # Only stdlib is a `nix flake check` gate (no recursive-nix). The dynamic

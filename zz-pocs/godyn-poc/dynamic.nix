@@ -14,6 +14,7 @@
   bash,
   coreutils,
   cacert,
+  cc,
   nix,
 }:
 
@@ -72,6 +73,7 @@ let
         --go ${go} \
         --bash ${bash} \
         --coreutils ${coreutils} \
+        --cc ${cc} \
         --cacert ${cacert} \
         --nix ${nix}/bin/nix \
         --pname ${pname} \

@@ -36,6 +36,7 @@ type config struct {
 	goBin     string
 	bash      string
 	coreutils string
+	cc        string // stdenv cc-wrapper store path (for cgo packages)
 	cacert    string // for the module-fetch FODs (SSL_CERT_FILE)
 	lockfile  string // optional: third-party module pins
 	system    string
@@ -52,6 +53,7 @@ func main() {
 	flag.StringVar(&c.goBin, "go", "", "go toolchain store path")
 	flag.StringVar(&c.bash, "bash", "", "bash store path")
 	flag.StringVar(&c.coreutils, "coreutils", "", "coreutils store path")
+	flag.StringVar(&c.cc, "cc", "", "stdenv cc-wrapper store path (for cgo)")
 	flag.StringVar(&c.cacert, "cacert", "", "cacert store path (for module FODs)")
 	flag.StringVar(&c.lockfile, "lockfile", "", "third-party module lockfile (optional)")
 	flag.StringVar(&c.system, "system", "x86_64-linux", "nix system")
@@ -120,7 +122,11 @@ func run(c config) error {
 	if mainPkg == nil {
 		return fmt.Errorf("no package main found")
 	}
+	cgoUsed := false
 	for _, p := range order {
+		if len(p.CgoFiles) > 0 {
+			cgoUsed = true
+		}
 		caOut, err := c.buildCompileDrv(p, compiled, fodPaths)
 		if err != nil {
 			return fmt.Errorf("compile %s: %w", p.ImportPath, err)
@@ -130,7 +136,7 @@ func run(c config) error {
 	}
 
 	// 4. Link.
-	linkDrv, err := c.buildLinkDrv(mainPkg, modulePath, compiled)
+	linkDrv, err := c.buildLinkDrv(mainPkg, modulePath, compiled, cgoUsed)
 	if err != nil {
 		return fmt.Errorf("link: %w", err)
 	}
@@ -297,8 +303,17 @@ type pkg struct {
 	Name       string
 	Dir        string
 	GoFiles    []string
-	Imports    []string
-	Standard   bool
+	CgoFiles   []string
+	CFiles     []string
+	HFiles     []string
+	// Unsupported-in-POC source kinds; presence triggers a clear error.
+	CXXFiles     []string
+	SFiles       []string
+	FFiles       []string
+	SwigFiles    []string
+	SwigCXXFiles []string
+	Imports      []string
+	Standard     bool
 	Module     *struct {
 		Path    string
 		Main    bool
@@ -327,7 +342,7 @@ func (c config) goListDeps(gomodcache string) ([]pkg, string, error) {
 	}
 	cmd := exec.Command(c.goBin+"/bin/go", "list", "-json", "-deps", "./...")
 	cmd.Dir = c.src
-	cmd.Env = append(os.Environ(),
+	env := append(os.Environ(),
 		"GOROOT="+c.goBin+"/share/go",
 		"GOMODCACHE="+gomodcache,
 		"GOFLAGS=-mod=mod",
@@ -340,6 +355,14 @@ func (c config) goListDeps(gomodcache string) ([]pkg, string, error) {
 		"GOCACHE="+filepath.Join(top, "golist-cache"),
 		"HOME="+top,
 	)
+	// CGO_ENABLED governs whether `go list` includes CgoFiles; enable it when
+	// a cc-wrapper is available so cgo packages are surfaced.
+	if c.cc != "" {
+		env = append(env, "CGO_ENABLED=1", "CC="+c.cc+"/bin/cc")
+	} else {
+		env = append(env, "CGO_ENABLED=0")
+	}
+	cmd.Env = env
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -419,12 +442,35 @@ func (c config) buildCompileDrv(p *pkg, compiled map[string]string, fodPaths map
 		rewriteTarget = "main"
 	}
 
-	files := make([]string, len(p.GoFiles))
-	for i, f := range p.GoFiles {
-		files[i] = shq(srcDir + "/" + f)
+	// Reject source kinds the POC's cgo path does not handle. C and GCC-style
+	// .S/.sx assembly are supported (compiled with cc); Plan 9 .s asm, C++,
+	// Fortran, and SWIG are not.
+	if len(p.CXXFiles)+len(p.FFiles)+len(p.SwigFiles)+len(p.SwigCXXFiles) > 0 {
+		return "", fmt.Errorf("package %s has unsupported sources (C++/Fortran/SWIG); the POC cgo path handles C + .S/.sx asm only", p.ImportPath)
+	}
+	var gccAsm []string
+	for _, f := range p.SFiles {
+		if strings.HasSuffix(f, ".S") || strings.HasSuffix(f, ".sx") {
+			gccAsm = append(gccAsm, f)
+		} else {
+			return "", fmt.Errorf("package %s has Plan 9 asm %q; the POC cgo path handles .S/.sx gcc asm only", p.ImportPath, f)
+		}
 	}
 
-	script := fmt.Sprintf(`set -euo pipefail
+	goFiles := make([]string, len(p.GoFiles))
+	for i, f := range p.GoFiles {
+		goFiles[i] = shq(srcDir + "/" + f)
+	}
+
+	cgo := len(p.CgoFiles) > 0
+	var script string
+	if cgo {
+		if c.cc == "" {
+			return "", fmt.Errorf("package %s needs cgo but no --cc was provided", p.ImportPath)
+		}
+		script = c.cgoCompileScript(p, srcDir, rewriteTarget, pflag, cfg.String(), goFiles, gccAsm)
+	} else {
+		script = fmt.Sprintf(`set -euo pipefail
 export GOROOT=%s
 export PATH=%s
 mkdir -p "$out"
@@ -433,14 +479,15 @@ go tool compile -importcfg importcfg -p %s -buildid "" \
   -trimpath="%s=>%s;${NIX_BUILD_TOP}=>" -nolocalimports -pack -lang=%s \
   -o "$out/pkg.a" %s
 `,
-		shq(c.goBin+"/share/go"),
-		shq(c.coreutils+"/bin:"+c.goBin+"/bin"),
-		cfg.String(),
-		shq(pflag),
-		srcDir, rewriteTarget,
-		shq(c.goVersion),
-		strings.Join(files, " "),
-	)
+			shq(c.goBin+"/share/go"),
+			shq(c.coreutils+"/bin:"+c.goBin+"/bin"),
+			cfg.String(),
+			shq(pflag),
+			srcDir, rewriteTarget,
+			shq(c.goVersion),
+			strings.Join(goFiles, " "),
+		)
+	}
 
 	drv := c.newCADrv("godyn-compile-"+sanitize(p.ImportPath), script)
 	drv.addInputSrc(srcInput)
@@ -448,13 +495,94 @@ go tool compile -importcfg importcfg -p %s -buildid "" \
 	drv.addInputSrc(c.goBin)
 	drv.addInputSrc(c.bash)
 	drv.addInputSrc(c.coreutils)
+	if cgo {
+		drv.addInputSrc(c.cc)
+	}
 	for _, imp := range sortedKeys(compiled) {
 		drv.addInputSrc(strings.TrimSuffix(compiled[imp], "/pkg.a"))
 	}
 	return c.registerAndBuild(drv)
 }
 
-func (c config) buildLinkDrv(mainPkg *pkg, modulePath string, compiled map[string]string) (string, error) {
+// cgoCompileScript ports numtide pkg/compile/cgo.go's pure-C path: cgo codegen,
+// compile the C files, test-link + dynimport, compile the Go (generated +
+// plain), then pack the C objects into the archive. Uses a placeholder template
+// (no fmt verbs) for legibility. p.Name supplies the package name so no text
+// tools beyond coreutils + cc + go are needed inside the drv.
+func (c config) cgoCompileScript(p *pkg, srcDir, rewriteTarget, pflag, cfgCmds string, goFiles, gccAsm []string) string {
+	cgoFiles := make([]string, len(p.CgoFiles))
+	for i, f := range p.CgoFiles {
+		cgoFiles[i] = shq(f) // basenames; cgo runs with cwd = srcDir
+	}
+	// Both C files and .S/.sx gcc assembly are compiled with cc -c.
+	cFiles := make([]string, 0, len(p.CFiles)+len(gccAsm))
+	for _, f := range append(append([]string{}, p.CFiles...), gccAsm...) {
+		cFiles = append(cFiles, shq(srcDir+"/"+f))
+	}
+	tmpl := `set -euo pipefail
+export GOROOT=@GOROOT@
+export PATH=@PATH@
+export CC=@CC@
+export HOME="$NIX_BUILD_TOP"
+mkdir -p "$out"
+work="$NIX_BUILD_TOP/cgo-@UID@"; rm -rf "$work"; mkdir -p "$work"
+@CFG@
+RF=(-ffile-prefix-map="$work=/tmp/go-build" -ffile-prefix-map=@SRCDIR@=. -gno-record-gcc-switches)
+( cd @SRCDIRQ@ && go tool cgo -objdir "$work" -importpath @PFLAG@ -- -I "$work" "${RF[@]}" @CGOFILES@ )
+declare -a OFILES=()
+n=0
+for cf in "$work/_cgo_export.c" "$work"/*.cgo2.c @CFILES@; do
+  [ -e "$cf" ] || continue
+  o="$work/c$n.o"; n=$((n+1))
+  "$CC" -c -I "$work" -I @SRCDIRQ@ -fPIC -pthread "${RF[@]}" "$cf" -o "$o"
+  OFILES+=("$o")
+done
+"$CC" -c -I "$work" -I @SRCDIRQ@ -fPIC -pthread "${RF[@]}" "$work/_cgo_main.c" -o "$work/_cgo_main.o"
+DYN=""
+if "$CC" -o "$work/_cgo_.o" "$work/_cgo_main.o" "${OFILES[@]}" -lpthread 2>"$work/tl.err"; then
+  ( cd @SRCDIRQ@ && go tool cgo -dynimport "$work/_cgo_.o" -dynout "$work/_cgo_import.go" -dynpackage @PNAMEQ@ )
+  DYN="$work/_cgo_import.go"
+else
+  : > "$work/dynimportfail"; OFILES+=("$work/dynimportfail")
+fi
+LDF=""
+if [ -e "$work/_cgo_flags" ]; then
+  ldflags=""
+  while IFS= read -r line; do case "$line" in _CGO_LDFLAGS=*) ldflags="${line#_CGO_LDFLAGS=}";; esac; done < "$work/_cgo_flags"
+  if [ -n "$ldflags" ]; then
+    { echo "package @PNAME@"; echo; for fl in $ldflags; do echo "//go:cgo_ldflag \"$fl\""; done; } > "$work/_cgo_ldflag.go"
+    LDF="$work/_cgo_ldflag.go"
+  fi
+fi
+go tool compile -importcfg importcfg -p @PFLAG@ -buildid "" \
+  -trimpath="$work=>;@SRCDIR@=>@REWRITE@;$NIX_BUILD_TOP=>" -nolocalimports -pack -lang=@GOVER@ \
+  -o "$out/pkg.a" @GOFILES@ "$work/_cgo_gotypes.go" "$work"/*.cgo1.go ${DYN:+"$DYN"} ${LDF:+"$LDF"}
+go tool pack r "$out/pkg.a" "${OFILES[@]}"
+# NB: an if-block, not a trailing "test && cmd". As the script's final
+# statement, a false bracket test makes 1 the script exit status (and prints
+# nothing), so Nix fails the build even though pkg.a is already complete.
+if [ -e "$work/_cgo_flags" ]; then go tool pack r "$out/pkg.a" "$work/_cgo_flags"; fi
+`
+	return strings.NewReplacer(
+		"@GOROOT@", shq(c.goBin+"/share/go"),
+		"@PATH@", shq(c.cc+"/bin:"+c.coreutils+"/bin:"+c.goBin+"/bin"),
+		"@CC@", shq(c.cc+"/bin/cc"),
+		"@UID@", sanitize(p.ImportPath),
+		"@CFG@", cfgCmds,
+		"@SRCDIRQ@", shq(srcDir),
+		"@SRCDIR@", srcDir,
+		"@PFLAG@", shq(pflag),
+		"@CGOFILES@", strings.Join(cgoFiles, " "),
+		"@CFILES@", strings.Join(cFiles, " "),
+		"@PNAMEQ@", shq(p.Name),
+		"@PNAME@", p.Name,
+		"@REWRITE@", rewriteTarget,
+		"@GOVER@", shq(c.goVersion),
+		"@GOFILES@", strings.Join(goFiles, " "),
+	).Replace(tmpl)
+}
+
+func (c config) buildLinkDrv(mainPkg *pkg, modulePath string, compiled map[string]string, cgoUsed bool) (string, error) {
 	mainArchive := compiled[mainPkg.ImportPath]
 
 	var cfg strings.Builder
@@ -466,18 +594,28 @@ func (c config) buildLinkDrv(mainPkg *pkg, modulePath string, compiled map[strin
 		fmt.Fprintf(&cfg, "echo %s >> importcfg.link\n", shq("packagefile "+imp+"="+compiled[imp]))
 	}
 
+	// cgo binaries link externally: put the cc-wrapper on PATH and pass -extld
+	// so go tool link drives the external linker over the packed C objects.
+	pathDirs := c.coreutils + "/bin:" + c.goBin + "/bin"
+	extld := ""
+	if cgoUsed {
+		pathDirs = c.cc + "/bin:" + pathDirs
+		extld = " -extld " + shq(c.cc+"/bin/cc")
+	}
+
 	script := fmt.Sprintf(`set -euo pipefail
 export PATH=%s
 mkdir -p "$out/bin"
 %s
 GOTOOLDIR="$(GOROOT=%s go env GOTOOLDIR)"
 export GOROOT=
-"$GOTOOLDIR/link" -buildid=redacted -buildmode=exe -importcfg importcfg.link \
+"$GOTOOLDIR/link" -buildid=redacted -buildmode=exe%s -importcfg importcfg.link \
   -o "$out/bin/%s" %s
 `,
-		shq(c.coreutils+"/bin:"+c.goBin+"/bin"),
+		shq(pathDirs),
 		cfg.String(),
 		shq(c.goBin+"/share/go"),
+		extld,
 		c.pname,
 		shq(mainArchive),
 	)
@@ -487,6 +625,9 @@ export GOROOT=
 	drv.addInputSrc(c.goBin)
 	drv.addInputSrc(c.bash)
 	drv.addInputSrc(c.coreutils)
+	if cgoUsed {
+		drv.addInputSrc(c.cc)
+	}
 	for _, imp := range sortedKeys(compiled) {
 		drv.addInputSrc(strings.TrimSuffix(compiled[imp], "/pkg.a"))
 	}
@@ -523,7 +664,7 @@ func (c config) registerAndBuild(d *derivation) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err := c.runNix(nil, "build", "--no-link", "--print-out-paths", drvPath+"^out")
+	out, err := c.runNix(nil, "build", "--no-link", "-L", "--print-out-paths", drvPath+"^out")
 	if err != nil {
 		return "", fmt.Errorf("nix build %s: %w", drvPath, err)
 	}

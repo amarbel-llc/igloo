@@ -25,8 +25,10 @@ runCommandCC "go-stdlib-${go.version}-${envSuffix}"
   {
     nativeBuildInputs = [ go ];
     inherit (go) GOOS GOARCH;
-    # Pure-Go stdlib for the toy: no cgo packages exercised.
-    CGO_ENABLED = "0";
+    # CGO_ENABLED=1 so the stdlib includes runtime/cgo (+ cgo variants of
+    # net/os/user), which cgo consumer packages import. runCommandCC supplies
+    # the C compiler. Pure-Go consumers ignore the extra importcfg entries.
+    CGO_ENABLED = "1";
     passthru = { inherit go goEnv; };
   }
   ''
