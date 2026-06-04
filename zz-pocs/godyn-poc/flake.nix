@@ -7,10 +7,18 @@
     # that, same workaround as goflake-poc. Consuming igloo itself gives us
     # the overlay's `go` plus fetchGoModule etc. for later milestones.
     igloo.url = "path:/home/sasha/eng/repos/igloo/.worktrees/sharp-mahogany";
+
+    # D4 bridge: tommy's source (a gitignored vendored clone under .tmp) as a
+    # non-flake path input, so igloo's mkGoPkgs can produce its `go-pkgs`
+    # output and the resolver can bridge it via a synthesized replace.
+    tommy-src = {
+      url = "path:/home/sasha/eng/repos/igloo/.worktrees/sharp-mahogany/.tmp/purse-first/vendor/github.com/amarbel-llc/tommy";
+      flake = false;
+    };
   };
 
   outputs =
-    { self, igloo, ... }:
+    { self, igloo, tommy-src, ... }:
     let
       system = "x86_64-linux";
       pkgs = igloo.legacyPackages.${system};
@@ -66,6 +74,26 @@
         lockfile = ./toy-cgo/godyn.lock;
         inherit stdlib;
       };
+
+      # D4: tommy's RFC 0001 `go-pkgs` output (the producer side), built from
+      # tommy's source via igloo's mkGoPkgs.
+      tommyGoPkgs = (pkgs.mkGoPkgs {
+        src = tommy-src;
+        name = "tommy";
+      }).go-pkgs;
+
+      # D4 system-under-test: a main importing github.com/amarbel-llc/tommy/pkg/cst,
+      # sourced from tommyGoPkgs through the bridge (replace -> store path), not a
+      # module-proxy FOD. tommy's own build deps come from the lockfile.
+      bridgemod = mkDynamic {
+        src = ./toy-bridge;
+        pname = "godyn-bridge";
+        lockfile = ./toy-bridge/godyn.lock;
+        bridges = {
+          "github.com/amarbel-llc/tommy" = tommyGoPkgs;
+        };
+        inherit stdlib;
+      };
     in
     {
       packages.${system} = {
@@ -89,6 +117,10 @@
         # D3: cgo third-party module.
         cgo-wrapper = cgomod.wrapper;
         cgo = cgomod.target;
+        # D4: flake-input bridge (tommy via its go-pkgs output).
+        tommy-go-pkgs = tommyGoPkgs;
+        bridge-wrapper = bridgemod.wrapper;
+        bridge = bridgemod.target;
       };
 
       # Only stdlib is a `nix flake check` gate (no recursive-nix). The dynamic

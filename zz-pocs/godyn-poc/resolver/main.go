@@ -11,8 +11,9 @@
 // POC simplifications (vs. the real numtide resolver): shells out to the `nix`
 // CLI rather than the daemon socket; references dependency COMPILE OUTPUTS by
 // concrete CA store path (content-addressed, so isolation still holds); reads
-// the module h1/ziphash from the lockfile instead of recomputing dirhash; no
-// cgo / build tags / cross / modinfo (out of scope per the plan).
+// the module h1/ziphash from the lockfile instead of recomputing dirhash.
+// Supports cgo (C + .S/.sx asm) and the flake-input bridge (--bridge); no
+// cross-compilation / modinfo (out of scope per the plan).
 package main
 
 import (
@@ -38,7 +39,8 @@ type config struct {
 	coreutils string
 	cc        string // stdenv cc-wrapper store path (for cgo packages)
 	cacert    string // for the module-fetch FODs (SSL_CERT_FILE)
-	lockfile  string // optional: third-party module pins
+	lockfile  string            // optional: third-party module pins
+	bridges   map[string]string // modpath -> go-pkgs store path (flake-input bridge)
 	system    string
 	pname     string
 	out       string
@@ -56,6 +58,15 @@ func main() {
 	flag.StringVar(&c.cc, "cc", "", "stdenv cc-wrapper store path (for cgo)")
 	flag.StringVar(&c.cacert, "cacert", "", "cacert store path (for module FODs)")
 	flag.StringVar(&c.lockfile, "lockfile", "", "third-party module lockfile (optional)")
+	c.bridges = map[string]string{}
+	flag.Func("bridge", "flake-input bridge: modpath=go-pkgs-store-path (repeatable)", func(s string) error {
+		i := strings.IndexByte(s, '=')
+		if i <= 0 {
+			return fmt.Errorf("bad --bridge %q (want modpath=store-path)", s)
+		}
+		c.bridges[s[:i]] = s[i+1:]
+		return nil
+	})
 	flag.StringVar(&c.system, "system", "x86_64-linux", "nix system")
 	flag.StringVar(&c.pname, "pname", "godyn", "binary name")
 	flag.StringVar(&c.out, "out", "", "wrapper $out (link .drv written here)")
@@ -327,6 +338,7 @@ type pkg struct {
 	local      bool
 	stdlib     bool
 	thirdParty bool
+	bridged    bool // sourced from a flake-input go-pkgs store path via replace
 	modKey     string
 	subdir     string
 }
@@ -340,8 +352,21 @@ func (c config) goListDeps(gomodcache string) ([]pkg, string, error) {
 		}
 		gomodcache = d
 	}
+	// Flake-input bridge: go list (and downstream compiles) must see the
+	// synthesized `replace <mod> => <store-path>` directives, so it runs in a
+	// writable copy of the source with the edited go.mod, not the read-only
+	// store path. Only the go.mod is rewritten; .go contents are untouched, so
+	// staged local sources hash identically to a non-bridged build.
+	listDir := c.src
+	if len(c.bridges) > 0 {
+		d, err := c.applyBridges()
+		if err != nil {
+			return nil, "", fmt.Errorf("applying bridges: %w", err)
+		}
+		listDir = d
+	}
 	cmd := exec.Command(c.goBin+"/bin/go", "list", "-json", "-deps", "./...")
-	cmd.Dir = c.src
+	cmd.Dir = listDir
 	env := append(os.Environ(),
 		"GOROOT="+c.goBin+"/share/go",
 		"GOMODCACHE="+gomodcache,
@@ -390,6 +415,10 @@ func (c config) goListDeps(gomodcache string) ([]pkg, string, error) {
 		case p.Module != nil && p.Module.Main:
 			p.local = true
 			modulePath = p.Module.Path
+		case p.Module != nil && p.Module.Replace != nil && c.bridges[p.Module.Path] != "":
+			// Bridged: source comes straight from the replace dir (a go-pkgs
+			// store path), not a proxy FOD. p.Dir already points into it.
+			p.bridged = true
 		case p.Module != nil:
 			// Third-party. The POC has no replaced third-party modules, so the
 			// modKey is just the resolved path@version (matching the lockfile).
@@ -417,6 +446,12 @@ func (c config) buildCompileDrv(p *pkg, compiled map[string]string, fodPaths map
 			return "", err
 		}
 		srcDir, srcInput = staged, staged
+	} else if p.bridged {
+		// Source is already in the store (the bridged module's go-pkgs output);
+		// p.Dir points at the package inside it. Declare the store-object root
+		// as the derivation input so the whole bridged tree is in the sandbox.
+		srcDir = p.Dir
+		srcInput = storeRoot(p.Dir)
 	} else { // third-party
 		fod, ok := fodPaths[p.modKey]
 		if !ok {
@@ -657,6 +692,68 @@ func (c config) stageSource(p *pkg) (string, error) {
 	return out, nil
 }
 
+// applyBridges copies the module source to a writable temp dir and rewrites its
+// go.mod with `require <mod>@<sentinel>` + `replace <mod> => <store-path>` for
+// each --bridge entry — the igloo goFlakeInputs / localReplace mechanism (RFC
+// 0001). A bridged module then resolves + compiles from a flake-input go-pkgs
+// output instead of a module-proxy FOD. Returns the copy's path (where go list
+// runs). The sentinel pseudo-version matches igloo internals.nix.
+func (c config) applyBridges() (string, error) {
+	dst, err := os.MkdirTemp(buildTop(), "bridge-src-")
+	if err != nil {
+		return "", err
+	}
+	if err := copyTree(c.src, dst); err != nil {
+		return "", fmt.Errorf("copying source: %w", err)
+	}
+	const sentinel = "v0.0.0-00010101000000-000000000000"
+	for _, mod := range sortedKeys(c.bridges) {
+		target := c.bridges[mod]
+		for _, args := range [][]string{
+			{"mod", "edit", "-require=" + mod + "@" + sentinel},
+			{"mod", "edit", "-replace=" + mod + "=" + target},
+		} {
+			cmd := exec.Command(c.goBin+"/bin/go", args...)
+			cmd.Dir = dst
+			cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "GO111MODULE=on", "HOME="+buildTop())
+			if out, err := cmd.CombinedOutput(); err != nil {
+				return "", fmt.Errorf("go %s: %w\n%s", strings.Join(args, " "), err, out)
+			}
+		}
+	}
+	return dst, nil
+}
+
+// copyTree recursively copies regular files + directories from src to dst,
+// skipping symlinks and special files (Go module trees are plain files).
+func copyTree(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	for _, e := range entries {
+		s, d := filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())
+		switch {
+		case e.IsDir():
+			if err := copyTree(s, d); err != nil {
+				return err
+			}
+		case e.Type().IsRegular():
+			data, err := os.ReadFile(s)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(d, data, 0o644); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // ---- nix CLI ---------------------------------------------------------------
 
 func (c config) registerAndBuild(d *derivation) (string, error) {
@@ -768,6 +865,20 @@ func (d *derivation) toJSON(system, builder string) ([]byte, error) {
 func buildTop() string { return os.Getenv("NIX_BUILD_TOP") }
 
 func storeBase(p string) string { return strings.TrimPrefix(p, "/nix/store/") }
+
+// storeRoot trims a path under /nix/store down to the store-object root
+// (/nix/store/<hash>-<name>) — used to declare a bridged package's source store
+// path (whose p.Dir points deep inside the go-pkgs output) as a drv input.
+func storeRoot(p string) string {
+	const prefix = "/nix/store/"
+	if !strings.HasPrefix(p, prefix) {
+		return p
+	}
+	if i := strings.IndexByte(p[len(prefix):], '/'); i >= 0 {
+		return p[:len(prefix)+i]
+	}
+	return p
+}
 
 func sanitize(s string) string {
 	r := strings.NewReplacer("/", "-", ".", "-", "_", "-")
