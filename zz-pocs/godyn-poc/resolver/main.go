@@ -41,6 +41,7 @@ type config struct {
 	cacert    string // for the module-fetch FODs (SSL_CERT_FILE)
 	lockfile  string            // optional: third-party module pins
 	bridges   map[string]string // modpath -> go-pkgs store path (flake-input bridge)
+	tags      string            // optional: build tags (-tags) for go list file selection
 	system    string
 	pname     string
 	out       string
@@ -58,6 +59,7 @@ func main() {
 	flag.StringVar(&c.cc, "cc", "", "stdenv cc-wrapper store path (for cgo)")
 	flag.StringVar(&c.cacert, "cacert", "", "cacert store path (for module FODs)")
 	flag.StringVar(&c.lockfile, "lockfile", "", "third-party module lockfile (optional)")
+	flag.StringVar(&c.tags, "tags", "", "build tags (comma-separated) for go list file selection")
 	c.bridges = map[string]string{}
 	flag.Func("bridge", "flake-input bridge: modpath=go-pkgs-store-path (repeatable)", func(s string) error {
 		i := strings.IndexByte(s, '=')
@@ -365,7 +367,15 @@ func (c config) goListDeps(gomodcache string) ([]pkg, string, error) {
 		}
 		listDir = d
 	}
-	cmd := exec.Command(c.goBin+"/bin/go", "list", "-json", "-deps", "./...")
+	// Build tags govern go list's file selection (GoFiles/CgoFiles/SFiles);
+	// per-package compile then just compiles those files, so threading -tags
+	// here is the only lever the POC needs for tag-gated builds.
+	listArgs := []string{"list", "-json", "-deps"}
+	if c.tags != "" {
+		listArgs = append(listArgs, "-tags="+c.tags)
+	}
+	listArgs = append(listArgs, "./...")
+	cmd := exec.Command(c.goBin+"/bin/go", listArgs...)
 	cmd.Dir = listDir
 	env := append(os.Environ(),
 		"GOROOT="+c.goBin+"/share/go",

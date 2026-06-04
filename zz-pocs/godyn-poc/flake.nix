@@ -75,6 +75,20 @@
         inherit stdlib;
       };
 
+      # D2: build-tag file selection. The same source builds two ways; variant()
+      # comes from base.go (godyn_extra off) or extra.go (godyn_extra on).
+      tagsoff = mkDynamic {
+        src = ./toy-tags;
+        pname = "godyn-tags-off";
+        inherit stdlib;
+      };
+      tagson = mkDynamic {
+        src = ./toy-tags;
+        pname = "godyn-tags-on";
+        tags = "godyn_extra";
+        inherit stdlib;
+      };
+
       # D4: tommy's RFC 0001 `go-pkgs` output (the producer side), built from
       # tommy's source via igloo's mkGoPkgs.
       tommyGoPkgs = (pkgs.mkGoPkgs {
@@ -117,6 +131,9 @@
         # D3: cgo third-party module.
         cgo-wrapper = cgomod.wrapper;
         cgo = cgomod.target;
+        # D2: build-tag file selection (same src, two tag sets).
+        tags-off = tagsoff.target;
+        tags-on = tagson.target;
         # D4: flake-input bridge (tommy via its go-pkgs output).
         tommy-go-pkgs = tommyGoPkgs;
         bridge-wrapper = bridgemod.wrapper;

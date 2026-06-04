@@ -33,6 +33,8 @@ assert lib.assertMsg (lib.versionAtLeast (lib.versions.majorMinor nix.version) "
   # `--bridge mod=path` flag, sourcing that module from a flake-input go-pkgs
   # output via a synthesized `replace` instead of a module-proxy FOD (RFC 0001).
   bridges ? { },
+  # tags: comma-separated build tags threaded to `go list` for file selection.
+  tags ? "",
   system ? stdenv.hostPlatform.system,
   goVersion ? "go1.26",
 }:
@@ -83,7 +85,7 @@ let
         --pname ${pname} \
         --go-version ${goVersion} \
         --system ${system} \
-        ${lib.concatStrings (lib.mapAttrsToList (m: p: "--bridge ${m}=${p} ") bridges)}${lib.optionalString (lockfile != null) "--lockfile ${lockfile} "}--out $out
+        ${lib.optionalString (tags != "") "--tags ${tags} "}${lib.concatStrings (lib.mapAttrsToList (m: p: "--bridge ${m}=${p} ") bridges)}${lib.optionalString (lockfile != null) "--lockfile ${lockfile} "}--out $out
       runHook postBuild
     '';
   };
