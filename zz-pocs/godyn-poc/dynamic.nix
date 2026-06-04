@@ -35,6 +35,9 @@ assert lib.assertMsg (lib.versionAtLeast (lib.versions.majorMinor nix.version) "
   bridges ? { },
   # tags: comma-separated build tags threaded to `go list` for file selection.
   tags ? "",
+  # packages: go list pattern to build. A library pattern with no package main
+  # builds compile-only (every archive realised, no link).
+  packages ? "./...",
   system ? stdenv.hostPlatform.system,
   goVersion ? "go1.26",
 }:
@@ -85,7 +88,7 @@ let
         --pname ${pname} \
         --go-version ${goVersion} \
         --system ${system} \
-        ${lib.optionalString (tags != "") "--tags ${tags} "}${lib.concatStrings (lib.mapAttrsToList (m: p: "--bridge ${m}=${p} ") bridges)}${lib.optionalString (lockfile != null) "--lockfile ${lockfile} "}--out $out
+        --packages ${packages} ${lib.optionalString (tags != "") "--tags ${tags} "}${lib.concatStrings (lib.mapAttrsToList (m: p: "--bridge ${m}=${p} ") bridges)}${lib.optionalString (lockfile != null) "--lockfile ${lockfile} "}--out $out
       runHook postBuild
     '';
   };

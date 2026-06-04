@@ -42,6 +42,7 @@ type config struct {
 	lockfile  string            // optional: third-party module pins
 	bridges   map[string]string // modpath -> go-pkgs store path (flake-input bridge)
 	tags      string            // optional: build tags (-tags) for go list file selection
+	packages  string            // go list pattern to build (default ./...)
 	system    string
 	pname     string
 	out       string
@@ -60,6 +61,7 @@ func main() {
 	flag.StringVar(&c.cacert, "cacert", "", "cacert store path (for module FODs)")
 	flag.StringVar(&c.lockfile, "lockfile", "", "third-party module lockfile (optional)")
 	flag.StringVar(&c.tags, "tags", "", "build tags (comma-separated) for go list file selection")
+	flag.StringVar(&c.packages, "packages", "./...", "go list pattern to build (library graphs with no main build compile-only)")
 	c.bridges = map[string]string{}
 	flag.Func("bridge", "flake-input bridge: modpath=go-pkgs-store-path (repeatable)", func(s string) error {
 		i := strings.IndexByte(s, '=')
@@ -120,10 +122,12 @@ func run(c config) error {
 	// 3. Compile each non-stdlib package (local + third-party) in dependency
 	//    order (`go list -deps` yields deps-before-dependents).
 	compiled := map[string]string{} // import path -> "<caOut>/pkg.a"
+	byPath := map[string]*pkg{}     // import path -> pkg, for transitive closures
 	var mainPkg *pkg
 	var order []*pkg
 	for i := range pkgs {
 		p := &pkgs[i]
+		byPath[p.ImportPath] = p
 		if p.stdlib {
 			continue
 		}
@@ -132,15 +136,12 @@ func run(c config) error {
 			mainPkg = p
 		}
 	}
-	if mainPkg == nil {
-		return fmt.Errorf("no package main found")
-	}
 	cgoUsed := false
 	for _, p := range order {
 		if len(p.CgoFiles) > 0 {
 			cgoUsed = true
 		}
-		caOut, err := c.buildCompileDrv(p, compiled, fodPaths)
+		caOut, err := c.buildCompileDrv(p, compiled, fodPaths, transitiveImports(p, byPath))
 		if err != nil {
 			return fmt.Errorf("compile %s: %w", p.ImportPath, err)
 		}
@@ -148,14 +149,24 @@ func run(c config) error {
 		fmt.Fprintf(os.Stderr, "[godyn] compiled %s -> %s\n", p.ImportPath, caOut)
 	}
 
-	// 4. Link.
-	linkDrv, err := c.buildLinkDrv(mainPkg, modulePath, compiled, cgoUsed)
-	if err != nil {
-		return fmt.Errorf("link: %w", err)
+	// 4. Terminal: link a binary when there's a package main, else (a library
+	//    ./... graph) emit a compile-only manifest tying together every archive.
+	var terminalDrv string
+	if mainPkg != nil {
+		terminalDrv, err = c.buildLinkDrv(mainPkg, modulePath, compiled, cgoUsed)
+		if err != nil {
+			return fmt.Errorf("link: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "[godyn] link drv: %s\n", terminalDrv)
+	} else {
+		terminalDrv, err = c.buildManifestDrv(order, compiled)
+		if err != nil {
+			return fmt.Errorf("manifest: %w", err)
+		}
+		fmt.Fprintf(os.Stderr, "[godyn] compile-only manifest drv: %s (%d packages)\n", terminalDrv, len(order))
 	}
-	fmt.Fprintf(os.Stderr, "[godyn] link drv: %s\n", linkDrv)
-	if err := copyFile(linkDrv, c.out); err != nil {
-		return fmt.Errorf("writing link .drv to $out: %w", err)
+	if err := copyFile(terminalDrv, c.out); err != nil {
+		return fmt.Errorf("writing terminal .drv to $out: %w", err)
 	}
 	return nil
 }
@@ -374,7 +385,11 @@ func (c config) goListDeps(gomodcache string) ([]pkg, string, error) {
 	if c.tags != "" {
 		listArgs = append(listArgs, "-tags="+c.tags)
 	}
-	listArgs = append(listArgs, "./...")
+	pattern := c.packages
+	if pattern == "" {
+		pattern = "./..."
+	}
+	listArgs = append(listArgs, pattern)
 	cmd := exec.Command(c.goBin+"/bin/go", listArgs...)
 	cmd.Dir = listDir
 	env := append(os.Environ(),
@@ -447,7 +462,30 @@ func (c config) goListDeps(gomodcache string) ([]pkg, string, error) {
 
 // ---- compile / link derivations -------------------------------------------
 
-func (c config) buildCompileDrv(p *pkg, compiled map[string]string, fodPaths map[string]string) (string, error) {
+// transitiveImports returns p's transitive import closure (direct + indirect)
+// as a set of import paths, used to scope a compile drv's importcfg to only the
+// packages it actually references.
+func transitiveImports(p *pkg, byPath map[string]*pkg) map[string]bool {
+	seen := map[string]bool{}
+	var visit func(string)
+	visit = func(imp string) {
+		if seen[imp] {
+			return
+		}
+		seen[imp] = true
+		if dep := byPath[imp]; dep != nil {
+			for _, i := range dep.Imports {
+				visit(i)
+			}
+		}
+	}
+	for _, i := range p.Imports {
+		visit(i)
+	}
+	return seen
+}
+
+func (c config) buildCompileDrv(p *pkg, compiled map[string]string, fodPaths map[string]string, deps map[string]bool) (string, error) {
 	// Resolve the package's source dir + the store path to declare as input.
 	var srcDir, srcInput string
 	if p.local {
@@ -474,9 +512,16 @@ func (c config) buildCompileDrv(p *pkg, compiled map[string]string, fodPaths map
 		}
 	}
 
+	// importcfg carries only this package's transitive non-stdlib imports, not
+	// the whole compiled set — so a change to an unrelated package leaves this
+	// drv's inputs (hence its CA hash) untouched, and it stays cached. This is
+	// what makes per-package isolation real (R6).
 	var cfg strings.Builder
 	cfg.WriteString("cat " + shq(c.stdlib+"/importcfg") + " > importcfg\n")
 	for _, imp := range sortedKeys(compiled) {
+		if !deps[imp] {
+			continue
+		}
 		fmt.Fprintf(&cfg, "echo %s >> importcfg\n", shq("packagefile "+imp+"="+compiled[imp]))
 	}
 
@@ -487,18 +532,18 @@ func (c config) buildCompileDrv(p *pkg, compiled map[string]string, fodPaths map
 		rewriteTarget = "main"
 	}
 
-	// Reject source kinds the POC's cgo path does not handle. C and GCC-style
-	// .S/.sx assembly are supported (compiled with cc); Plan 9 .s asm, C++,
-	// Fortran, and SWIG are not.
+	// Reject source kinds neither path handles. C and GCC-style .S/.sx assembly
+	// go through the cgo path (compiled with cc); Plan 9 .s assembly goes through
+	// the asm path (go tool asm); C++, Fortran, and SWIG are unsupported.
 	if len(p.CXXFiles)+len(p.FFiles)+len(p.SwigFiles)+len(p.SwigCXXFiles) > 0 {
-		return "", fmt.Errorf("package %s has unsupported sources (C++/Fortran/SWIG); the POC cgo path handles C + .S/.sx asm only", p.ImportPath)
+		return "", fmt.Errorf("package %s has unsupported sources (C++/Fortran/SWIG)", p.ImportPath)
 	}
-	var gccAsm []string
+	var gccAsm, plan9Asm []string
 	for _, f := range p.SFiles {
 		if strings.HasSuffix(f, ".S") || strings.HasSuffix(f, ".sx") {
 			gccAsm = append(gccAsm, f)
 		} else {
-			return "", fmt.Errorf("package %s has Plan 9 asm %q; the POC cgo path handles .S/.sx gcc asm only", p.ImportPath, f)
+			plan9Asm = append(plan9Asm, f) // .s — Plan 9 assembly, via go tool asm
 		}
 	}
 
@@ -509,12 +554,18 @@ func (c config) buildCompileDrv(p *pkg, compiled map[string]string, fodPaths map
 
 	cgo := len(p.CgoFiles) > 0
 	var script string
-	if cgo {
+	switch {
+	case cgo:
 		if c.cc == "" {
 			return "", fmt.Errorf("package %s needs cgo but no --cc was provided", p.ImportPath)
 		}
+		if len(plan9Asm) > 0 {
+			return "", fmt.Errorf("package %s mixes cgo and Plan 9 asm; the POC handles them only separately", p.ImportPath)
+		}
 		script = c.cgoCompileScript(p, srcDir, rewriteTarget, pflag, cfg.String(), goFiles, gccAsm)
-	} else {
+	case len(plan9Asm) > 0:
+		script = c.asmCompileScript(p, srcDir, rewriteTarget, pflag, cfg.String(), goFiles, plan9Asm)
+	default:
 		script = fmt.Sprintf(`set -euo pipefail
 export GOROOT=%s
 export PATH=%s
@@ -544,9 +595,75 @@ go tool compile -importcfg importcfg -p %s -buildid "" \
 		drv.addInputSrc(c.cc)
 	}
 	for _, imp := range sortedKeys(compiled) {
+		if !deps[imp] {
+			continue
+		}
 		drv.addInputSrc(strings.TrimSuffix(compiled[imp], "/pkg.a"))
 	}
 	return c.registerAndBuild(drv)
+}
+
+// asmCompileScript compiles a package mixing Go and Plan 9 assembly (.s),
+// mirroring `go build`'s asm flow: pre-create an empty go_asm.h, gensymabis over
+// the .s files, compile the Go with -symabis + -asmhdr, assemble each .s, then
+// pack the objects into the archive. The include dir and -D GOOS/GOARCH(/GOAMD64)
+// defines match `go tool asm`'s own invocation (captured from `go build -x`).
+func (c config) asmCompileScript(p *pkg, srcDir, rewriteTarget, pflag, cfgCmds string, goFiles, plan9Asm []string) string {
+	goos, goarch := goosArch(c.system)
+	amd64 := ""
+	if goarch == "amd64" {
+		amd64 = " -D GOAMD64_v1"
+	}
+	asmPaths := make([]string, len(plan9Asm))
+	for i, f := range plan9Asm {
+		asmPaths[i] = shq(srcDir + "/" + f)
+	}
+	asmList := strings.Join(asmPaths, " ")
+	return fmt.Sprintf(`set -euo pipefail
+export GOROOT=%s
+export PATH=%s
+W="$NIX_BUILD_TOP"
+export HOME="$W" GOCACHE="$W/gocache" # go tool asm initialises the build cache
+mkdir -p "$out"
+%s
+: > "$W/go_asm.h"
+ASM=(-p %s -trimpath "%s=>%s" -I "$W/" -I %s -D GOOS_%s -D GOARCH_%s%s)
+go tool asm "${ASM[@]}" -gensymabis -o "$W/symabis" %s
+go tool compile -importcfg importcfg -p %s -buildid "" \
+  -trimpath="%s=>%s;${NIX_BUILD_TOP}=>" -nolocalimports -pack -lang=%s \
+  -symabis "$W/symabis" -asmhdr "$W/go_asm.h" \
+  -o "$out/pkg.a" %s
+declare -a OBJ=()
+n=0
+for s in %s; do
+  o="$W/asm$n.o"; n=$((n+1))
+  go tool asm "${ASM[@]}" -o "$o" "$s"
+  OBJ+=("$o")
+done
+go tool pack r "$out/pkg.a" "${OBJ[@]}"
+`,
+		shq(c.goBin+"/share/go"),
+		shq(c.coreutils+"/bin:"+c.goBin+"/bin"),
+		cfgCmds,
+		shq(pflag), srcDir, rewriteTarget, shq(c.goBin+"/share/go/pkg/include"), goos, goarch, amd64,
+		asmList,
+		shq(pflag), srcDir, rewriteTarget, shq(c.goVersion),
+		strings.Join(goFiles, " "),
+		asmList,
+	)
+}
+
+// goosArch maps a Nix system string ("x86_64-linux") to Go's (GOOS, GOARCH).
+func goosArch(system string) (goos, goarch string) {
+	parts := strings.SplitN(system, "-", 2)
+	if len(parts) != 2 {
+		return "linux", "amd64"
+	}
+	arch := map[string]string{"x86_64": "amd64", "aarch64": "arm64", "i686": "386"}[parts[0]]
+	if arch == "" {
+		arch = parts[0]
+	}
+	return parts[1], arch
 }
 
 // cgoCompileScript ports numtide pkg/compile/cgo.go's pure-C path: cgo codegen,
@@ -677,6 +794,28 @@ export GOROOT=
 		drv.addInputSrc(strings.TrimSuffix(compiled[imp], "/pkg.a"))
 	}
 	_ = modulePath // modinfo out of scope for the POC
+	return c.derivationAdd(drv)
+}
+
+// buildManifestDrv is the compile-only (no-main) terminal: a CA derivation that
+// depends on every compiled package archive and records the compiled import
+// paths to $out. It replaces the link drv for a library ./... graph so
+// `builtins.outputOf wrapper "out"` still resolves — building the wrapper's
+// target forces every package archive to realise, proving the whole graph
+// compiled.
+func (c config) buildManifestDrv(order []*pkg, compiled map[string]string) (string, error) {
+	var script strings.Builder
+	script.WriteString("set -euo pipefail\n: > \"$out\"\n")
+	for _, p := range order {
+		a := compiled[p.ImportPath]
+		fmt.Fprintf(&script, "test -s %s || { echo %s >&2; exit 1; }\n", shq(a), shq("missing archive: "+p.ImportPath))
+		fmt.Fprintf(&script, "echo %s >> \"$out\"\n", shq(p.ImportPath))
+	}
+	drv := c.newCADrv("godyn-manifest-"+sanitize(c.pname), script.String())
+	drv.addInputSrc(c.bash) // the builder; only bash builtins are used otherwise
+	for _, imp := range sortedKeys(compiled) {
+		drv.addInputSrc(strings.TrimSuffix(compiled[imp], "/pkg.a"))
+	}
 	return c.derivationAdd(drv)
 }
 
