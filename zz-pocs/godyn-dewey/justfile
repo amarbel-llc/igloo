@@ -223,6 +223,15 @@ bench-record runs="3":
       nixgc reap --with-referrers "$manifest" "$mdrv" >/dev/null 2>&1 || true
     }
     rec() { printf '{"when":"%s","commit":"%s","dirty":%s,"nix":"%s","metric":"%s","value":%s}\n' "$when" "$commit" "$dirty" "$1" "$2" "$3" >> "$HIST"; }
+    # Emit a build duration to the stats-me statsd server (udp 127.0.0.1:8125) as a
+    # timing metric. Shared gobuild.* protocol agreed with the conformist session so
+    # dewey + conformist numbers are directly comparable (igloo#28 followup):
+    #   gobuild.<repo>.<backend>.<phase>[.<nixclient>]  value=<ms>  type=|ms
+    #   repo=dewey  backend=native(godyn)/bga  phase=cold/warm/leaf/found
+    #   nixclient (dewey sweeps both, so we append it; conformist pins one + omits it)
+    # The console backend ignores DogStatsD #tags, so dimensions live in the name.
+    # Fire-and-forget UDP; never fail the bench if stats-me isn't running.
+    statsd() { echo "$1:$2|ms" >/dev/udp/127.0.0.1/8125 2>/dev/null || true; }
     revert
     manifest=$("$UP" build .#dewey-delta-native --no-link --print-out-paths 2>/dev/null)
     pkgs=$(wc -l < "$manifest" 2>/dev/null | tr -d ' '); pkgs=${pkgs:-0}
@@ -248,6 +257,8 @@ bench-record runs="3":
       [ -n "$bin" ] || { echo "$n: nix not found, skipped"; continue; }
       wm=$(echo "${W[$n]:-}" | median); lm=$(echo "${L[$n]:-}" | median); fm=$(echo "${F[$n]:-}" | median); cm=${C[$n]:-0}
       rec "$n" native_warm_ms "$wm"; rec "$n" native_leaf_ms "$lm"; rec "$n" native_found_ms "$fm"; rec "$n" native_cold_ms "$cm"
+      statsd "gobuild.dewey.native.warm.$n" "$wm";  statsd "gobuild.dewey.native.leaf.$n"  "$lm"
+      statsd "gobuild.dewey.native.found.$n" "$fm"; statsd "gobuild.dewey.native.cold.$n"  "$cm"
       printf '%-12s %8s %8s %8s %8s\n' "$n" "$wm" "$lm" "$fm" "$cm"
     done
     echo "recorded at $commit (dirty=$dirty): fod_modules=$fodmods recursive_fod=$recfod manifest_pkgs=$pkgs cones=$cone_leaf/$cone_found"
