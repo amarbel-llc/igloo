@@ -2,8 +2,11 @@
   description = "godyn-dewey: D5 — build real dewey packages (cgo + bridge + lockfile) via the godyn per-package builder.";
 
   inputs = {
-    # Absolute path: dodges pure-mode's /nix re-rooting (same as godyn-poc).
-    igloo.url = "path:/home/sasha/eng/repos/igloo/.worktrees/sharp-mahogany";
+    # git+file (not path:) so nix copies only git-tracked files — the `path:`
+    # form re-copies the whole worktree, including the gitignored ~2.6G .tmp
+    # clone, on every eval (~38s). git+file skips .tmp entirely while still
+    # seeing uncommitted tracked changes.
+    igloo.url = "git+file:///home/sasha/eng/repos/igloo/.worktrees/sharp-mahogany";
 
     # dewey's source (the standalone libs/dewey module) and tommy's source,
     # both as non-flake path inputs into the gitignored .tmp clone — invisible

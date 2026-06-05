@@ -85,34 +85,34 @@ binary (`seqerror`), built both ways, editing the same `cmd/seqerror/main.go`:
 | scenario | `buildGoApplication` | godyn |
 |---|---|---|
 | cold | 34 s | 43 s¹ |
-| warm (no change) | **0 s** (derivation cached) | 38 s² |
-| comment edit | **24 s — full closure rebuild** | 52 s wall / **1 pkg** recompiled |
-| semantic edit | **23 s — full closure rebuild** | 39 s wall / **1 pkg** recompiled |
+| warm (no change) | **0 s** (derivation cached) | 38 s → **1–2 s**³ |
+| comment edit | **24 s — full closure rebuild** | 52 s → **9 s**³ / **1 pkg** |
+| semantic edit | **23 s — full closure rebuild** | 39 s → **8 s**³ / **1 pkg** |
 
 ¹ godyn reused most of seqerror's closure from the earlier `.#dewey-all` build —
-cross-target CA sharing, only 26 packages were fresh. ² almost entirely the
-POC's `path:` worktree re-copy each eval (see below); the resolver is cached.
+cross-target CA sharing, only 26 packages were fresh. ² with the original `path:`
+igloo input. ³ after switching the igloo input from `path:` to `git+file:` — see
+below.
 
-**The honest result — two things are true at once:**
+**The overhead was the whole story.** The `path:` igloo input re-copied the entire
+worktree — including the gitignored **~2.6 G** `.tmp` clone — to the store on every
+eval (~38 s). Switching it to `git+file:` (git-tracked files only) collapses that
+to ~1–2 s, and the comparison **flips**:
 
-- godyn rebuilds the **right set**: editing `main` recompiles exactly 1 package
-  (main has no dependents). `buildGoApplication` recompiles seqerror's whole
-  closure whether you touch a comment or a function — comment = semantic = 24 s,
-  no granularity, no early cutoff.
-- ...but godyn's **wall-clock is worse here** (52 s vs 24 s), because its
-  per-invocation overhead — dominated by the `path:` worktree re-copy (~38 s),
-  plus a `nix build` daemon round-trip per package — exceeds the cost of
-  `buildGoApplication` simply rebuilding this small closure.
+- warm (no change) → ~1–2 s: nix's digest matching returns the cached graph with
+  **0 rebuilds** — the merkle effect working at the leaf level. (Identical content
+  across an edit→revert cycle is deduped by the CA store too: revert an edit, or
+  rebuild a change someone else already built, and it's instant.)
+- edit (genuinely new content) → **8–9 s, exactly 1 package recompiled**, now
+  **beating** `buildGoApplication`'s 23–24 s whole-closure rebuild.
 
-So per-package CA is the correct **shape** (rebuild only the dependency cone, with
-comment-level early cutoff, and outputs that are binary-cache-substitutable across
-machines *and* across build targets), but it only becomes a wall-clock **win**
-once the rebuild it avoids exceeds godyn's fixed overhead. For dewey's small
-analyzer closures, `buildGoApplication` wins today. The overhead is the thing to
-kill — the `path:` re-copy (POC artifact) and the all-55 FOD over-fetch are the
-two biggest levers; the daemon-round-trip-per-package is the structural one
-numtide's in-process resolver avoids. Until those land, the shape is right but the
-clock is not.
+So per-package CA delivers on both axes once the overhead is gone: it rebuilds only
+the dependency cone (comment-level early cutoff; outputs binary-cache-substitutable
+across machines *and* build targets) **and** wins wall-clock. The residual ~8 s is
+the resolver re-running over the full graph (re-register + cache-check all 38
+packages to rebuild 1) — the monolithic-wrapper cost #26 tracks; nix's scheduler
+should skip that unchanged subgraph natively. The all-55 FOD over-fetch (#24) is
+the other remaining lever.
 
 (For reference, native `go build` — non-hermetic, in-process content cache — is
 the speed-of-light baseline at ~50× under either nix builder: with the **real**
