@@ -8,6 +8,10 @@
     "goFiles": [
       "main.go"
     ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
     "imports": [
       "example.com/godyntb/internal/top"
     ]
@@ -21,6 +25,10 @@
     "goFiles": [
       "leaf.go"
     ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
     "imports": null
   },
   {
@@ -32,6 +40,10 @@
     "goFiles": [
       "mid.go"
     ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
     "imports": [
       "example.com/godyntb/internal/leaf"
     ]
@@ -45,6 +57,10 @@
     "goFiles": [
       "top.go"
     ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
     "imports": [
       "example.com/godyntb/internal/mid"
     ]

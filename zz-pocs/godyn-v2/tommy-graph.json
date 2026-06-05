@@ -8,6 +8,10 @@
     "goFiles": [
       "formatter.go"
     ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
     "imports": [
       "github.com/amarbel-llc/tommy/pkg/cst"
     ]
@@ -22,6 +26,10 @@
       "lexer.go",
       "token.go"
     ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
     "imports": [
       "github.com/amarbel-llc/tommy/internal/ringbuf"
     ]
@@ -37,6 +45,10 @@
       "ring_buffer.go",
       "slice.go"
     ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
     "imports": null
   },
   {
@@ -48,6 +60,10 @@
     "goFiles": [
       "tommy.go"
     ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
     "imports": null
   },
   {
@@ -61,6 +77,10 @@
       "node.go",
       "parser.go"
     ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
     "imports": [
       "github.com/amarbel-llc/tommy/internal/lexer"
     ]
@@ -75,6 +95,10 @@
       "comment.go",
       "document.go"
     ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
     "imports": [
       "github.com/amarbel-llc/tommy/pkg/cst"
     ]
@@ -88,6 +112,10 @@
     "goFiles": [
       "marshal.go"
     ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
     "imports": [
       "github.com/amarbel-llc/tommy/pkg/cst",
       "github.com/amarbel-llc/tommy/pkg/document"

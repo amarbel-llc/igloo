@@ -19,28 +19,41 @@ import (
 
 // goListPkg is the subset of `go list -json` fields we consume.
 type goListPkg struct {
-	ImportPath string
-	Dir        string
-	Name       string
-	Standard   bool
-	GoFiles    []string
-	Imports    []string
-	Module     *struct {
+	ImportPath  string
+	Dir         string
+	Name        string
+	Standard    bool
+	GoFiles     []string
+	CgoFiles    []string
+	CFiles      []string
+	HFiles      []string
+	SFiles      []string
+	CXXFiles    []string
+	FFiles      []string
+	SwigFiles   []string
+	SwigCXXFile []string `json:"SwigCXXFiles"`
+	Imports     []string
+	Module      *struct {
 		Dir  string
 		Main bool
 	}
 }
 
 // genPkg is one node in the emitted graph: enough for native.nix to construct a
-// per-package compile derivation wired to its deps.
+// per-package compile derivation wired to its deps. Compile-kind (pure/cgo/asm)
+// is derived from the file lists, orthogonally to source-kind (local/vendor).
 type genPkg struct {
 	ImportPath string   `json:"importPath"`
-	Dir        string   `json:"dir"`     // for local pkgs: module-root-relative ("internal/leaf", "."); third-party: unused
-	Name       string   `json:"name"`    // package name; "main" links a binary
-	IsMain     bool     `json:"isMain"`  //
-	Local      bool     `json:"local"`   // in the main module (src=module/dir) vs third-party (src=vendorEnv/importPath)
-	GoFiles    []string `json:"goFiles"` // non-test .go files (basenames)
-	Imports    []string `json:"imports"` // direct, in-graph (non-stdlib) imports
+	Dir        string   `json:"dir"`      // for local pkgs: module-root-relative ("internal/leaf", "."); third-party: unused
+	Name       string   `json:"name"`     // package name; "main" links a binary
+	IsMain     bool     `json:"isMain"`   //
+	Local      bool     `json:"local"`    // in the main module (src=module/dir) vs third-party (src=vendorEnv/importPath)
+	GoFiles    []string `json:"goFiles"`  // non-test .go files (basenames)
+	CgoFiles   []string `json:"cgoFiles"` // .go files with `import "C"` (non-empty => cgo path)
+	CFiles     []string `json:"cFiles"`   // C source compiled with cc
+	HFiles     []string `json:"hFiles"`   // C headers (kept so includes resolve)
+	SFiles     []string `json:"sFiles"`   // .s = Plan 9 asm (go tool asm); .S/.sx = gcc asm (cc)
+	Imports    []string `json:"imports"`  // direct, in-graph (non-stdlib) imports
 }
 
 func main() {
@@ -51,10 +64,10 @@ func main() {
 
 	cmd := exec.Command("go", "list", "-deps", "-json", "./...")
 	cmd.Dir = moduleDir
-	// GOFLAGS comes from the caller (e.g. -mod=vendor for a module with
-	// third-party deps materialised into vendor/). CGO off: the v2 targets are
-	// pure-Go, and it keeps file selection deterministic.
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	// GOFLAGS / CGO_ENABLED / CC come from the caller: CGO_ENABLED=1 + CC for a
+	// module with cgo (so CgoFiles populate), -mod=vendor when third-party deps
+	// are materialised into vendor/. Pure-Go targets leave CGO at its default.
+	cmd.Env = os.Environ()
 	data, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -93,6 +106,9 @@ func main() {
 				dir = rel
 			}
 		}
+		if n := len(p.CXXFiles) + len(p.FFiles) + len(p.SwigFiles) + len(p.SwigCXXFile); n > 0 {
+			fatalf("package %s has unsupported sources (C++/Fortran/SWIG)", p.ImportPath)
+		}
 		var imps []string
 		for _, i := range p.Imports {
 			if local[i] {
@@ -107,6 +123,10 @@ func main() {
 			IsMain:     p.Name == "main",
 			Local:      p.Module != nil && p.Module.Main,
 			GoFiles:    p.GoFiles,
+			CgoFiles:   p.CgoFiles,
+			CFiles:     p.CFiles,
+			HFiles:     p.HFiles,
+			SFiles:     p.SFiles,
 			Imports:    imps,
 		})
 	}

@@ -87,6 +87,36 @@
       };
       tommy-auto = buildGoAuto (tommyAutoArgs // { strategy = "dev"; }); # -> native
       tommy-auto-ci = buildGoAuto (tommyAutoArgs // { strategy = "ci"; }); # -> bga
+
+      # cgo validation: the v1 toy-cgo (DataDog/zstd round-trip) built native.
+      # zstd is a third-party CGO package (C source + CgoFiles), sourced from the
+      # gomod2nix vendorEnv; the main links externally (-extld). Exercises the
+      # ported cgo path end to end before the dewey scale-up.
+      cgo-test-bga = pkgs.buildGoApplication {
+        pname = "godyn-cgo";
+        version = "0";
+        src = ./cgo-test;
+        modules = ./cgo-test/gomod2nix.toml;
+      };
+      cgo-test-native = pkgs.callPackage ./native.nix {
+        inherit go stdlib;
+        src = ./cgo-test;
+        graphFile = ./cgo-test-graph.json;
+        vendorEnv = cgo-test-bga.passthru.vendorEnv;
+        cc = pkgs.stdenv.cc;
+        pname = "godyn-cgo";
+      };
+
+      # asm validation: an all-local module (no third-party, no cgo, no cc) whose
+      # asmpkg has a hand-written amd64 Plan 9 .s — isolates the ported asmScript
+      # (gensymabis → compile -symabis -asmhdr → assemble → pack) with zero
+      # network. Binary must print Add(19,23)=42.
+      asm-test-native = pkgs.callPackage ./native.nix {
+        inherit go stdlib;
+        src = ./asm-test;
+        graphFile = ./asm-test-graph.json;
+        pname = "godyn-asm";
+      };
     in
     {
       packages.${system} = {
@@ -100,6 +130,9 @@
           tommy-bga
           tommy-auto
           tommy-auto-ci
+          cgo-test-native
+          cgo-test-bga
+          asm-test-native
           ;
       };
 

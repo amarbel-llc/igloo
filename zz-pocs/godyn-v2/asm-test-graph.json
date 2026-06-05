@@ -1,0 +1,36 @@
+[
+  {
+    "importPath": "github.com/poc/godyn-asm",
+    "dir": ".",
+    "name": "main",
+    "isMain": true,
+    "local": true,
+    "goFiles": [
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/poc/godyn-asm/asmpkg"
+    ]
+  },
+  {
+    "importPath": "github.com/poc/godyn-asm/asmpkg",
+    "dir": "asmpkg",
+    "name": "asmpkg",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "asm.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": [
+      "asm_amd64.s"
+    ],
+    "imports": null
+  }
+]
