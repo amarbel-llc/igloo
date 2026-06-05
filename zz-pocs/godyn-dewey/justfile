@@ -55,6 +55,35 @@ measure:
     grep 'inlining call to' m-dewey.txt | sed 's/.*inlining call to //; s/\..*//' \
       | sort | uniq -c | sort -rn | head -22
 
+# #24 FOD scope: derive the dewey-scoped gomod2nix.toml so the native vendorEnv
+# fetches only the modules the build graph imports, not the whole workspace.
+# Reads the FULL workspace toml from the .tmp clone + dewey-delta-graph.json and
+# rewrites dewey-gomod2nix.toml to contain only modules M for which some
+# third-party import path equals M or sits under M/. Re-run when the graph's
+# third-party imports change (same drift contract as the graph). Drops the FOD
+# set 89 -> ~11 for internal/delta; native's output is byte-identical (it only
+# ever read the in-scope modules). Needs jq (devShell provides it).
+[group('gen')]
+gen-scoped-toml:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    src='{{pf}}/gomod2nix.toml'
+    Q=$(printf '\047')
+    jq -r '.[]|select(.local|not)|.importPath' dewey-delta-graph.json | sort -u > /tmp/gs-imp.txt
+    awk -v q="$Q" '/^  \[mod\./ { m=$0; sub(/^  \[mod\./,"",m); sub(/\].*$/,"",m); gsub(q,"",m); print m }' "$src" \
+      | sort -u > /tmp/gs-tmods.txt
+    : > /tmp/gs-keep.txt
+    while IFS= read -r m; do grep -qE "^${m}(/|\$)" /tmp/gs-imp.txt && echo "$m" >> /tmp/gs-keep.txt; done < /tmp/gs-tmods.txt
+    awk -v q="$Q" '
+      BEGIN { while ((getline m < "/tmp/gs-keep.txt") > 0) keep[m]=1 }
+      /^schema =/ || $0=="[mod]" { print; next }
+      /^  \[mod\./ { m=$0; sub(/^  \[mod\./,"",m); sub(/\].*$/,"",m); gsub(q,"",m); cur=(m in keep); if(cur)print; next }
+      /^    / { if (cur) print; next }
+      { print }
+    ' "$src" > dewey-gomod2nix.toml
+    kept=$(grep -cE '^  \[mod\.' dewey-gomod2nix.toml); all=$(grep -cE '^  \[mod\.' "$src")
+    echo "scoped dewey-gomod2nix.toml: $kept modules (from $all workspace modules)"
+
 # Edit-loop head-to-head over dewey's 74-package internal/delta closure:
 # native eval-graph (.#dewey-delta-native) vs recursive resolver (.#dewey-delta)
 # vs a bga proxy (whole-subtree `go build ./internal/delta/...` from a cold
@@ -70,6 +99,10 @@ bench-delta:
     LEAF="$D/internal/delta/format/main.go"          # in-degree 0 -> cone ~1
     FOUND="$D/internal/0/interfaces/coder.go"         # 22 direct dependents -> large cone
     goStore=$(nix build --no-link --print-out-paths '{{godyn_poc}}#go-toolchain^out')
+    HIST=bench-history.jsonl
+    commit=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
+    dirty=false; [ -n "$(git status --porcelain 2>/dev/null)" ] && dirty=true
+    when=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     revert() { git -C '{{pf}}' checkout -- "$LEAF" "$FOUND" 2>/dev/null; rm -f flake.lock; }
     probe()  { printf '\nfunc gdProbe%s() int { return %s }\n' "$RANDOM" "$RANDOM" >> "$1"; }
     nixbuild() { # $1=target -> "<ms> <native-rebuilds>"
@@ -88,12 +121,88 @@ bench-delta:
         PATH="$goStore/bin:$PATH" GOCACHE=$(mktemp -d) go build ./internal/delta/... >/dev/null 2>&1 )
       t1=$(date +%s%3N); echo $((t1-t0))
     }
+    rec() { printf '{"when":"%s","commit":"%s","dirty":%s,"metric":"%s","value":%s}\n' "$when" "$commit" "$dirty" "$1" "$2" >> "$HIST"; }
     printf '%-20s %-12s %8s %7s\n' scenario approach ms nat-rb
     revert
-    for a in dewey-delta-native dewey-delta; do read -r ms rb < <(nixbuild "$a"); printf '%-20s %-12s %8s %7s\n' warm "$a" "$ms" "$rb"; done
-    for ed in leaf:$LEAF foundational:$FOUND; do
-      name=${ed%%:*}; file=${ed#*:}
-      for a in dewey-delta-native dewey-delta; do revert; probe "$file"; read -r ms rb < <(nixbuild "$a"); printf '%-20s %-12s %8s %7s\n' "edit-$name" "$a" "$ms" "$rb"; done
-      revert; probe "$file"; printf '%-20s %-12s %8s %7s\n' "edit-$name" bga-proxy "$(gobuild)" -
+    read -r nwms nwrb < <(nixbuild dewey-delta-native); printf '%-20s %-12s %8s %7s\n' warm dewey-delta-native "$nwms" "$nwrb"
+    read -r rwms rwrb < <(nixbuild dewey-delta);        printf '%-20s %-12s %8s %7s\n' warm dewey-delta "$rwms" "$rwrb"
+    revert; probe "$LEAF";  read -r nlms nlrb < <(nixbuild dewey-delta-native); printf '%-20s %-12s %8s %7s\n' edit-leaf dewey-delta-native "$nlms" "$nlrb"
+    revert; probe "$LEAF";  read -r rlms rlrb < <(nixbuild dewey-delta);        printf '%-20s %-12s %8s %7s\n' edit-leaf dewey-delta "$rlms" "$rlrb"
+    revert; probe "$LEAF";  blms=$(gobuild);                                    printf '%-20s %-12s %8s %7s\n' edit-leaf bga-proxy "$blms" -
+    revert; probe "$FOUND"; read -r nfms nfrb < <(nixbuild dewey-delta-native); printf '%-20s %-12s %8s %7s\n' edit-foundational dewey-delta-native "$nfms" "$nfrb"
+    revert; probe "$FOUND"; read -r rfms rfrb < <(nixbuild dewey-delta);        printf '%-20s %-12s %8s %7s\n' edit-foundational dewey-delta "$rfms" "$rfrb"
+    revert; probe "$FOUND"; bfms=$(gobuild);                                    printf '%-20s %-12s %8s %7s\n' edit-foundational bga-proxy "$bfms" -
+    revert
+    # versioned record: deterministic metrics (fod_modules, cone_*, manifest_pkgs)
+    # are the reliable cumulative signal; *_ms are wall-clock (single-run, noisy).
+    manifest=$(nix build .#dewey-delta-native --no-link --print-out-paths 2>/dev/null)
+    fodmods=$(grep -cE '^  \[mod\.' dewey-gomod2nix.toml)
+    pkgs=$(wc -l < "$manifest" 2>/dev/null | tr -d ' '); pkgs=${pkgs:-0}
+    rec fod_modules "$fodmods"; rec manifest_pkgs "$pkgs"
+    rec cone_leaf "${nlrb:-0}"; rec cone_found "${nfrb:-0}"
+    rec native_warm_ms "$nwms";  rec recursive_warm_ms "$rwms"
+    rec native_leaf_ms "$nlms";  rec recursive_leaf_ms "$rlms";  rec bga_leaf_ms "$blms"
+    rec native_found_ms "$nfms"; rec recursive_found_ms "$rfms"; rec bga_found_ms "$bfms"
+    echo "(reverted clean) recorded 12 metrics at $commit (dirty=$dirty) -> $HIST"
+    echo "  fod_modules=$fodmods  manifest_pkgs=$pkgs  cone_leaf=$nlrb  cone_found=$nfrb"
+    prevfod=$(grep '"metric":"fod_modules"' "$HIST" | jq -s 'if length>1 then .[-2].value else empty end' 2>/dev/null)
+    if [ -n "${prevfod:-}" ]; then echo "  fod_modules vs previous record: $prevfod -> $fodmods"; fi
+
+# Fast versioned record of OUR builder's cumulative metrics (native-only, no
+# recursive/bga — those are the slow comparison baselines in bench-delta). Stamps
+# {commit, dirty, when} and appends to bench-history.jsonl. Deterministic metrics
+# (fod_modules, manifest_pkgs, cone_leaf, cone_found) are the reliable cumulative
+# signal; native_*_ms are wall-clock (single-run, indicative). Run after a change
+# to record progress; `just bench-history` to view the timeline.
+[group('bench')]
+bench-record:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    D='{{pf}}/libs/dewey'
+    LEAF="$D/internal/delta/format/main.go"
+    FOUND="$D/internal/0/interfaces/coder.go"
+    HIST=bench-history.jsonl
+    commit=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
+    dirty=false; [ -n "$(git status --porcelain 2>/dev/null)" ] && dirty=true
+    when=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    revert() { git -C '{{pf}}' checkout -- "$LEAF" "$FOUND" 2>/dev/null; rm -f flake.lock; }
+    probe()  { printf '\nfunc gdProbe%s() int { return %s }\n' "$RANDOM" "$RANDOM" >> "$1"; }
+    nbuild() { # -> "<ms> <distinct-native-rebuilds>"
+      local bt t0 t1 rb; bt=$(mktemp -d /tmp/br.XXXXXX); rm -f flake.lock
+      t0=$(date +%s%3N); TMPDIR=$bt nix build .#dewey-delta-native -L --no-link >/dev/null 2>"$bt/e"; t1=$(date +%s%3N)
+      rb=$(grep -oE 'godyn-v2-compile-[a-z0-9.-]+' "$bt/e" 2>/dev/null | sort -u | wc -l); echo "$((t1-t0)) ${rb:-0}"
+    }
+    rec() { printf '{"when":"%s","commit":"%s","dirty":%s,"metric":"%s","value":%s}\n' "$when" "$commit" "$dirty" "$1" "$2" >> "$HIST"; }
+    revert
+    manifest=$(nix build .#dewey-delta-native --no-link --print-out-paths 2>/dev/null)
+    pkgs=$(wc -l < "$manifest" 2>/dev/null | tr -d ' '); pkgs=${pkgs:-0}
+    fodmods=$(grep -cE '^  \[mod\.' dewey-gomod2nix.toml)
+    read -r wms _   < <(nbuild)
+    revert; probe "$LEAF";  read -r lms lrb < <(nbuild)
+    revert; probe "$FOUND"; read -r fms frb < <(nbuild)
+    revert
+    rec fod_modules "$fodmods"; rec manifest_pkgs "$pkgs"
+    rec cone_leaf "${lrb:-0}"; rec cone_found "${frb:-0}"
+    rec native_warm_ms "$wms"; rec native_leaf_ms "$lms"; rec native_found_ms "$fms"
+    echo "recorded at $commit (dirty=$dirty): fod_modules=$fodmods manifest_pkgs=$pkgs cone_leaf=$lrb cone_found=$frb"
+    echo "  native ms warm=$wms leaf=$lms found=$fms"
+    prevfod=$(grep '"metric":"fod_modules"' "$HIST" | jq -s 'if length>1 then .[-2].value else empty end' 2>/dev/null)
+    if [ -n "${prevfod:-}" ]; then echo "  fod_modules vs previous record: $prevfod -> $fodmods"; fi
+
+# Versioned benchmark timeline (bench-history.jsonl): each metric's value per
+# recorded commit, so cumulative improvements (e.g. fod_modules 89 -> 11) are
+# visible at a glance. Deterministic metrics are the reliable signal; *_ms are
+# wall-clock (system-load noisy). Append-only; `just bench-delta` adds a record.
+[group('bench')]
+bench-history:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [ -f bench-history.jsonl ] || { echo "no bench-history.jsonl yet — run: just bench-delta"; exit 0; }
+    echo "metric              values (oldest -> newest, commit=value)"
+    for m in fod_modules manifest_pkgs cone_leaf cone_found \
+             native_leaf_ms recursive_leaf_ms bga_leaf_ms \
+             native_found_ms recursive_found_ms bga_found_ms; do
+      printf '%-20s' "$m"
+      jq -r --arg m "$m" 'select(.metric==$m) | "\(.commit)=\(.value)"' bench-history.jsonl | tr '\n' ' '
+      echo
     done
-    revert; echo "(reverted clean)"

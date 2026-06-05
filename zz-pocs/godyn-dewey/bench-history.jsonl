@@ -1,0 +1,14 @@
+{"when":"2026-06-05T14:08:24Z","commit":"a038ccd","dirty":true,"metric":"fod_modules","value":89}
+{"when":"2026-06-05T14:08:24Z","commit":"a038ccd","dirty":true,"metric":"manifest_pkgs","value":74}
+{"when":"2026-06-05T14:08:24Z","commit":"a038ccd","dirty":true,"metric":"cone_leaf","value":1}
+{"when":"2026-06-05T14:08:24Z","commit":"a038ccd","dirty":true,"metric":"cone_found","value":30}
+{"when":"2026-06-05T14:08:24Z","commit":"a038ccd","dirty":true,"metric":"native_warm_ms","value":689}
+{"when":"2026-06-05T14:08:24Z","commit":"a038ccd","dirty":true,"metric":"native_leaf_ms","value":1362}
+{"when":"2026-06-05T14:08:24Z","commit":"a038ccd","dirty":true,"metric":"native_found_ms","value":2791}
+{"when":"2026-06-05T14:09:11Z","commit":"a038ccd","dirty":true,"metric":"fod_modules","value":11}
+{"when":"2026-06-05T14:09:11Z","commit":"a038ccd","dirty":true,"metric":"manifest_pkgs","value":74}
+{"when":"2026-06-05T14:09:11Z","commit":"a038ccd","dirty":true,"metric":"cone_leaf","value":1}
+{"when":"2026-06-05T14:09:11Z","commit":"a038ccd","dirty":true,"metric":"cone_found","value":30}
+{"when":"2026-06-05T14:09:11Z","commit":"a038ccd","dirty":true,"metric":"native_warm_ms","value":1450}
+{"when":"2026-06-05T14:09:11Z","commit":"a038ccd","dirty":true,"metric":"native_leaf_ms","value":2188}
+{"when":"2026-06-05T14:09:11Z","commit":"a038ccd","dirty":true,"metric":"native_found_ms","value":3568}

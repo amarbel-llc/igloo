@@ -139,12 +139,18 @@
         dewey-delta = deweyDelta.target;
         # Approach A on the same closure: the native eval-time graph manifest.
         dewey-delta-native = deweyDeltaNative;
+        # The gomod2nix vendor tree native sources third-party packages from.
+        # Exposed so `just bench-delta` can count its module FODs (the #24 metric:
+        # after `just gen-scoped-toml` the toml is scoped to the graph, so this
+        # fetches only the ~11 in-scope modules, not all 89 workspace modules).
+        dewey-vendor-env = deweyVendorEnv;
       };
 
       devShells.${system}.default = pkgs.mkShell {
         packages = [
           go
           pkgs.nix
+          pkgs.jq
         ];
       };
     };

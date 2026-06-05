@@ -77,9 +77,15 @@ No new source-kind gaps surfaced across the whole closure. Wall time **~75s**
 with the stdlib + FODs + `internal/delta` subtree already warm (so ~199 fresh
 compiles; ~0.4 s/pkg).
 
-Known throughput costs (not capability gaps): the resolver fetches *all* 55
-lockfile FODs up front regardless of scope, and the `path:` worktree input
-re-copies `.tmp` on every eval (the ~24s warm floor).
+Known throughput costs (not capability gaps): the **recursive resolver** still
+fetches *all* 55 lockfile FODs up front regardless of scope (the literal #24,
+still open on this superseded path), and the `path:` worktree input re-copies
+`.tmp` on every eval (the ~24s warm floor). The **native** path (`.#dewey-delta-native`)
+no longer over-fetches: `just gen-scoped-toml` scopes the gomod2nix toml to the
+graph's modules, so its vendorEnv pulls only the **11** modules `internal/delta`
+imports, not all 89 workspace modules — the output is byte-identical (native only
+ever read the in-scope modules). The 89→11 drop is the first record in the
+versioned benchmark (`just bench-record` / `just bench-history`).
 
 ### godyn vs `buildGoApplication` — the nix builder it would replace
 
@@ -118,8 +124,9 @@ the dependency cone (comment-level early cutoff; outputs binary-cache-substituta
 across machines *and* build targets) **and** wins wall-clock. The residual ~8 s is
 the resolver re-running over the full graph (re-register + cache-check all 38
 packages to rebuild 1) — the monolithic-wrapper cost #26 tracks; nix's scheduler
-should skip that unchanged subgraph natively. The all-55 FOD over-fetch (#24) is
-the other remaining lever.
+should skip that unchanged subgraph natively (it does — see the D6 native build).
+The FOD over-fetch (#24) is the other lever: **scoped on the native path** (89→11
+via `gen-scoped-toml`), still open on the recursive resolver (all 55).
 
 (For reference, native `go build` — non-hermetic, in-process content cache — is
 the speed-of-light baseline at ~50× under either nix builder: with the **real**
