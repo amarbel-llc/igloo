@@ -121,6 +121,32 @@ in-process). Expose both with a config override; the heuristic is a default, not
 guarantee — a foundational edit in the dev loop is the case where native loses, and
 a cold build is where bga is simply the right tool.
 
+### `buildGoAuto` — the selector (`selector.nix`)
+
+```nix
+buildGoAuto {
+  pname = "tommy"; src = ./tommy-lib;
+  graphFile = ./tommy-graph.json;     # native backend
+  modules   = ./tommy-lib/gomod2nix.toml;  # buildGoApplication backend
+  # vendorEnv = …;                    # for third-party (native), omit if all-local
+  strategy  = "dev";                  # "dev"/"native" -> native; "ci"/"bga" -> buildGoApplication
+}
+```
+
+`strategy` is an explicit knob because a pure flake can't read the environment —
+a consumer picks it (a dev shell / `just dev` passes `"dev"`, a CI output passes
+`"ci"`). The selection is by **intent**, not module size, matching the finding
+above. Both backends are always reachable via passthru, so either can be forced
+without re-plumbing:
+
+```
+nix build .#tommy-auto              # strategy=dev  -> native manifest
+nix build .#tommy-auto-ci           # strategy=ci   -> buildGoApplication
+nix build .#tommy-auto.bga          # force bga from the dev target
+nix build .#tommy-auto-ci.native    # force native from the ci target
+nix eval  .#tommy-auto.backend      # "native"
+```
+
 ## The `godyn gen` contract
 
 `graph.json` is committed (like `gomod2nix.toml`) and regenerated with `just gen`
@@ -138,8 +164,11 @@ import-from-derivation and no build-time resolver.
   packages from the in-repo module and third-party from a gomod2nix vendorEnv.
 - `native.nix` — approach A: a graph → per-package CA derivations (reuses
   `../godyn-poc/stdlib.nix`); compile-only manifest when there's no `main`.
-- `flake.nix` — `.#{native,recursive,bga}` (toy) and `.#tommy-{native,recursive,bga}`;
-  igloo input via `git+file:` (the #25 fix).
+- `selector.nix` — `buildGoAuto`: dispatch native (dev) vs buildGoApplication (ci)
+  by `strategy`, both reachable via passthru.
+- `sweep.sh` — the crossover sweep (synthetic modules via `--impure --expr`).
+- `flake.nix` — `.#{native,recursive,bga}` (toy), `.#tommy-{native,recursive,bga}`,
+  and `.#tommy-auto{,-ci}` (the selector); igloo input via `git+file:` (the #25 fix).
 - `bench.sh` / `just bench <toy|tommy> [runs]` (JSON) · `just bench-md` (table) ·
   `just gen` · `just build`.
 

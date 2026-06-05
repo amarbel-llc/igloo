@@ -75,6 +75,18 @@
         src = ./tommy-lib;
         modules = ./tommy-lib/gomod2nix.toml;
       };
+
+      # buildGoAuto: dispatch native (dev loop) vs buildGoApplication (cold/CI)
+      # by `strategy`. Both backends reachable via passthru.{native,bga}.
+      buildGoAuto = args: pkgs.callPackage ./selector.nix ({ inherit go stdlib; } // args);
+      tommyAutoArgs = {
+        pname = "tommy";
+        src = ./tommy-lib;
+        graphFile = ./tommy-graph.json;
+        modules = ./tommy-lib/gomod2nix.toml;
+      };
+      tommy-auto = buildGoAuto (tommyAutoArgs // { strategy = "dev"; }); # -> native
+      tommy-auto-ci = buildGoAuto (tommyAutoArgs // { strategy = "ci"; }); # -> bga
     in
     {
       packages.${system} = {
@@ -86,6 +98,8 @@
           tommy-native
           tommy-recursive
           tommy-bga
+          tommy-auto
+          tommy-auto-ci
           ;
       };
 
