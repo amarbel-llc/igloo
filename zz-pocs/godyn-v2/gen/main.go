@@ -25,18 +25,22 @@ type goListPkg struct {
 	Standard   bool
 	GoFiles    []string
 	Imports    []string
-	Module     *struct{ Dir string }
+	Module     *struct {
+		Dir  string
+		Main bool
+	}
 }
 
 // genPkg is one node in the emitted graph: enough for native.nix to construct a
 // per-package compile derivation wired to its deps.
 type genPkg struct {
 	ImportPath string   `json:"importPath"`
-	Dir        string   `json:"dir"`     // module-root-relative (e.g. "internal/leaf", ".")
+	Dir        string   `json:"dir"`     // for local pkgs: module-root-relative ("internal/leaf", "."); third-party: unused
 	Name       string   `json:"name"`    // package name; "main" links a binary
 	IsMain     bool     `json:"isMain"`  //
+	Local      bool     `json:"local"`   // in the main module (src=module/dir) vs third-party (src=vendorEnv/importPath)
 	GoFiles    []string `json:"goFiles"` // non-test .go files (basenames)
-	Imports    []string `json:"imports"` // direct, in-module (non-stdlib) imports
+	Imports    []string `json:"imports"` // direct, in-graph (non-stdlib) imports
 }
 
 func main() {
@@ -47,7 +51,10 @@ func main() {
 
 	cmd := exec.Command("go", "list", "-deps", "-json", "./...")
 	cmd.Dir = moduleDir
-	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "CGO_ENABLED=0")
+	// GOFLAGS comes from the caller (e.g. -mod=vendor for a module with
+	// third-party deps materialised into vendor/). CGO off: the v2 targets are
+	// pure-Go, and it keeps file selection deterministic.
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 	data, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -98,6 +105,7 @@ func main() {
 			Dir:        dir,
 			Name:       p.Name,
 			IsMain:     p.Name == "main",
+			Local:      p.Module != nil && p.Module.Main,
 			GoFiles:    p.GoFiles,
 			Imports:    imps,
 		})

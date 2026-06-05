@@ -25,49 +25,30 @@ build:
       printf '%-10s %s\n' "$t:" "$($o/bin/godyntb)"
     done
 
-# Head-to-head edit-loop measurement: warm / edit-leaf / edit-top / comment-leaf
-# across {native (A), recursive (B), bga (baseline)}. Wall-clock in ms; for the
-# native graph also the count of packages nix actually recompiled. Edits use a
-# unique $RANDOM token so they force a genuine rebuild (not a CA dedup hit).
+# JSON benchmark: edit-loop wall-clock + rebuild counts across the three
+# approaches, `runs` samples each (unique edit token per run). module=toy|tommy.
+# Emits structured JSON to stdout (see bench.sh).
 [group('explore')]
-measure:
+bench module="toy" runs="3":
     #!/usr/bin/env bash
-    set -uo pipefail
-    cd {{v2}}
-    leaf=module/internal/leaf/leaf.go
-    top=module/internal/top/top.go
-    log=$(mktemp -d)
-    pristine() { for f in "$leaf" "$top"; do sed -i '/gdProbe/d; /godyn probe/d' "$f"; sed -i '${/^$/d}' "$f"; done; }
-    # build .#$1, return "<ms>ms (<rebuilds> pkgs)"
-    bench() {
-      local bt t0 t1 rc rb
-      bt=$(mktemp -d /tmp/godyn-v2.XXXXXX)
-      t0=$(date +%s%3N)
-      TMPDIR=$bt nix build ".#$1" -L --no-link >/dev/null 2>"$log/$1.err"
-      rc=$?; t1=$(date +%s%3N)
-      rb=$(grep -cE "building '.*-compile-" "$log/$1.err" 2>/dev/null || true)
-      printf '%5dms (%s pkgs, rc=%s)' "$((t1-t0))" "$rb" "$rc"
-    }
-    semantic() { printf '\nfunc gdProbe() int { return 1%s }\n' "$RANDOM" >> "$1"; }
-    comment()  { echo "// godyn probe $RANDOM$RANDOM" >> "$1"; }
+    set -euo pipefail
+    jqbin=$(nix build --no-link --print-out-paths nixpkgs#jq 2>/dev/null)/bin
+    export PATH="$jqbin:$PATH"
+    bash {{v2}}/bench.sh {{module}} {{runs}}
 
-    declare -A R
-    for a in native recursive bga; do
-      pristine;                 R[$a,warm]=$(bench "$a")
-      pristine; semantic "$leaf"; R[$a,eleaf]=$(bench "$a")
-      pristine; semantic "$top";  R[$a,etop]=$(bench "$a")
-      pristine; comment "$leaf";  R[$a,cleaf]=$(bench "$a")
-    done
-    pristine
-
-    echo
-    echo "godyn v2 — edit-loop, 4-package leaf->mid->top->main module"
-    printf '%-12s | %-26s | %-26s | %-26s\n' scenario "A: native (eval graph)" "B: recursive (resolver)" "buildGoApplication"
-    printf -- '-------------+----------------------------+----------------------------+---------------------------\n'
-    printf '%-12s | %-26s | %-26s | %-26s\n' "warm"         "${R[native,warm]}"  "${R[recursive,warm]}"  "${R[bga,warm]}"
-    printf '%-12s | %-26s | %-26s | %-26s\n' "edit-leaf"    "${R[native,eleaf]}" "${R[recursive,eleaf]}" "${R[bga,eleaf]}"
-    printf '%-12s | %-26s | %-26s | %-26s\n' "edit-top"     "${R[native,etop]}"  "${R[recursive,etop]}"  "${R[bga,etop]}"
-    printf '%-12s | %-26s | %-26s | %-26s\n' "comment-leaf" "${R[native,cleaf]}" "${R[recursive,cleaf]}" "${R[bga,cleaf]}"
-    echo
-    echo "(native 'pkgs' = packages nix recompiled; recursive/bga build is one"
-    echo " wrapper/module derivation so its inner recompiles are not counted here.)"
+# Same benchmark rendered as a markdown table (median ms · rebuilt pkgs).
+[group('explore')]
+bench-md module="toy" runs="3":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    jqbin=$(nix build --no-link --print-out-paths nixpkgs#jq 2>/dev/null)/bin
+    export PATH="$jqbin:$PATH"
+    bash {{v2}}/bench.sh {{module}} {{runs}} | jq -r '
+      (.results | map(.approach) | unique) as $a |
+      "## \(.module) — \(.packages) pkgs, \(.runs) runs (median ms · rebuilt pkgs)",
+      "",
+      "| scenario | " + ($a | join(" | ")) + " |",
+      "|" + ("---|" * (($a | length) + 1)),
+      (.results | group_by(.scenario)[]
+        | "| \(.[0].scenario) | " + ([.[] | "\(.ms_median)ms·\(.rebuilds)"] | join(" | ")) + " |")
+    '

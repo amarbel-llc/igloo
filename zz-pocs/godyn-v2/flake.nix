@@ -54,6 +54,27 @@
         src = ./module;
         modules = ./module/gomod2nix.toml;
       };
+
+      # Real-module scale-up: tommy's pure-Go library (7 packages,
+      # ringbuf -> lexer -> cst -> document -> marshal, + formatter), a snapshot
+      # of github.com/amarbel-llc/tommy's library subtree. Same three approaches.
+      tommy-native = pkgs.callPackage ./native.nix {
+        inherit go stdlib;
+        src = ./tommy-lib;
+        graphFile = ./tommy-graph.json;
+        pname = "tommy";
+      };
+      tommy-recursive = (mkDynamic {
+        src = ./tommy-lib;
+        pname = "tommy";
+        inherit stdlib;
+      }).target;
+      tommy-bga = pkgs.buildGoApplication {
+        pname = "tommy";
+        version = "0";
+        src = ./tommy-lib;
+        modules = ./tommy-lib/gomod2nix.toml;
+      };
     in
     {
       packages.${system} = {
@@ -62,6 +83,9 @@
           recursive
           bga
           stdlib
+          tommy-native
+          tommy-recursive
+          tommy-bga
           ;
       };
 

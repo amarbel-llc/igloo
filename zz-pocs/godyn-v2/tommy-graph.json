@@ -1,0 +1,96 @@
+[
+  {
+    "importPath": "github.com/amarbel-llc/tommy/internal/formatter",
+    "dir": "internal/formatter",
+    "name": "formatter",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "formatter.go"
+    ],
+    "imports": [
+      "github.com/amarbel-llc/tommy/pkg/cst"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/tommy/internal/lexer",
+    "dir": "internal/lexer",
+    "name": "lexer",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "lexer.go",
+      "token.go"
+    ],
+    "imports": [
+      "github.com/amarbel-llc/tommy/internal/ringbuf"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/tommy/internal/ringbuf",
+    "dir": "internal/ringbuf",
+    "name": "ringbuf",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "errors.go",
+      "ring_buffer.go",
+      "slice.go"
+    ],
+    "imports": null
+  },
+  {
+    "importPath": "github.com/amarbel-llc/tommy/pkg",
+    "dir": "pkg",
+    "name": "tommy",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "tommy.go"
+    ],
+    "imports": null
+  },
+  {
+    "importPath": "github.com/amarbel-llc/tommy/pkg/cst",
+    "dir": "pkg/cst",
+    "name": "cst",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "accessors.go",
+      "node.go",
+      "parser.go"
+    ],
+    "imports": [
+      "github.com/amarbel-llc/tommy/internal/lexer"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/tommy/pkg/document",
+    "dir": "pkg/document",
+    "name": "document",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "comment.go",
+      "document.go"
+    ],
+    "imports": [
+      "github.com/amarbel-llc/tommy/pkg/cst"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/tommy/pkg/marshal",
+    "dir": "pkg/marshal",
+    "name": "marshal",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "marshal.go"
+    ],
+    "imports": [
+      "github.com/amarbel-llc/tommy/pkg/cst",
+      "github.com/amarbel-llc/tommy/pkg/document"
+    ]
+  }
+]

@@ -12,8 +12,11 @@
   runCommandLocal,
   go,
   stdlib,
-  src, # the module source root (the flake's ./module)
+  src, # the main module's source root (in-repo, for local packages)
   graphFile, # ./graph.json
+  # vendorEnv: a gomod2nix vendor tree (sources by import path) supplying
+  # third-party packages. null for an all-local module (the toy).
+  vendorEnv ? null,
   pname ? "godyntb",
   goVersion ? "go1.26",
 }:
@@ -40,10 +43,18 @@ let
 
   pkgDrvs = lib.mapAttrs (importPath: p:
     let
-      srcDir = builtins.path {
-        path = src + "/${p.dir}";
-        name = "godyn-v2-src-${sanitize importPath}";
-      };
+      # Local packages: the in-repo module subdir (per-package builtins.path, so
+      # an edit to one package changes only its drv input). Third-party: the
+      # vendor tree by import path (one shared input; local edits don't touch it,
+      # so the whole third-party closure stays cached).
+      srcDir =
+        if p.local then
+          builtins.path {
+            path = src + "/${p.dir}";
+            name = "godyn-v2-src-${sanitize importPath}";
+          }
+        else
+          "${vendorEnv}/${importPath}";
       goFiles = lib.concatMapStringsSep " " (f: "${srcDir}/${f}") p.goFiles;
 
       # A package main must compile under -p main (the linker looks for
@@ -87,6 +98,16 @@ let
       (compile + link)
   ) byImport;
 
-  mainImport = (lib.findFirst (p: p.isMain) (throw "godyn-v2: no package main in graph.json") graph).importPath;
+  mainPkg = lib.findFirst (p: p.isMain) null graph;
+
+  # Compile-only terminal for a library graph (no package main): a manifest that
+  # depends on every package archive (so building it realises the whole graph)
+  # and lists the import paths. Mirrors the resolver's buildManifestDrv.
+  manifest = runCommandLocal "godyn-v2-${pname}-manifest" { } (
+    ": > $out\n"
+    + lib.concatMapStringsSep "\n"
+      (p: "test -s ${pkgDrvs.${p.importPath}}/pkg.a && echo '${p.importPath}' >> $out")
+      graph
+  );
 in
-pkgDrvs.${mainImport}
+if mainPkg != null then pkgDrvs.${mainPkg.importPath} else manifest

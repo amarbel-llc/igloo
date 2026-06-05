@@ -28,38 +28,57 @@ example.com/godyntb
   internal/leaf  (stdlib only; the bottom)  <- internal/mid <- internal/top <- main
 ```
 
-## Results — edit loop (4-package module)
+## Results — reliable JSON benchmark (`just bench`)
 
-`just measure` (wall-clock ms; "pkgs" = packages nix actually recompiled, visible
-only for the native graph; edits use a unique token to force a real rebuild):
+`just bench <toy|tommy> [runs]` emits structured JSON (per approach × scenario:
+min/median wall-ms over N runs + rebuilt-package count); `just bench-md` renders
+the table below. This consistent multi-run harness (a unique edit token per run)
+**supersedes the earlier single-run table** — which was unreliable and reported
+native as the winner; it is not.
 
-| scenario | A: native (eval graph) | B: recursive (resolver) | buildGoApplication |
+Two modules: the 4-package toy, and **tommy's pure-Go library** (7 packages, a
+real `github.com/amarbel-llc/tommy` snapshot: `ringbuf → lexer → cst → document →
+marshal`, + `formatter`). Median ms · packages nix recompiled:
+
+| module · scenario | `buildGoApplication` | native (eval graph) | recursive (resolver) |
 |---|---|---|---|
-| warm (no change) | **385 ms** | 894 ms | 411 ms |
-| edit leaf (cone = 4) | **1346 ms** · 4 pkgs | 2773 ms · 4 pkgs | 4358 ms |
-| edit top (cone = 2) | **1292 ms** · 2 pkgs | 2164 ms · 2 pkgs | 4348 ms |
-| comment in leaf | **1147 ms** · 2 pkgs | 1785 ms · 1 pkg | 4469 ms |
+| toy(4) · warm | **375**·0 | 1022·0 | 420·0 |
+| toy(4) · edit-bottom (cone 4) | **1427**·4 | 2310·4 | 4650·0¹ |
+| toy(4) · edit-mid (cone 2) | **983**·2 | 2097·2 | 4663·0¹ |
+| toy(4) · comment-bottom | **1178**·2 | 1737·1 | 5559·0¹ |
+| tommy(7) · warm | **414**·0 | 937·0 | 457·0 |
+| tommy(7) · edit-bottom (cone 6) | **1598**·6 | 2721·6 | 5002·0¹ |
+| tommy(7) · edit-mid (cone 4) | **1321**·5 | 2473·4 | 4985·0¹ |
+| tommy(7) · comment-bottom | **820**·1 | 1917·1 | 6148·0¹ |
 
-### What this shows
+¹ recursive's per-package compiles run nested inside the recursive-nix wrapper, so
+the outer `-L` can't count them — wall-clock is the metric there.
 
-1. **The #26 payoff is real: native ≈ 2× faster than the recursive resolver on
-   every edit**, rebuilding the *same* cone. The delta is exactly the resolver
-   re-run the native graph eliminates — nix's own scheduler does the merkle-delta
-   from the `inputDrvs` it already has, with nothing to re-discover.
-2. **Both beat `buildGoApplication` ~3×**, whose edit cost is a flat ~4.3 s
-   whole-module rebuild regardless of what changed (no per-package granularity).
-3. **Native's cost scales with the dependency cone** (edit-leaf 4 pkgs > edit-top
-   2 pkgs), and the **CA early-cutoff** keeps a comment from cascading the whole
-   way (top/main stay cached; the one-level leaf→mid propagation is Go folding the
-   edit into export data, not a nix limitation).
-4. **Warm (no-change) is a digest match → 0 recompiles**; native (385 ms) ties
-   `buildGoApplication` (411 ms) and beats the recursive wrapper's eval overhead
-   (894 ms).
+### What this shows (honest, and not what the first toy run suggested)
 
-On this tiny module the absolute deltas are ~1 s; the point is the **slope** — B's
-resolver re-run grows with package count (re-`go list` + N×`derivation add` +
-N×`nix build` cache-check), while A's overhead is nix eval + the cone's compiles
-(parallelised). At dewey scale (74–273 packages) the gap widens accordingly.
+1. **native beats the recursive resolver on every edit (~1.8–2×)** at both sizes —
+   the **#26 payoff is solid**: the eval-time graph lets nix's own scheduler do the
+   merkle-delta with no resolver re-run.
+2. **but `buildGoApplication` beats native at this scale.** Its single
+   `go build ./...` derivation has far less overhead than N per-package CA
+   derivations (each its own build sandbox + CA hash) when the cone ≈ the whole
+   module. At 7 packages the edit-bottom cone (6) is nearly the whole (7), so
+   native does barely less *work* yet pays per-derivation overhead ×6, plus a ~1 s
+   fixed eval cost (constructing N derivations) that the single bga derivation
+   doesn't.
+3. **the crossover where per-package beats bga needs LARGER modules.** At 197
+   packages (the godyn-dewey `seqerror` build, `../godyn-dewey`) the *recursive*
+   resolver already beat bga on edits (8 s vs 24 s) — the cone there (~3 local
+   pkgs + main) is tiny against the 197-package whole. Since native beats recursive,
+   native would beat bga there too. So the crossover lands **between 7 and 197
+   packages**; pinning it is the next experiment (full tommy `./...` ≈115 pkgs via
+   the vendorEnv path, already supported in `native.nix`/`gen`).
+
+Per-package CA is the right **shape** (only the cone rebuilds; a comment early-cuts)
+and beats the recursive resolver **always** — but it is a wall-clock **win over
+buildGoApplication only once the module is large enough** that the avoided
+whole-module rebuild outweighs N × per-derivation overhead. toy/tommy are below
+that crossover; seqerror is above it.
 
 ## The `godyn gen` contract
 
@@ -71,13 +90,17 @@ import-from-derivation and no build-time resolver.
 
 ## Layout / usage
 
-- `module/` — the system under test (`go.mod`, `internal/{leaf,mid,top}`, `main.go`).
-- `gen/main.go` — the dev-time graph generator (`go list -deps -json` → `graph.json`).
-- `native.nix` — approach A: `graph.json` → per-package CA derivations (reuses
-  `../godyn-poc/stdlib.nix`).
-- `flake.nix` — `.#native` (A), `.#recursive` (B), `.#bga` (baseline); igloo input
-  via `git+file:` (the #25 fix).
-- `just gen` · `just build` (all three print `godyntb value = 15`) · `just measure`.
+- `module/` — the 4-package toy (`internal/{leaf,mid,top}`, `main.go`).
+- `tommy-lib/` — the 7-package real-module snapshot (tommy's pure-Go library).
+- `gen/main.go` — the dev-time graph generator (`go list -deps -json` → `graph.json`),
+  emitting per-package `local` (vs third-party) so `native.nix` can source local
+  packages from the in-repo module and third-party from a gomod2nix vendorEnv.
+- `native.nix` — approach A: a graph → per-package CA derivations (reuses
+  `../godyn-poc/stdlib.nix`); compile-only manifest when there's no `main`.
+- `flake.nix` — `.#{native,recursive,bga}` (toy) and `.#tommy-{native,recursive,bga}`;
+  igloo input via `git+file:` (the #25 fix).
+- `bench.sh` / `just bench <toy|tommy> [runs]` (JSON) · `just bench-md` (table) ·
+  `just gen` · `just build`.
 
 ## Deferred (out of scope for the tracer bullet)
 

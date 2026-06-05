@@ -4,6 +4,7 @@
     "dir": ".",
     "name": "main",
     "isMain": true,
+    "local": true,
     "goFiles": [
       "main.go"
     ],
@@ -16,6 +17,7 @@
     "dir": "internal/leaf",
     "name": "leaf",
     "isMain": false,
+    "local": true,
     "goFiles": [
       "leaf.go"
     ],
@@ -26,6 +28,7 @@
     "dir": "internal/mid",
     "name": "mid",
     "isMain": false,
+    "local": true,
     "goFiles": [
       "mid.go"
     ],
@@ -38,6 +41,7 @@
     "dir": "internal/top",
     "name": "top",
     "isMain": false,
+    "local": true,
     "goFiles": [
       "top.go"
     ],
