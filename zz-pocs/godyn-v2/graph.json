@@ -1,0 +1,48 @@
+[
+  {
+    "importPath": "example.com/godyntb",
+    "dir": ".",
+    "name": "main",
+    "isMain": true,
+    "goFiles": [
+      "main.go"
+    ],
+    "imports": [
+      "example.com/godyntb/internal/top"
+    ]
+  },
+  {
+    "importPath": "example.com/godyntb/internal/leaf",
+    "dir": "internal/leaf",
+    "name": "leaf",
+    "isMain": false,
+    "goFiles": [
+      "leaf.go"
+    ],
+    "imports": null
+  },
+  {
+    "importPath": "example.com/godyntb/internal/mid",
+    "dir": "internal/mid",
+    "name": "mid",
+    "isMain": false,
+    "goFiles": [
+      "mid.go"
+    ],
+    "imports": [
+      "example.com/godyntb/internal/leaf"
+    ]
+  },
+  {
+    "importPath": "example.com/godyntb/internal/top",
+    "dir": "internal/top",
+    "name": "top",
+    "isMain": false,
+    "goFiles": [
+      "top.go"
+    ],
+    "imports": [
+      "example.com/godyntb/internal/mid"
+    ]
+  }
+]

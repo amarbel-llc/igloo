@@ -1,0 +1,73 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+v2 := justfile_directory()
+poc := v2 / "../godyn-poc"
+
+# Regenerate graph.json from the module. Run after the import structure / file
+# set changes — NOT after a content-only edit (same contract as gomod2nix.toml).
+[group('dev')]
+gen:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    goStore=$(nix build --no-link --print-out-paths '{{poc}}#go-toolchain^out')
+    export PATH="$goStore/bin:$PATH" GOCACHE=$(mktemp -d)
+    cd {{v2}}/gen && go build -o /tmp/godyn-gen .
+    /tmp/godyn-gen {{v2}}/module {{v2}}/graph.json
+
+# Build all three approaches and run each (they must print the same value).
+[group('build')]
+build:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd {{v2}}
+    for t in native recursive bga; do
+      o=$(nix build ".#$t" --no-link --print-out-paths 2>/dev/null)
+      printf '%-10s %s\n' "$t:" "$($o/bin/godyntb)"
+    done
+
+# Head-to-head edit-loop measurement: warm / edit-leaf / edit-top / comment-leaf
+# across {native (A), recursive (B), bga (baseline)}. Wall-clock in ms; for the
+# native graph also the count of packages nix actually recompiled. Edits use a
+# unique $RANDOM token so they force a genuine rebuild (not a CA dedup hit).
+[group('explore')]
+measure:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    cd {{v2}}
+    leaf=module/internal/leaf/leaf.go
+    top=module/internal/top/top.go
+    log=$(mktemp -d)
+    pristine() { for f in "$leaf" "$top"; do sed -i '/gdProbe/d; /godyn probe/d' "$f"; sed -i '${/^$/d}' "$f"; done; }
+    # build .#$1, return "<ms>ms (<rebuilds> pkgs)"
+    bench() {
+      local bt t0 t1 rc rb
+      bt=$(mktemp -d /tmp/godyn-v2.XXXXXX)
+      t0=$(date +%s%3N)
+      TMPDIR=$bt nix build ".#$1" -L --no-link >/dev/null 2>"$log/$1.err"
+      rc=$?; t1=$(date +%s%3N)
+      rb=$(grep -cE "building '.*-compile-" "$log/$1.err" 2>/dev/null || true)
+      printf '%5dms (%s pkgs, rc=%s)' "$((t1-t0))" "$rb" "$rc"
+    }
+    semantic() { printf '\nfunc gdProbe() int { return 1%s }\n' "$RANDOM" >> "$1"; }
+    comment()  { echo "// godyn probe $RANDOM$RANDOM" >> "$1"; }
+
+    declare -A R
+    for a in native recursive bga; do
+      pristine;                 R[$a,warm]=$(bench "$a")
+      pristine; semantic "$leaf"; R[$a,eleaf]=$(bench "$a")
+      pristine; semantic "$top";  R[$a,etop]=$(bench "$a")
+      pristine; comment "$leaf";  R[$a,cleaf]=$(bench "$a")
+    done
+    pristine
+
+    echo
+    echo "godyn v2 — edit-loop, 4-package leaf->mid->top->main module"
+    printf '%-12s | %-26s | %-26s | %-26s\n' scenario "A: native (eval graph)" "B: recursive (resolver)" "buildGoApplication"
+    printf -- '-------------+----------------------------+----------------------------+---------------------------\n'
+    printf '%-12s | %-26s | %-26s | %-26s\n' "warm"         "${R[native,warm]}"  "${R[recursive,warm]}"  "${R[bga,warm]}"
+    printf '%-12s | %-26s | %-26s | %-26s\n' "edit-leaf"    "${R[native,eleaf]}" "${R[recursive,eleaf]}" "${R[bga,eleaf]}"
+    printf '%-12s | %-26s | %-26s | %-26s\n' "edit-top"     "${R[native,etop]}"  "${R[recursive,etop]}"  "${R[bga,etop]}"
+    printf '%-12s | %-26s | %-26s | %-26s\n' "comment-leaf" "${R[native,cleaf]}" "${R[recursive,cleaf]}" "${R[bga,cleaf]}"
+    echo
+    echo "(native 'pkgs' = packages nix recompiled; recursive/bga build is one"
+    echo " wrapper/module derivation so its inner recompiles are not counted here.)"
