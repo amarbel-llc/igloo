@@ -53,6 +53,7 @@ final: prev: {
   inherit
     (final.callPackage ../pkgs/build-support/godyn { })
     buildGodynModule
+    buildGoAuto
     godyn-gen
     godynStdlib
     ;

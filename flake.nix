@@ -90,6 +90,15 @@
               "main.channel" = "stable";
             };
           };
+          # buildGoAuto dispatch: strategy="native" -> buildGodynModule. The check
+          # below builds + runs it (proving the godyn backend was selected); both
+          # backends stay reachable via passthru.{native,bga}.
+          godyn-selector-test = pkgs.buildGoAuto {
+            pname = "godyn-embed-test";
+            src = ./pkgs/build-support/godyn/tests/embed;
+            graphFile = ./pkgs/build-support/godyn/tests/embed/graph.json;
+            strategy = "native";
+          };
 
           # -- bun2nix test fixtures --
           # Exercise buildBunBinary / buildZxScript / buildZxScriptFromFile
@@ -223,6 +232,12 @@
             got=$(${self.packages.${system}.godyn-ldflags-test}/bin/godyn-ldflags-test)
             want="version=9.9.9 commit=unknown channel=stable"
             [ "$got" = "$want" ] || { echo "ldflags mismatch: got [$got] want [$want]" >&2; exit 1; }
+            echo OK > $out
+          '';
+          # buildGoAuto picked the native (godyn) backend; its binary runs.
+          godyn-selector-test = pkgs.runCommandLocal "godyn-selector-test-check" { } ''
+            got=$(${self.packages.${system}.godyn-selector-test}/bin/godyn-embed-test)
+            [ "$got" = "godyn embed works" ] || { echo "selector native mismatch: [$got]" >&2; exit 1; }
             echo OK > $out
           '';
         }

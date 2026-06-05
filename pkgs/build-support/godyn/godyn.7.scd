@@ -37,6 +37,27 @@ Like *gomod2nix*, godyn splits dev-time discovery from pure evaluation:
 . *graph.json* is committed alongside *gomod2nix.toml*.
 . *buildGodynModule* reads the committed graph purely (no import-from-derivation).
 
+# buildGoAuto (selector)
+
+*pkgs.buildGoAuto* picks the backend by intent — godyn for the incremental dev/test
+loop (only the changed cone rebuilds), buildGoApplication for cold / CI / release
+(no per-package overhead). A pure flake can't read the environment, so *strategy*
+is an explicit knob a consumer sets:
+
+```
+pkgs.buildGoAuto {
+  pname = "myapp";
+  src = self;
+  graphFile = ./godyn-graph.json;  # godyn backend
+  modules = ./gomod2nix.toml;      # both backends
+  strategy = "dev";                # "dev"/"native" -> godyn; "ci"/"bga" -> buildGoApplication
+  # backend-specific extras: nativeArgs = { ... }; bgaArgs = { subPackages = [ "." ]; ... };
+}
+```
+
+Both backends are always reachable via *passthru.native* / *passthru.bga* (force
+either without re-plumbing); *passthru.backend* records the choice.
+
 # buildGodynModule
 
 ```
