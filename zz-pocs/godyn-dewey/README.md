@@ -59,12 +59,44 @@ package rebuilds just that one archive and then **early-cuts off entirely** (the
 recompiled `.a` is byte-identical, so no dependent re-runs) — the CA property R6
 predicted, now observed end to end on a real module.
 
-**Full `./...` deferred.** dewey has 169 own packages plus the full ~40-module
-dep stack (hundreds of packages); building it all serially is a throughput
-stress test, not a capability gap. `internal/delta/...` is the representative
-subtree (every feature, ~90 compiles). Two known throughput costs for a future
-pass: the resolver fetches *all* 55 lockfile FODs up front regardless of scope,
-and the `path:` worktree input re-copies `.tmp` on every eval.
+### Full `./...` — `.#dewey-all`
+
+`nix build .#dewey-all` builds **every** dewey package: a **273-package**
+non-stdlib closure (169 dewey own + the full ~40-module dep stack: charmbracelet
+TUI, `filippo.io/age` crypto + its own asm, `gopher-lua`, `mvdan.cc/sh`, the 4
+analyzer `cmd` mains). It has mains, so it compiles all 273 and **links one
+binary** — a working `seqerror` analyzer (10 MB) that runs and prints its usage.
+No new source-kind gaps surfaced across the whole closure. Wall time **~75s**
+with the stdlib + FODs + `internal/delta` subtree already warm (so ~199 fresh
+compiles; ~0.4 s/pkg).
+
+Known throughput costs (not capability gaps): the resolver fetches *all* 55
+lockfile FODs up front regardless of scope, and the `path:` worktree input
+re-copies `.tmp` on every eval (the ~24s warm floor).
+
+### godyn vs `go build` (native) — same delta scope, same four scenarios
+
+`go build` has its own in-process content-addressed cache, so it is the
+speed-of-light incremental baseline. Same `./internal/delta/...`, fresh GOCACHE:
+
+| scenario | `go build` (native) | godyn (`nix build`) |
+|---|---|---|
+| cold (empty cache) | **23 s** | ~47 s (65/74 fresh compiles) |
+| warm (no change) | **69 ms** | ~24 s (0 compiles; nix eval + `path:` re-copy) |
+| edit tier-0 pkg (29 deps) | **568 ms** (recompiles cone) | ~57 s (27/74 recompile) |
+| comment-only edit | **84 ms** (early cutoff) | ~20 s (1 recompile, early cutoff) |
+
+**Reading this honestly:** godyn is ~100–1000× slower than `go build` in absolute
+terms — nix eval, daemon round-trips, a derivation registered + built per
+package, and the worktree re-copy all dominate. What godyn reproduces is the
+*shape* of the incremental: editing one package rebuilds only its dependency
+cone, and a comment early-cuts off — identical behaviour to go's cache. The win
+is **not local speed**; it is that those per-package results are content-addressed
+nix store paths — hermetic, and substitutable from a binary cache (build once in
+CI, fetch everywhere). The status-quo nix path, `buildGoApplication`, gives the
+same hermeticity but rebuilds the **whole module** on any edit (≈ the cold column,
+every time); godyn's contribution is keeping that hermeticity while collapsing the
+edit cost to the cone.
 
 ## Findings
 

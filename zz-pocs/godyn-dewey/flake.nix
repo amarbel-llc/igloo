@@ -70,12 +70,27 @@
         };
         inherit stdlib;
       };
+
+      # Full ./... — every dewey package (169 own + the full dep stack, ~400
+      # packages incl. 4 analyzer mains). Throughput stress of the same pipeline;
+      # has mains, so it links one binary + compiles the rest.
+      deweyAll = mkDynamic {
+        src = dewey-src;
+        pname = "godyn-dewey-all";
+        lockfile = ./dewey.lock;
+        packages = "./...";
+        bridges = {
+          "github.com/amarbel-llc/tommy" = tommyGoPkgs;
+        };
+        inherit stdlib;
+      };
     in
     {
       packages.${system} = {
         inherit stdlib;
         tommy-go-pkgs = tommyGoPkgs;
         # Intermediate wrapper (runs the resolver; $out is the manifest .drv).
+        dewey-all = deweyAll.target;
         dewey-delta-wrapper = deweyDelta.wrapper;
         # Final: outputOf(wrapper) -> the compile-only manifest (the list of
         # compiled dewey/internal/delta packages; building it realises them all).
