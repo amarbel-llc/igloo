@@ -170,6 +170,7 @@
           go
           pkgs.nix
           pkgs.jq
+          pkgs.nixgc # closure-scoped cold-nuke for `just bench-record` (igloo#28)
         ];
       };
     };

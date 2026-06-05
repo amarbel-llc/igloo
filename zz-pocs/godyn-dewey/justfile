@@ -207,22 +207,20 @@ bench-record runs="3":
       t0=$(date +%s%3N); TMPDIR=$bt "$1" build .#dewey-delta-native -L --no-link >/dev/null 2>"$bt/e"; t1=$(date +%s%3N)
       rb=$(grep -oE 'godyn-compile-[a-z0-9.-]+' "$bt/e" 2>/dev/null | sort -u | wc -l); echo "$((t1-t0)) ${rb:-0}"
     }
-    nuke() { # targeted GC of the builder's store paths so the next build is cold.
-             # Deletes godyn-compile .drvs FIRST (the CA referrers of the compile
-             # outputs), then the outputs/src/manifest, in one nix-store --delete.
-             # Referrers-before-referents is the required order (spinclass
-             # internal/nixgc; see igloo#28). Nix's liveness refusal keeps the
-             # externally-rooted base (go, stdlib, cc, vendor tree, module FODs) —
-             # this is cold COMPILE + source re-copy, not cold download.
-      # Exclude the godyn-* test fixtures (godyn-compile-godyn-embed-test etc.) —
-      # they share the godyn-compile-/godyn-src- prefix but are pinned by the igloo
-      # flake-check derivations, which would abort the delete. dewey packages are
-      # godyn-compile-github-com-…/golang-org-…, never godyn-compile-godyn-…. (A
-      # proper closure-scoped nuke awaits the nixgc extraction, igloo#28.)
-      { ls -d /nix/store/*-godyn-compile-*.drv /nix/store/*-godyn-dewey-delta-manifest.drv 2>/dev/null
-        ls -d /nix/store/*-godyn-compile-* /nix/store/*-godyn-src-* \
-              /nix/store/*-godyn-dewey-delta-manifest 2>/dev/null | grep -vE '\.drv'
-      } | grep -vE 'godyn-(compile|src)-godyn-' | xargs -r "$NS" --delete >/dev/null 2>&1 || true
+    nuke() { # closure-scoped targeted GC via nixgc (igloo#28) so the next build is
+             # cold. Seeds the manifest output + its .drv: the .drv's inputSrcs pull
+             # the per-package CA compile outputs into the closure, and
+             # --with-referrers collects the sibling .drvs that reference them (the
+             # required referrers-before-referents order). Nix's liveness refusal +
+             # nixgc's pre-filter keep the externally-rooted base (go, stdlib, cc,
+             # vendor tree, module FODs) — this is cold COMPILE + source re-copy, not
+             # cold download. Unlike the old name-glob, this reaps ONLY this build's
+             # closure and KEEPS any compile output a concurrent godyn build (e.g.
+             # conformist, which shares CA deps via dedup) has rooted — it never
+             # deletes another build's live inputs.
+      local mdrv; mdrv=$("$NS" -q --deriver "$manifest" 2>/dev/null)
+      [ -n "$mdrv" ] || return 0
+      nixgc reap --with-referrers "$manifest" "$mdrv" >/dev/null 2>&1 || true
     }
     rec() { printf '{"when":"%s","commit":"%s","dirty":%s,"nix":"%s","metric":"%s","value":%s}\n' "$when" "$commit" "$dirty" "$1" "$2" "$3" >> "$HIST"; }
     revert
