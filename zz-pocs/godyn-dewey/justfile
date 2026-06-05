@@ -84,6 +84,27 @@ gen-scoped-toml:
     kept=$(grep -cE '^  \[mod\.' dewey-gomod2nix.toml); all=$(grep -cE '^  \[mod\.' "$src")
     echo "scoped dewey-gomod2nix.toml: $kept modules (from $all workspace modules)"
 
+# #24 recursive path: scope the resolver's lockfile to the internal/delta graph so
+# the recursive .#dewey-delta fetches only the in-scope module FODs, not all 55.
+# Viability confirmed — go list -deps ./internal/delta/... succeeds with just these
+# modules (Go module-graph pruning). Writes a SEPARATE dewey-delta.lock from
+# dewey.lock + dewey-delta-graph.json; deweyDelta uses it, while deweySeqerror /
+# deweyAll keep the full dewey.lock (they build ./cmd/seqerror and ./... — wider
+# scopes needing more modules). Bridged tommy isn't a lockfile FOD, so this is the
+# 10 non-bridged third-party modules. 55 -> 10. Re-run when the graph changes.
+[group('gen')]
+gen-scoped-lock:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    jq -r '.[]|select(.local|not)|.importPath' dewey-delta-graph.json | sort -u > /tmp/gsl-imp.txt
+    : > dewey-delta.lock
+    while IFS= read -r line; do
+      p=$(awk '{print $1}' <<<"$line")
+      hit=0; while IFS= read -r imp; do case "$imp" in "$p"|"$p"/*) hit=1; break;; esac; done < /tmp/gsl-imp.txt
+      [ "$hit" = 1 ] && echo "$line" >> dewey-delta.lock
+    done < dewey.lock
+    echo "scoped dewey-delta.lock: $(grep -c . dewey-delta.lock) modules (from $(grep -c . dewey.lock) in dewey.lock)"
+
 # Edit-loop head-to-head over dewey's 74-package internal/delta closure:
 # native eval-graph (.#dewey-delta-native) vs recursive resolver (.#dewey-delta)
 # vs a bga proxy (whole-subtree `go build ./internal/delta/...` from a cold
@@ -177,11 +198,12 @@ bench-record:
     manifest=$(nix build .#dewey-delta-native --no-link --print-out-paths 2>/dev/null)
     pkgs=$(wc -l < "$manifest" 2>/dev/null | tr -d ' '); pkgs=${pkgs:-0}
     fodmods=$(grep -cE '^  \[mod\.' dewey-gomod2nix.toml)
+    recfod=$(grep -c . dewey-delta.lock 2>/dev/null || echo 0)
     read -r wms _   < <(nbuild)
     revert; probe "$LEAF";  read -r lms lrb < <(nbuild)
     revert; probe "$FOUND"; read -r fms frb < <(nbuild)
     revert
-    rec fod_modules "$fodmods"; rec manifest_pkgs "$pkgs"
+    rec fod_modules "$fodmods"; rec recursive_fod_modules "$recfod"; rec manifest_pkgs "$pkgs"
     rec cone_leaf "${lrb:-0}"; rec cone_found "${frb:-0}"
     rec native_warm_ms "$wms"; rec native_leaf_ms "$lms"; rec native_found_ms "$fms"
     echo "recorded at $commit (dirty=$dirty): fod_modules=$fodmods manifest_pkgs=$pkgs cone_leaf=$lrb cone_found=$frb"
@@ -199,10 +221,10 @@ bench-history:
     set -euo pipefail
     [ -f bench-history.jsonl ] || { echo "no bench-history.jsonl yet — run: just bench-delta"; exit 0; }
     echo "metric              values (oldest -> newest, commit=value)"
-    for m in fod_modules manifest_pkgs cone_leaf cone_found \
+    for m in fod_modules recursive_fod_modules manifest_pkgs cone_leaf cone_found \
              native_leaf_ms recursive_leaf_ms bga_leaf_ms \
              native_found_ms recursive_found_ms bga_found_ms; do
-      printf '%-20s' "$m"
+      printf '%-22s' "$m"
       jq -r --arg m "$m" 'select(.metric==$m) | "\(.commit)=\(.value)"' bench-history.jsonl | tr '\n' ' '
       echo
     done

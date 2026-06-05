@@ -90,7 +90,10 @@
       deweyDelta = mkDynamic {
         src = dewey-src;
         pname = "godyn-dewey-delta";
-        lockfile = ./dewey.lock;
+        # #24: the lockfile scoped to this exact scope's graph (10 modules, vs the
+        # full 55 in dewey.lock) so the resolver fetches only in-scope FODs. Regen
+        # with `just gen-scoped-lock`. deweySeqerror/deweyAll keep dewey.lock.
+        lockfile = ./dewey-delta.lock;
         packages = "./internal/delta/...";
         bridges = {
           "github.com/amarbel-llc/tommy" = tommyGoPkgs;
