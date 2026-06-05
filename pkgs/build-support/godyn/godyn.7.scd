@@ -22,8 +22,14 @@ cone rebuilds; a comment-only edit early-cuts).
 The public surface exposed on *pkgs* is:
 
 - *buildGodynModule* — build a Go module from a committed graph.json
+- *buildGoAuto* — pick godyn (dev) vs buildGoApplication (ci) by strategy
 - *godyn-gen* — the dev-time graph generator CLI
-- *godynStdlib* — the shared CGO_ENABLED=1 Go stdlib derivation
+- *godynStdlib* — the shared CGO_ENABLED=1 Go stdlib derivation, reused by every
+  per-package compile (built once, cached normally)
+
+The companion *nixgc*(1) reaps a godyn build's per-package outputs from the store
+(e.g. for a cold-build benchmark) without deleting a concurrent build's live
+shared inputs.
 
 # THE GENERATE-COMMIT-EVALUATE WORKFLOW
 
@@ -32,8 +38,16 @@ Like *gomod2nix*, godyn splits dev-time discovery from pure evaluation:
 . *godyn-gen <module-dir> <out-graph.json> [packages...]* runs
   *go list -deps -json* over the module and writes a committed *graph.json*
   (nodes: import path, dir, file kinds, embed patterns, in-graph imports).
-  Re-run it only when the import structure or file set changes — a content-only
-  edit does NOT need a regen (same contract as gomod2nix.toml).
+  *packages* defaults to *./...*; pass e.g. *./internal/foo/...* to scope the graph
+  to one subtree's transitive closure. Re-run it only when the import structure or
+  file set changes — a content-only edit does NOT need a regen (same contract as
+  gomod2nix.toml).
++
+*godyn-gen* reads *CGO_ENABLED* / *CC* / *GOFLAGS* from its environment (it does not
+set them): use *CGO_ENABLED=0* for a pure-Go module so file selection is clean, or
+*CGO_ENABLED=1* + *CC* for a cgo module so its CgoFiles populate; *GOFLAGS=-mod=vendor*
+when third-party deps are materialised into vendor/. Pin the same env in the
+regenerate and drift-check recipes so the output stays byte-deterministic.
 . *graph.json* is committed alongside *gomod2nix.toml*.
 . *buildGodynModule* reads the committed graph purely (no import-from-derivation).
 
@@ -94,6 +108,10 @@ Arguments:
 A module with a *package main* links a binary at *$out/bin/<pname>*; a library
 graph (no main) produces a compile-only manifest realising every archive.
 
+*//go:embed* is handled automatically: godyn-gen records each package's embed
+patterns + files, and the compile step writes an embedcfg and passes
+*go tool compile -embedcfg* (literal and simple suffix-glob patterns).
+
 # VERSION EMBEDDING
 
 Parity with *buildGoApplication* (gomod2nix(7), eng-versioning(7)). The main binary
@@ -117,4 +135,4 @@ exercised on x86_64-linux.
 
 # SEE ALSO
 
-*gomod2nix*(7), *go*(1)
+*nixgc*(1), *gomod2nix*(7), *mkGoPkgs*(7), *go*(1), *eng-versioning*(7)
