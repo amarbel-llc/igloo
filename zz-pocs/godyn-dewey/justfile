@@ -54,3 +54,46 @@ measure:
     echo "--- top 22 inline sources ---"
     grep 'inlining call to' m-dewey.txt | sed 's/.*inlining call to //; s/\..*//' \
       | sort | uniq -c | sort -rn | head -22
+
+# Edit-loop head-to-head over dewey's 74-package internal/delta closure:
+# native eval-graph (.#dewey-delta-native) vs recursive resolver (.#dewey-delta)
+# vs a bga proxy (whole-subtree `go build ./internal/delta/...` from a cold
+# GOCACHE — what buildGoApplication redoes in its fresh sandbox every edit).
+# Source is the dewey-src path: input; an edit propagates by editing the file +
+# `rm -f flake.lock`. Reverts via `git checkout` in the clone. Run the targets
+# once first (nix build .#dewey-delta-native .#dewey-delta) so both are warm.
+[group('bench')]
+bench-delta:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    D='{{pf}}/libs/dewey'
+    LEAF="$D/internal/delta/format/main.go"          # in-degree 0 -> cone ~1
+    FOUND="$D/internal/0/interfaces/coder.go"         # 22 direct dependents -> large cone
+    goStore=$(nix build --no-link --print-out-paths '{{godyn_poc}}#go-toolchain^out')
+    revert() { git -C '{{pf}}' checkout -- "$LEAF" "$FOUND" 2>/dev/null; rm -f flake.lock; }
+    probe()  { printf '\nfunc gdProbe%s() int { return %s }\n' "$RANDOM" "$RANDOM" >> "$1"; }
+    nixbuild() { # $1=target -> "<ms> <native-rebuilds>"
+      # rb counts DISTINCT native compile drvs (godyn-v2-compile-*): nix's -L
+      # prints "building '<drv>'" multiple times per CA derivation, so a plain
+      # grep -c overcounts (sort -u gives the true cone size). Recursive's inner
+      # compiles are named godyn-compile-* and don't match -> rb is blank for it;
+      # wall-clock is the metric there (its resolver re-runs nested in a wrapper).
+      local bt t0 t1 rb; bt=$(mktemp -d /tmp/bd.XXXXXX); rm -f flake.lock
+      t0=$(date +%s%3N); TMPDIR=$bt nix build ".#$1" -L --no-link >/dev/null 2>"$bt/e"; t1=$(date +%s%3N)
+      rb=$(grep -oE 'godyn-v2-compile-[a-z0-9.-]+' "$bt/e" 2>/dev/null | sort -u | wc -l); echo "$((t1-t0)) ${rb:-0}"
+    }
+    gobuild() { # bga proxy: whole-subtree compile from a cold GOCACHE -> "<ms>"
+      local t0 t1; t0=$(date +%s%3N)
+      ( cd "$D" && GOWORK=off GOFLAGS=-mod=mod GOPROXY=off CGO_ENABLED=1 CC=$(command -v cc) \
+        PATH="$goStore/bin:$PATH" GOCACHE=$(mktemp -d) go build ./internal/delta/... >/dev/null 2>&1 )
+      t1=$(date +%s%3N); echo $((t1-t0))
+    }
+    printf '%-20s %-12s %8s %7s\n' scenario approach ms nat-rb
+    revert
+    for a in dewey-delta-native dewey-delta; do read -r ms rb < <(nixbuild "$a"); printf '%-20s %-12s %8s %7s\n' warm "$a" "$ms" "$rb"; done
+    for ed in leaf:$LEAF foundational:$FOUND; do
+      name=${ed%%:*}; file=${ed#*:}
+      for a in dewey-delta-native dewey-delta; do revert; probe "$file"; read -r ms rb < <(nixbuild "$a"); printf '%-20s %-12s %8s %7s\n' "edit-$name" "$a" "$ms" "$rb"; done
+      revert; probe "$file"; printf '%-20s %-12s %8s %7s\n' "edit-$name" bga-proxy "$(gobuild)" -
+    done
+    revert; echo "(reverted clean)"

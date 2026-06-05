@@ -147,6 +147,63 @@ nix build .#tommy-auto-ci.native    # force native from the ci target
 nix eval  .#tommy-auto.backend      # "native"
 ```
 
+## Real-scale validation — dewey `internal/delta` (74 packages, cgo + asm + vendored)
+
+The toy/tommy comparison isolates the *architecture* on pure-Go modules. To
+confirm the result holds at real scale **and** with every compile-kind, the
+`cgo`/`asm` paths were ported into `native.nix` (the pure path is unchanged) and
+run over dewey's `internal/delta/...` closure — **74 packages** (39 dewey-local +
+35 third-party) exercising all of them in one graph:
+
+- **cgo** — `github.com/DataDog/zstd` (third-party C source + `CgoFiles`).
+- **asm** — `golang.org/x/sys/{unix,cpu}`, `golang.org/x/crypto/{chacha20poly1305,
+  internal/poly1305}` (Plan 9 `.s`).
+- **vendored third-party** — tommy + 30 others, sourced from the gomod2nix
+  `vendorEnv` by import path (apples-to-apples with `buildGoApplication`; the
+  cross-flake go-pkgs **bridge** is wired via `native.nix`'s `bridges` arg but
+  kept a separate demo).
+- **local** — 39 dewey packages from the in-repo module.
+
+The closure builds cold in ~37 s and the manifest realises all 74. The edit loop,
+measured head to head (`cd ../godyn-dewey && just bench-delta`) against the
+recursive resolver (`.#dewey-delta`, same source + stdlib) and a
+`buildGoApplication` proxy (a whole-subtree `go build ./internal/delta/...` from a
+cold `GOCACHE` — what bga redoes in its fresh sandbox every edit), median ms ·
+distinct packages native recompiled:
+
+| scenario | native (eval graph) | recursive (resolver) | bga (whole subtree) |
+|---|---|---|---|
+| warm | 868·0 | 973·0¹ | — (no incremental) |
+| edit-leaf (cone 1) | **1594**·1 | 8190 (5.1×)¹ | 21341 (13.4×) |
+| edit-foundational (cone 30) | **3089**·30 | 12376 (4.0×)¹ | 21840 (7.1×) |
+
+¹ recursive's per-package compiles run nested in the recursive-nix wrapper, so the
+outer `-L` doesn't count them — wall-clock is the metric. (×) = slowdown vs native.
+
+### What this measures — the crossover, now pinned
+
+1. **native beats the recursive resolver by 4–5× at 74 packages** — *larger* than
+   the 1.8–2× at toy/tommy scale, because the resolver's fixed cost (re-`go list` +
+   re-register all N + N cache-checks) grows with N while native's cone-rebuild
+   stays proportional to the *edit*. This **confirms the #26 prediction** that the
+   gap widens with scale (the README earlier inferred it from the 197-package
+   seqerror data; here it is directly measured on one target, three ways).
+2. **native beats `buildGoApplication` by 7–13× on edits** — bga has *no*
+   incremental rebuild (every edit re-runs the whole `go build` in a fresh nix
+   sandbox with an empty `GOCACHE`; Go's own incremental is ~60 ms, but nix throws
+   it away). So the ~21 s whole-subtree cost is paid on *every* edit regardless of
+   locality, while native rebuilds only the cone (1–30 of 74). This is the
+   crossover the toy/tommy modules were below: at 74 packages a local edit's cone
+   (1) is tiny against the whole (74), so native's per-derivation overhead ×cone is
+   far less than bga's mandatory whole rebuild.
+
+The earlier "bga beats native at small scale" result was the *foundational* edit on
+a *small* module (cone ≈ whole). Here, even the foundational edit (cone 30 of 74)
+keeps native ahead of bga (7.1×) — at this size the avoided whole-module rebuild
+already outweighs N × per-derivation overhead. The determinant remains **cone vs
+module size**; dewey is the first real module measured above the crossover on
+*both* axes (recursive and bga).
+
 ## The `godyn gen` contract
 
 `graph.json` is committed (like `gomod2nix.toml`) and regenerated with `just gen`
@@ -163,20 +220,28 @@ import-from-derivation and no build-time resolver.
   emitting per-package `local` (vs third-party) so `native.nix` can source local
   packages from the in-repo module and third-party from a gomod2nix vendorEnv.
 - `native.nix` — approach A: a graph → per-package CA derivations (reuses
-  `../godyn-poc/stdlib.nix`); compile-only manifest when there's no `main`.
+  `../godyn-poc/stdlib.nix`); compile-kind branch (pure / cgo / asm), `bridges`
+  arg for cross-flake go-pkgs, compile-only manifest when there's no `main`.
+- `cgo-test/` + `asm-test/` — standalone validation targets (`.#cgo-test-native`
+  zstd round-trip; `.#asm-test-native` hand-written amd64 `.s` → `Add(19,23)=42`).
 - `selector.nix` — `buildGoAuto`: dispatch native (dev) vs buildGoApplication (ci)
   by `strategy`, both reachable via passthru.
 - `sweep.sh` — the crossover sweep (synthetic modules via `--impure --expr`).
 - `flake.nix` — `.#{native,recursive,bga}` (toy), `.#tommy-{native,recursive,bga}`,
-  and `.#tommy-auto{,-ci}` (the selector); igloo input via `git+file:` (the #25 fix).
+  `.#tommy-auto{,-ci}` (selector), `.#{cgo,asm}-test-native`; igloo via `git+file:`.
 - `bench.sh` / `just bench <toy|tommy> [runs]` (JSON) · `just bench-md` (table) ·
   `just gen` · `just build`.
+- `../godyn-dewey/` — the 74-package real-scale target: `.#dewey-delta-native`
+  (this graph over dewey's `internal/delta`) and `just bench-delta` (native vs
+  recursive vs bga edit loop).
 
 ## Deferred (out of scope for the tracer bullet)
 
-Third-party FODs, cgo, Plan 9 asm, the flake-input bridge — all proven in the v1
-dewey POC, port into `native.nix` later. Enabling Determinate Nix **lazy-trees**
-(#27, kills the per-eval source read; daemon-side, needs host config) and the
-FOD-scope fix (#24). The native graph already removes the resolver re-run that
-was the residual cost after #25; lazy-trees + this together are the
-realistic-deployment story.
+cgo, Plan 9 asm, and the third-party `vendorEnv` path are now **ported and
+validated** (see the real-scale section above) — cgo/asm standalone, then all
+together on dewey. Still deferred: the cross-flake **bridge** (`bridges` arg is
+wired in `native.nix` but only the vendored path is benchmarked); enabling
+Determinate Nix **lazy-trees** (#27, kills the per-eval source read; daemon-side,
+needs host config); and the FOD-scope fix (#24). The native graph already removes
+the resolver re-run that was the residual cost after #25; lazy-trees + this
+together are the realistic-deployment story.

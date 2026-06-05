@@ -22,6 +22,13 @@ are tracked.
 - **D4 bridge** — source tommy from its `go-pkgs` (replace → store path). ✅ (`../godyn-poc` `.#bridge`)
 - **D5 full** — build dewey packages via godyn. ✅ scoped to `./internal/delta/...`
   (`.#dewey-delta`); full `./...` deferred (see below).
+- **D6 native** — the same `internal/delta` closure via godyn-v2's *eval-time*
+  graph (`.#dewey-delta-native`, `../godyn-v2/native.nix`; no recursive-nix), for
+  the real-scale head-to-head. ✅ `just bench-delta` (native vs recursive vs a bga
+  whole-subtree proxy): native is **4–5× the resolver** and **7–13× bga** on
+  edits at 74 packages (rebuilds the 1–30-package cone, not the whole subtree).
+  tommy is **vendored** here (apples-to-apples with bga), not bridged. Full
+  analysis: `../godyn-v2/README.md` § Real-scale validation.
 
 ### D2–D5: `.#dewey-delta` — 74-package build of `dewey/internal/delta/...`
 
