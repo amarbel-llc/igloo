@@ -1,0 +1,23 @@
+[
+  {
+    "importPath": "godyn-embed-test",
+    "dir": ".",
+    "name": "main",
+    "isMain": true,
+    "local": true,
+    "goFiles": [
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "embedFiles": [
+      "message.txt"
+    ],
+    "embedPatterns": [
+      "message.txt"
+    ],
+    "imports": null
+  }
+]

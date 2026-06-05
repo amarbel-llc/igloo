@@ -127,14 +127,14 @@ bench-delta:
     revert() { git -C '{{pf}}' checkout -- "$LEAF" "$FOUND" 2>/dev/null; rm -f flake.lock; }
     probe()  { printf '\nfunc gdProbe%s() int { return %s }\n' "$RANDOM" "$RANDOM" >> "$1"; }
     nixbuild() { # $1=target -> "<ms> <native-rebuilds>"
-      # rb counts DISTINCT native compile drvs (godyn-v2-compile-*): nix's -L
+      # rb counts DISTINCT native compile drvs (godyn-compile-*): nix's -L
       # prints "building '<drv>'" multiple times per CA derivation, so a plain
       # grep -c overcounts (sort -u gives the true cone size). Recursive's inner
       # compiles are named godyn-compile-* and don't match -> rb is blank for it;
       # wall-clock is the metric there (its resolver re-runs nested in a wrapper).
       local bt t0 t1 rb; bt=$(mktemp -d /tmp/bd.XXXXXX); rm -f flake.lock
       t0=$(date +%s%3N); TMPDIR=$bt nix build ".#$1" -L --no-link >/dev/null 2>"$bt/e"; t1=$(date +%s%3N)
-      rb=$(grep -oE 'godyn-v2-compile-[a-z0-9.-]+' "$bt/e" 2>/dev/null | sort -u | wc -l); echo "$((t1-t0)) ${rb:-0}"
+      rb=$(grep -oE 'godyn-compile-[a-z0-9.-]+' "$bt/e" 2>/dev/null | sort -u | wc -l); echo "$((t1-t0)) ${rb:-0}"
     }
     gobuild() { # bga proxy: whole-subtree compile from a cold GOCACHE -> "<ms>"
       local t0 t1; t0=$(date +%s%3N)
@@ -205,19 +205,24 @@ bench-record runs="3":
     nbuild() { # $1=nix-binary -> "<ms> <distinct-native-rebuilds>"
       local bt t0 t1 rb; bt=$(mktemp -d /tmp/br.XXXXXX); rm -f flake.lock
       t0=$(date +%s%3N); TMPDIR=$bt "$1" build .#dewey-delta-native -L --no-link >/dev/null 2>"$bt/e"; t1=$(date +%s%3N)
-      rb=$(grep -oE 'godyn-v2-compile-[a-z0-9.-]+' "$bt/e" 2>/dev/null | sort -u | wc -l); echo "$((t1-t0)) ${rb:-0}"
+      rb=$(grep -oE 'godyn-compile-[a-z0-9.-]+' "$bt/e" 2>/dev/null | sort -u | wc -l); echo "$((t1-t0)) ${rb:-0}"
     }
     nuke() { # targeted GC of the builder's store paths so the next build is cold.
-             # Deletes godyn-v2 .drvs FIRST (the CA referrers of the compile outputs),
-             # then the outputs/src/manifest, in one nix-store --delete. Referrers-
-             # before-referents is the required order (spinclass internal/nixgc; see
-             # igloo#28). Nix's liveness refusal keeps the externally-rooted base
-             # (go, stdlib, cc, vendor tree, module FODs) — this is cold COMPILE +
-             # source re-copy, not cold download.
-      { ls -d /nix/store/*-godyn-v2-*.drv 2>/dev/null
-        ls -d /nix/store/*-godyn-v2-compile-* /nix/store/*-godyn-v2-src-* \
-              /nix/store/*-godyn-v2-godyn-dewey-delta-manifest 2>/dev/null | grep -vE '\.drv'
-      } | xargs -r "$NS" --delete >/dev/null 2>&1 || true
+             # Deletes godyn-compile .drvs FIRST (the CA referrers of the compile
+             # outputs), then the outputs/src/manifest, in one nix-store --delete.
+             # Referrers-before-referents is the required order (spinclass
+             # internal/nixgc; see igloo#28). Nix's liveness refusal keeps the
+             # externally-rooted base (go, stdlib, cc, vendor tree, module FODs) —
+             # this is cold COMPILE + source re-copy, not cold download.
+      # Exclude the godyn-* test fixtures (godyn-compile-godyn-embed-test etc.) —
+      # they share the godyn-compile-/godyn-src- prefix but are pinned by the igloo
+      # flake-check derivations, which would abort the delete. dewey packages are
+      # godyn-compile-github-com-…/golang-org-…, never godyn-compile-godyn-…. (A
+      # proper closure-scoped nuke awaits the nixgc extraction, igloo#28.)
+      { ls -d /nix/store/*-godyn-compile-*.drv /nix/store/*-godyn-dewey-delta-manifest.drv 2>/dev/null
+        ls -d /nix/store/*-godyn-compile-* /nix/store/*-godyn-src-* \
+              /nix/store/*-godyn-dewey-delta-manifest 2>/dev/null | grep -vE '\.drv'
+      } | grep -vE 'godyn-(compile|src)-godyn-' | xargs -r "$NS" --delete >/dev/null 2>&1 || true
     }
     rec() { printf '{"when":"%s","commit":"%s","dirty":%s,"nix":"%s","metric":"%s","value":%s}\n' "$when" "$commit" "$dirty" "$1" "$2" "$3" >> "$HIST"; }
     revert

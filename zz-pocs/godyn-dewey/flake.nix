@@ -71,25 +71,27 @@
         src = dewey-src;
         modules = ./dewey-gomod2nix.toml;
       }).passthru.vendorEnv;
-      deweyDeltaNative = pkgs.callPackage ../godyn-v2/native.nix {
-        inherit go stdlib;
+      # Consumes the EXTRACTED builder (pkgs.buildGodynModule, igloo overlay) — this
+      # is the regression test that the productionized builder still builds dewey's
+      # cgo+asm+vendored+local closure identically. (The toy/tommy/cgo/asm experiment
+      # targets in zz-pocs/godyn-v2 keep their in-place native.nix.)
+      deweyDeltaNative = pkgs.buildGodynModule {
         src = dewey-src;
         graphFile = ./dewey-delta-graph.json;
         vendorEnv = deweyVendorEnv;
         cc = pkgs.stdenv.cc;
-        pname = "godyn-dewey-delta";
+        pname = "dewey-delta";
       };
       # #27 experiment: same build but local packages sourced straight from the
-      # dewey-src flake input (lazySrc) instead of per-package builtins.path copies,
-      # to measure whether builtins.path is what defeats lazy-trees. Trades
-      # per-package incrementality for the lazy read (see native.nix lazySrc note).
-      deweyDeltaNativeLazy = pkgs.callPackage ../godyn-v2/native.nix {
-        inherit go stdlib;
+      # dewey-src flake input (lazySrc) instead of per-package builtins.path copies.
+      # Trades per-package incrementality for the lazy read (measured a lazy-trees
+      # no-op; see the bench-history nix dimension).
+      deweyDeltaNativeLazy = pkgs.buildGodynModule {
         src = dewey-src;
         graphFile = ./dewey-delta-graph.json;
         vendorEnv = deweyVendorEnv;
         cc = pkgs.stdenv.cc;
-        pname = "godyn-dewey-delta";
+        pname = "dewey-delta";
         lazySrc = true;
       };
 

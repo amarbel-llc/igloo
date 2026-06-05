@@ -47,6 +47,16 @@ final: prev: {
     mkGoPkgs
     ;
 
+  # godyn — per-package Go builder (one CA derivation per package; nix schedules
+  # the merkle-delta on edits). buildGodynModule consumes a committed graph.json
+  # (produced by godyn-gen) + a gomod2nix.toml/vendorEnv for third-party deps.
+  inherit
+    (final.callPackage ../pkgs/build-support/godyn { })
+    buildGodynModule
+    godyn-gen
+    godynStdlib
+    ;
+
   gomod2nix = final.callPackage ../pkgs/build-support/gomod2nix/cli {
     inherit (final) buildGoApplication go;
   };
@@ -74,6 +84,24 @@ final: prev: {
         [ -e "$f" ] || continue
         scdoc < "$f" > "$out/share/man/man5/$(basename "$f" .scd)"
       done
+      for f in $src/*.7.scd; do
+        [ -e "$f" ] || continue
+        scdoc < "$f" > "$out/share/man/man7/$(basename "$f" .scd)"
+      done
+    '';
+  };
+
+  # godyn(7) man page (scdoc), validated as a flake check so syntax errors are
+  # caught by the pre-merge hook. Mirrors gomod2nix-man.
+  godyn-man = final.stdenvNoCC.mkDerivation {
+    pname = "godyn-man";
+    version = "0.1.0";
+    src = ../pkgs/build-support/godyn;
+    nativeBuildInputs = [ final.scdoc ];
+    dontUnpack = true;
+    dontBuild = true;
+    installPhase = ''
+      mkdir -p $out/share/man/man7
       for f in $src/*.7.scd; do
         [ -e "$f" ] || continue
         scdoc < "$f" > "$out/share/man/man7/$(basename "$f" .scd)"

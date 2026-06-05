@@ -68,6 +68,24 @@
           nix-man = pkgs.nix.man;
           default = pkgs.claude-code;
 
+          # -- godyn build-test fixtures --
+          # Exercise buildGodynModule's two productionization features end to end:
+          # go:embed (-embedcfg) and -ldflags version stamping. Built as packages so
+          # `nix build .#godyn-{embed,ldflags}-test` produces a runnable binary; the
+          # checks below assert their output.
+          inherit (pkgs) godyn-gen;
+          godyn-embed-test = pkgs.buildGodynModule {
+            pname = "godyn-embed-test";
+            src = ./pkgs/build-support/godyn/tests/embed;
+            graphFile = ./pkgs/build-support/godyn/tests/embed/graph.json;
+          };
+          godyn-ldflags-test = pkgs.buildGodynModule {
+            pname = "godyn-ldflags-test";
+            src = ./pkgs/build-support/godyn/tests/ldflags;
+            graphFile = ./pkgs/build-support/godyn/tests/ldflags/graph.json;
+            ldflags = "-X main.version=phase1";
+          };
+
           # -- bun2nix test fixtures --
           # Exercise buildBunBinary / buildZxScript / buildZxScriptFromFile
           # against pinned source trees so the surface area is build-tested
@@ -154,6 +172,7 @@
           claude-code = pkgs.claude-code;
           gomod2nix = pkgs.gomod2nix;
           gomod2nix-man = pkgs.gomod2nix-man;
+          godyn-man = pkgs.godyn-man;
           nix-man = pkgs.nix.man;
 
           bun2nix-lint-stack-up-to-date = import ./pkgs/build-support/bun2nix/lint/check.nix {
@@ -186,6 +205,21 @@
             test-bin-no-process-exit
             test-bin-process-exit-disabled
             ;
+
+          # godyn: run the fixture binaries and assert their output, so a regression
+          # in the go:embed (-embedcfg) or ldflags (-X) path fails the pre-merge hook.
+          godyn-embed-test = pkgs.runCommandLocal "godyn-embed-test-check" { } ''
+            got=$(${self.packages.${system}.godyn-embed-test}/bin/godyn-embed-test)
+            want="godyn embed works"
+            [ "$got" = "$want" ] || { echo "embed mismatch: got [$got] want [$want]" >&2; exit 1; }
+            echo OK > $out
+          '';
+          godyn-ldflags-test = pkgs.runCommandLocal "godyn-ldflags-test-check" { } ''
+            got=$(${self.packages.${system}.godyn-ldflags-test}/bin/godyn-ldflags-test)
+            want="version=phase1"
+            [ "$got" = "$want" ] || { echo "ldflags mismatch: got [$got] want [$want]" >&2; exit 1; }
+            echo OK > $out
+          '';
         }
       );
 
