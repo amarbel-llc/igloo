@@ -21,7 +21,10 @@
 }:
 {
   pname,
-  version ? "0",
+  # Version embedding (parity with buildGoApplication, eng-versioning(7)): an
+  # explicit `version` wins; else a `version.env` (declaring <PKG>_VERSION) in the
+  # module dir is auto-read; else "dev". Drives -X main.version.
+  version ? null,
   src, # the main module's source root (a flake input — local packages live under it)
   graphFile, # ./godyn-graph.json (committed, produced by godyn-gen)
   # Third-party packages come from a gomod2nix vendor tree. Pass `modules`
@@ -29,10 +32,24 @@
   # `vendorEnv` directly. null for an all-local module.
   modules ? null,
   vendorEnv ? null,
-  # ldflags: free-form linker flags for the main binary, e.g.
-  # "-X main.version=1.2.3 -X main.commit=abc -s -w" (-X/-s/-w are native
-  # `go tool link` flags, passed through verbatim). Empty for libraries.
-  ldflags ? "",
+  # pwd: the module dir read for version.env (defaults to src). commit: embedded
+  # as -X main.commit, from the flake input's rev unless overridden.
+  pwd ? null,
+  commit ?
+    if src != null && src ? rev then
+      src.rev
+    else if src != null && src ? shortRev then
+      src.shortRev
+    else
+      "unknown",
+  # ldflags: extra `go tool link` flags as a LIST, e.g. [ "-s" "-w" ] or a raw
+  # [ "-X pkg.sym=val" ]. ldflagsX: the structured convenience — an attrset
+  # { "importpath.name" = "value"; } rendered to -X tokens (appended last, so
+  # last-wins). main.version / main.commit are auto-injected ahead of both; an
+  # ldflagsX key colliding with an already-set -X throws unless overwriteLdflagsX.
+  ldflags ? [ ],
+  ldflagsX ? { },
+  overwriteLdflagsX ? false,
   # cc: a stdenv cc-wrapper, required iff any package is cgo (zstd etc.).
   cc ? null,
   # bridges: modpath -> go-pkgs store path; a package whose module is bridged is
@@ -52,9 +69,46 @@ let
     if vendorEnv != null then
       vendorEnv
     else if modules != null then
-      (buildGoApplication { inherit pname version src modules; }).passthru.vendorEnv
+      # The vendor tree is version-independent; let buildGoApplication resolve its
+      # own version (don't thread godyn's null version through).
+      (buildGoApplication { inherit pname src modules; }).passthru.vendorEnv
     else
       null;
+
+  # version.env auto-read + ldflags assembly — parity with buildGoApplication
+  # (gomod2nix default.nix:794-870). Explicit version > version.env > "dev".
+  effectivePwd = if pwd != null then pwd else src;
+  versionEnvPath = "${toString effectivePwd}/version.env";
+  versionFromEnv =
+    if builtins.pathExists versionEnvPath then
+      let m = builtins.match ".*_VERSION=([^[:space:]]+).*" (builtins.readFile versionEnvPath); in
+      if m != null then builtins.elemAt m 0 else null
+    else
+      null;
+  effectiveVersion =
+    if version != null then version
+    else if versionFromEnv != null then versionFromEnv
+    else "dev";
+  versionLdflags = [
+    "-X main.version=${effectiveVersion}"
+    "-X main.commit=${commit}"
+  ];
+  # Symbol (importpath.name) from a single `-X SYM=VAL` entry; null for non-X flags.
+  ldflagXSymbol = entry: let m = builtins.match "-X[ =]([^=]+)=.*" entry; in if m != null then builtins.elemAt m 0 else null;
+  claimedXSymbols = builtins.filter (s: s != null) (map ldflagXSymbol (versionLdflags ++ ldflags));
+  ldflagsXCollisions = builtins.filter (k: builtins.elem k claimedXSymbols) (builtins.attrNames ldflagsX);
+  ldflagsXFlags =
+    if ldflagsXCollisions != [ ] && !overwriteLdflagsX then
+      throw ''
+        buildGodynModule: ldflagsX would overwrite -X symbol(s) already set by the
+        auto-injected version/commit ldflags or the `ldflags` list:
+          ${lib.concatStringsSep ", " ldflagsXCollisions}
+        Pass `overwriteLdflagsX = true` to let ldflagsX win, or drop the key(s).''
+    else
+      lib.mapAttrsToList (name: value: "-X ${name}=${value}") ldflagsX;
+  # Joined into the `go tool link` argv (unquoted in the script -> word-split, so
+  # each `-X a.b=c` becomes the two tokens the linker wants).
+  effectiveLdflagsStr = lib.concatStringsSep " " (versionLdflags ++ ldflags ++ ldflagsXFlags);
 
   graph = builtins.fromJSON (builtins.readFile graphFile);
   byImport = lib.listToAttrs (map (p: lib.nameValuePair p.importPath p) graph);
@@ -238,7 +292,7 @@ let
         ${cfgFor importPath "importcfg.link"}
         GOTOOLDIR="$(go env GOTOOLDIR)"
         export GOROOT=
-        "$GOTOOLDIR/link" -buildid=redacted -buildmode=exe ${lib.optionalString mainCgo "-extld ${cc}/bin/cc"} ${ldflags} -importcfg importcfg.link \
+        "$GOTOOLDIR/link" -buildid=redacted -buildmode=exe ${lib.optionalString mainCgo "-extld ${cc}/bin/cc"} ${effectiveLdflagsStr} -importcfg importcfg.link \
           -o "$out/bin/${pname}" "$out/pkg.a"
       '';
     in
@@ -265,5 +319,15 @@ let
       (p: "test -s ${pkgDrvs.${p.importPath}}/pkg.a && echo '${p.importPath}' >> $out")
       graph
   );
+
+  terminal = if mainPkg != null then pkgDrvs.${mainPkg.importPath} else manifest;
 in
-if mainPkg != null then pkgDrvs.${mainPkg.importPath} else manifest
+# Surface the resolved version + assembled ldflags (parity with buildGoApplication,
+# and so eval-time tests can assert without building); set mainProgram for `nix run`.
+terminal.overrideAttrs (old: {
+  passthru = (old.passthru or { }) // {
+    version = effectiveVersion;
+    ldflags = versionLdflags ++ ldflags ++ ldflagsXFlags;
+  };
+  meta = (old.meta or { }) // lib.optionalAttrs (mainPkg != null) { mainProgram = pname; };
+})

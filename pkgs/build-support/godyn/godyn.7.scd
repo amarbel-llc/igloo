@@ -42,30 +42,51 @@ Like *gomod2nix*, godyn splits dev-time discovery from pure evaluation:
 ```
 pkgs.buildGodynModule {
   pname = "myapp";
-  version = "0.1.0";
   src = self;                     # the flake source
   graphFile = ./godyn-graph.json; # committed, from godyn-gen
   modules = ./gomod2nix.toml;     # third-party -> vendorEnv (or pass vendorEnv=)
-  ldflags = "-X main.version=1.2.3 -X main.commit=abc -s -w";  # optional
+  # version + commit are injected automatically (see VERSION EMBEDDING);
+  # extra flags optional:
+  ldflags = [ "-s" "-w" ];
+  ldflagsX = { "main.channel" = "stable"; };
 }
 ```
 
 Arguments:
 
-- *pname*, *version* — as for buildGoApplication.
+- *pname* — package name; also the binary name.
 - *src* — the module source root (a flake input); local packages live under it.
 - *graphFile* — the committed graph.json produced by godyn-gen.
 - *modules* — a gomod2nix.toml; its vendorEnv (third-party sources by import path)
   is derived internally via buildGoApplication. Omit for an all-local module.
 - *vendorEnv* — alternatively pass a prebuilt vendor tree directly.
-- *ldflags* — free-form *go tool link* flags for the main binary, e.g.
-  *-X importpath.name=value*, *-s*, *-w*. Passed through verbatim.
+- *version*, *pwd*, *commit* — see VERSION EMBEDDING below.
+- *ldflags* — extra *go tool link* flags as a LIST (e.g. *[ "-s" "-w" ]*, or a raw
+  *[ "-X pkg.sym=val" ]*).
+- *ldflagsX* — the structured *-X* convenience: an attrset *{ "importpath.name" =
+  "value"; }* rendered to *-X* tokens, appended last (Go's *-X* is last-wins). A key
+  colliding with an already-set *-X* throws unless *overwriteLdflagsX = true*.
 - *cc* — a stdenv cc-wrapper, required iff any package is cgo.
 - *bridges* — modpath -> go-pkgs store path for cross-flake source.
 - *system*, *goVersion* — target tuning.
 
 A module with a *package main* links a binary at *$out/bin/<pname>*; a library
 graph (no main) produces a compile-only manifest realising every archive.
+
+# VERSION EMBEDDING
+
+Parity with *buildGoApplication* (gomod2nix(7), eng-versioning(7)). The main binary
+gets *-X main.version* and *-X main.commit* auto-injected — no per-repo ldflags
+boilerplate:
+
+- *main.version*: an explicit *version* argument wins; else a *version.env* in the
+  module dir (declaring <PACKAGE>\_VERSION=<sem>, optional *export*) is auto-read;
+  else *"dev"*. *pwd* overrides which dir is read (default *src*).
+- *main.commit*: the flake input's *rev* / *shortRev*, falling back to *"unknown"*;
+  override with the *commit* argument.
+
+The resolved version and assembled ldflag list are exposed as *passthru.version* and
+*passthru.ldflags*.
 
 # LIMITATIONS
 

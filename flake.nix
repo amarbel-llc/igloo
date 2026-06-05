@@ -83,7 +83,12 @@
             pname = "godyn-ldflags-test";
             src = ./pkgs/build-support/godyn/tests/ldflags;
             graphFile = ./pkgs/build-support/godyn/tests/ldflags/graph.json;
-            ldflags = "-X main.version=phase1";
+            # No explicit version -> version.env (9.9.9) is auto-read; commit falls
+            # back to "unknown" (the path src has no rev); channel via the structured
+            # ldflagsX convenience.
+            ldflagsX = {
+              "main.channel" = "stable";
+            };
           };
 
           # -- bun2nix test fixtures --
@@ -216,7 +221,7 @@
           '';
           godyn-ldflags-test = pkgs.runCommandLocal "godyn-ldflags-test-check" { } ''
             got=$(${self.packages.${system}.godyn-ldflags-test}/bin/godyn-ldflags-test)
-            want="version=phase1"
+            want="version=9.9.9 commit=unknown channel=stable"
             [ "$got" = "$want" ] || { echo "ldflags mismatch: got [$got] want [$want]" >&2; exit 1; }
             echo OK > $out
           '';
