@@ -142,7 +142,10 @@ bench-delta:
         PATH="$goStore/bin:$PATH" GOCACHE=$(mktemp -d) go build ./internal/delta/... >/dev/null 2>&1 )
       t1=$(date +%s%3N); echo $((t1-t0))
     }
-    rec() { printf '{"when":"%s","commit":"%s","dirty":%s,"metric":"%s","value":%s}\n' "$when" "$commit" "$dirty" "$1" "$2" >> "$HIST"; }
+    # bench-delta runs the devshell (upstream) nix; tag records accordingly. The
+    # nix-client dimension (upstream vs Determinate/lazy-trees) is exercised in
+    # bench-record, which loops both clients.
+    rec() { printf '{"when":"%s","commit":"%s","dirty":%s,"nix":"upstream","metric":"%s","value":%s}\n' "$when" "$commit" "$dirty" "$1" "$2" >> "$HIST"; }
     printf '%-20s %-12s %8s %7s\n' scenario approach ms nat-rb
     revert
     read -r nwms nwrb < <(nixbuild dewey-delta-native); printf '%-20s %-12s %8s %7s\n' warm dewey-delta-native "$nwms" "$nwrb"
@@ -169,47 +172,82 @@ bench-delta:
     prevfod=$(grep '"metric":"fod_modules"' "$HIST" | jq -s 'if length>1 then .[-2].value else empty end' 2>/dev/null)
     if [ -n "${prevfod:-}" ]; then echo "  fod_modules vs previous record: $prevfod -> $fodmods"; fi
 
-# Fast versioned record of OUR builder's cumulative metrics (native-only, no
-# recursive/bga — those are the slow comparison baselines in bench-delta). Stamps
-# {commit, dirty, when} and appends to bench-history.jsonl. Deterministic metrics
-# (fod_modules, manifest_pkgs, cone_leaf, cone_found) are the reliable cumulative
-# signal; native_*_ms are wall-clock (single-run, indicative). Run after a change
-# to record progress; `just bench-history` to view the timeline.
+# Versioned record of OUR builder's metrics across the NIX-CLIENT dimension —
+# upstream (devshell pkgs.nix, no lazy-trees) vs Determinate (system, lazy-trees
+# on). Per scenario the two clients run INTERLEAVED (back-to-back on the same store
+# state) and each warm/leaf/found *_ms is the MEDIAN over `runs` passes, so the
+# order/warming confound cancels. The COLD scenario NUKES the builder's store paths
+# (per-package compile outputs, local-source copies, vendor tree, manifest) before
+# each client builds, so cold-upstream vs cold-determinate exposes lazy-trees'
+# eval-time source-copy avoidance (warm can't — the source store path is shared
+# once any client materialises it). Deterministic metrics (fod_modules,
+# manifest_pkgs, cone_*) are nix-independent (nix="na"). `just bench-history` views.
 [group('bench')]
-bench-record:
+bench-record runs="3":
     #!/usr/bin/env bash
     set -uo pipefail
     D='{{pf}}/libs/dewey'
     LEAF="$D/internal/delta/format/main.go"
     FOUND="$D/internal/0/interfaces/coder.go"
     HIST=bench-history.jsonl
+    RUNS={{runs}}
     commit=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
     dirty=false; [ -n "$(git status --porcelain 2>/dev/null)" ] && dirty=true
     when=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    UP=$(command -v nix)
+    NS="${UP}-store"
+    DET=/nix/var/nix/profiles/default/bin/nix
+    [ -x "$DET" ] || DET=""
+    NIXES="upstream:$UP determinate:$DET"
     revert() { git -C '{{pf}}' checkout -- "$LEAF" "$FOUND" 2>/dev/null; rm -f flake.lock; }
     probe()  { printf '\nfunc gdProbe%s() int { return %s }\n' "$RANDOM" "$RANDOM" >> "$1"; }
-    nbuild() { # -> "<ms> <distinct-native-rebuilds>"
+    median() { tr ' ' '\n' | grep -v '^$' | sort -n | awk '{a[NR]=$1} END{print (NR? a[int((NR+1)/2)] : 0)}'; }
+    nbuild() { # $1=nix-binary -> "<ms> <distinct-native-rebuilds>"
       local bt t0 t1 rb; bt=$(mktemp -d /tmp/br.XXXXXX); rm -f flake.lock
-      t0=$(date +%s%3N); TMPDIR=$bt nix build .#dewey-delta-native -L --no-link >/dev/null 2>"$bt/e"; t1=$(date +%s%3N)
+      t0=$(date +%s%3N); TMPDIR=$bt "$1" build .#dewey-delta-native -L --no-link >/dev/null 2>"$bt/e"; t1=$(date +%s%3N)
       rb=$(grep -oE 'godyn-v2-compile-[a-z0-9.-]+' "$bt/e" 2>/dev/null | sort -u | wc -l); echo "$((t1-t0)) ${rb:-0}"
     }
-    rec() { printf '{"when":"%s","commit":"%s","dirty":%s,"metric":"%s","value":%s}\n' "$when" "$commit" "$dirty" "$1" "$2" >> "$HIST"; }
+    nuke() { # targeted GC of the builder's store paths so the next build is cold.
+             # Deletes godyn-v2 .drvs FIRST (the CA referrers of the compile outputs),
+             # then the outputs/src/manifest, in one nix-store --delete. Referrers-
+             # before-referents is the required order (spinclass internal/nixgc; see
+             # igloo#28). Nix's liveness refusal keeps the externally-rooted base
+             # (go, stdlib, cc, vendor tree, module FODs) — this is cold COMPILE +
+             # source re-copy, not cold download.
+      { ls -d /nix/store/*-godyn-v2-*.drv 2>/dev/null
+        ls -d /nix/store/*-godyn-v2-compile-* /nix/store/*-godyn-v2-src-* \
+              /nix/store/*-godyn-v2-godyn-dewey-delta-manifest 2>/dev/null | grep -vE '\.drv'
+      } | xargs -r "$NS" --delete >/dev/null 2>&1 || true
+    }
+    rec() { printf '{"when":"%s","commit":"%s","dirty":%s,"nix":"%s","metric":"%s","value":%s}\n' "$when" "$commit" "$dirty" "$1" "$2" "$3" >> "$HIST"; }
     revert
-    manifest=$(nix build .#dewey-delta-native --no-link --print-out-paths 2>/dev/null)
+    manifest=$("$UP" build .#dewey-delta-native --no-link --print-out-paths 2>/dev/null)
     pkgs=$(wc -l < "$manifest" 2>/dev/null | tr -d ' '); pkgs=${pkgs:-0}
     fodmods=$(grep -cE '^  \[mod\.' dewey-gomod2nix.toml)
     recfod=$(grep -c . dewey-delta.lock 2>/dev/null || echo 0)
-    read -r wms _   < <(nbuild)
-    revert; probe "$LEAF";  read -r lms lrb < <(nbuild)
-    revert; probe "$FOUND"; read -r fms frb < <(nbuild)
+    rec na fod_modules "$fodmods"; rec na recursive_fod_modules "$recfod"; rec na manifest_pkgs "$pkgs"
+    declare -A W L F C
+    cone_leaf=0; cone_found=0
+    for r in $(seq "$RUNS"); do
+      revert
+      for nx in $NIXES; do n=${nx%%:*}; bin=${nx#*:}; [ -n "$bin" ] || continue; read -r ms _ < <(nbuild "$bin"); W[$n]+="$ms "; done
+      for nx in $NIXES; do n=${nx%%:*}; bin=${nx#*:}; [ -n "$bin" ] || continue; revert; probe "$LEAF";  read -r ms rb < <(nbuild "$bin"); L[$n]+="$ms "; cone_leaf=$rb; done
+      for nx in $NIXES; do n=${nx%%:*}; bin=${nx#*:}; [ -n "$bin" ] || continue; revert; probe "$FOUND"; read -r ms rb < <(nbuild "$bin"); F[$n]+="$ms "; cone_found=$rb; done
+    done
     revert
-    rec fod_modules "$fodmods"; rec recursive_fod_modules "$recfod"; rec manifest_pkgs "$pkgs"
-    rec cone_leaf "${lrb:-0}"; rec cone_found "${frb:-0}"
-    rec native_warm_ms "$wms"; rec native_leaf_ms "$lms"; rec native_found_ms "$fms"
-    echo "recorded at $commit (dirty=$dirty): fod_modules=$fodmods manifest_pkgs=$pkgs cone_leaf=$lrb cone_found=$frb"
-    echo "  native ms warm=$wms leaf=$lms found=$fms"
-    prevfod=$(grep '"metric":"fod_modules"' "$HIST" | jq -s 'if length>1 then .[-2].value else empty end' 2>/dev/null)
-    if [ -n "${prevfod:-}" ]; then echo "  fod_modules vs previous record: $prevfod -> $fodmods"; fi
+    rec na cone_leaf "$cone_leaf"; rec na cone_found "$cone_found"
+    # cold: nuke before each client (N=1; expensive full rebuild, low noise)
+    for nx in $NIXES; do n=${nx%%:*}; bin=${nx#*:}; [ -n "$bin" ] || continue; nuke; revert; read -r ms _ < <(nbuild "$bin"); C[$n]=$ms; done
+    revert
+    printf '%-12s %8s %8s %8s %8s   (median of %s; cold N=1)\n' nix warm leaf found cold "$RUNS"
+    for nx in $NIXES; do
+      n=${nx%%:*}; bin=${nx#*:}
+      [ -n "$bin" ] || { echo "$n: nix not found, skipped"; continue; }
+      wm=$(echo "${W[$n]:-}" | median); lm=$(echo "${L[$n]:-}" | median); fm=$(echo "${F[$n]:-}" | median); cm=${C[$n]:-0}
+      rec "$n" native_warm_ms "$wm"; rec "$n" native_leaf_ms "$lm"; rec "$n" native_found_ms "$fm"; rec "$n" native_cold_ms "$cm"
+      printf '%-12s %8s %8s %8s %8s\n' "$n" "$wm" "$lm" "$fm" "$cm"
+    done
+    echo "recorded at $commit (dirty=$dirty): fod_modules=$fodmods recursive_fod=$recfod manifest_pkgs=$pkgs cones=$cone_leaf/$cone_found"
 
 # Versioned benchmark timeline (bench-history.jsonl): each metric's value per
 # recorded commit, so cumulative improvements (e.g. fod_modules 89 -> 11) are
@@ -220,11 +258,11 @@ bench-history:
     #!/usr/bin/env bash
     set -euo pipefail
     [ -f bench-history.jsonl ] || { echo "no bench-history.jsonl yet — run: just bench-delta"; exit 0; }
-    echo "metric              values (oldest -> newest, commit=value)"
+    echo "metric                 values (oldest -> newest, commit/nix=value)"
     for m in fod_modules recursive_fod_modules manifest_pkgs cone_leaf cone_found \
-             native_leaf_ms recursive_leaf_ms bga_leaf_ms \
-             native_found_ms recursive_found_ms bga_found_ms; do
-      printf '%-22s' "$m"
-      jq -r --arg m "$m" 'select(.metric==$m) | "\(.commit)=\(.value)"' bench-history.jsonl | tr '\n' ' '
+             native_cold_ms native_warm_ms native_leaf_ms native_found_ms \
+             recursive_leaf_ms bga_leaf_ms recursive_found_ms bga_found_ms; do
+      printf '%-22s ' "$m"
+      jq -r --arg m "$m" 'select(.metric==$m) | "\(.commit)/\(.nix // "up")=\(.value)"' bench-history.jsonl | tr '\n' ' '
       echo
     done

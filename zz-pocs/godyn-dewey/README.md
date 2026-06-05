@@ -95,6 +95,42 @@ benchmark (`just bench-record` / `just bench-history`). The remaining throughput
 cost is the `path:` worktree input re-copying `.tmp` on every eval (~24s warm
 floor) — separate from FODs.
 
+## Nix client dimension — Determinate lazy-trees measured (no benefit)
+
+`bench-record` records `native_*_ms` across a **nix-client dimension**: `upstream`
+(the devShell's `pkgs.nix`, which doesn't know `lazy-trees`) vs `determinate` (the
+system Determinate Nix 3.20.0, `lazy-trees = true`). The two clients run
+**interleaved per scenario** (back-to-back on the same store state) with the
+warm/leaf/found timing taken as the **median over `runs` passes**, so the
+order/warming confound cancels. A **cold** scenario nukes the builder's store paths
+first — a targeted GC (delete the `godyn-v2` `.drv`s *before* their CA outputs, in
+one `nix-store --delete`; nix's liveness refusal keeps the rooted base — the
+spinclass `internal/nixgc` technique, igloo#28) — so cold-upstream vs
+cold-determinate would expose any eval-time source-copy avoidance.
+
+Result (median of 5; cold N=1): **lazy-trees buys nothing here.**
+
+| nix client | warm | leaf | found | cold |
+|---|---|---|---|---|
+| upstream (no lazy-trees) | 1154 | 1788 | 3532 | 47343 |
+| determinate (lazy-trees) | 982 | 1797 | 3699 | 61012 |
+
+The differences are noise-level and inconsistent in direction across run counts
+(an early *non-interleaved* run showed determinate "2× faster on warm" — that was
+purely the order confound, gone once interleaved). Cold is **compile-dominated**
+(~45–60s of `go tool compile`), so the source copy lazy-trees targets is invisible
+against it. **Why it can't help:** `native.nix` materialises every local package
+via `builtins.path` (an explicit eager copy) and every third-party package from the
+`vendorEnv` derivation, both at eval time regardless of lazy-trees; and #25 already
+removed the only large copy. The `lazySrc` experiment (`.#dewey-delta-native-lazy`,
+`native.nix` `lazySrc=true`) sources locals straight from the `dewey-src` flake
+input to let lazy-trees engage — but it made determinate *slower* (1646 vs 1061ms
+warm) **and** broke per-package incrementality (a one-file edit rebuilds all **39**
+local packages, not 1, because a bare `src + "/dir"` re-hashes the whole input).
+So `builtins.path` is load-bearing and lazy-trees is a no-op for this workload;
+#25 captured the source-copy win already. (`eval-cores`, the related Determinate
+parallel-eval lever, is also recognised by the Determinate client but unmeasured.)
+
 ### godyn vs `buildGoApplication` — the nix builder it would replace
 
 This is the comparison that matters: both are hermetic nix builds.

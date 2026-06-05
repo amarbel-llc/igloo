@@ -79,6 +79,19 @@
         cc = pkgs.stdenv.cc;
         pname = "godyn-dewey-delta";
       };
+      # #27 experiment: same build but local packages sourced straight from the
+      # dewey-src flake input (lazySrc) instead of per-package builtins.path copies,
+      # to measure whether builtins.path is what defeats lazy-trees. Trades
+      # per-package incrementality for the lazy read (see native.nix lazySrc note).
+      deweyDeltaNativeLazy = pkgs.callPackage ../godyn-v2/native.nix {
+        inherit go stdlib;
+        src = dewey-src;
+        graphFile = ./dewey-delta-graph.json;
+        vendorEnv = deweyVendorEnv;
+        cc = pkgs.stdenv.cc;
+        pname = "godyn-dewey-delta";
+        lazySrc = true;
+      };
 
       # D5: dewey's internal/delta/... subtree — 18 dewey packages whose closure
       # exercises cgo (zstd via compression_type), the tommy bridge
@@ -142,6 +155,7 @@
         dewey-delta = deweyDelta.target;
         # Approach A on the same closure: the native eval-time graph manifest.
         dewey-delta-native = deweyDeltaNative;
+        dewey-delta-native-lazy = deweyDeltaNativeLazy;
         # The gomod2nix vendor tree native sources third-party packages from.
         # Exposed so `just bench-delta` can count its module FODs (the #24 metric:
         # after `just gen-scoped-toml` the toml is scoped to the graph, so this

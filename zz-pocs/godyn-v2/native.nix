@@ -25,6 +25,13 @@
   system ? "x86_64-linux",
   pname ? "godyntb",
   goVersion ? "go1.26",
+  # lazySrc (experiment, #27): source local packages directly from the flake input
+  # tree (src + "/dir") instead of a per-package `builtins.path` copy, so Determinate
+  # lazy-trees can avoid materialising them. WARNING: a bare `src + "/dir"` is a
+  # subpath of the whole-input store path, so an edit to ANY file re-hashes the
+  # input and rebuilds EVERY package — it trades per-package incrementality for the
+  # lazy read. Only for measuring whether builtins.path is what defeats lazy-trees.
+  lazySrc ? false,
 }:
 let
   graph = builtins.fromJSON (builtins.readFile graphFile);
@@ -68,10 +75,13 @@ let
       # store path. Third-party: the vendor tree by import path.
       srcDir =
         if p.local then
-          builtins.path {
-            path = src + "/${p.dir}";
-            name = "godyn-v2-src-${sanitize importPath}";
-          }
+          (if lazySrc then
+            src + "/${p.dir}"
+          else
+            builtins.path {
+              path = src + "/${p.dir}";
+              name = "godyn-v2-src-${sanitize importPath}";
+            })
         else if brMod != null then
           "${bridges.${brMod}}" + lib.optionalString (importPath != brMod) "/${lib.removePrefix "${brMod}/" importPath}"
         else
