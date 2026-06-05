@@ -4,7 +4,9 @@
 // Re-run it (just gen) only when the import structure or file set changes — a
 // content-only edit does not need a regen (same contract as gomod2nix.toml).
 //
-// Usage: godyn-gen <module-dir> <out-graph.json>
+// Usage: godyn-gen <module-dir> <out-graph.json> [packages...]
+// packages defaults to ./... ; pass e.g. ./internal/delta/... to emit only that
+// subtree's transitive closure (go list -deps follows imports across the scope).
 package main
 
 import (
@@ -57,12 +59,16 @@ type genPkg struct {
 }
 
 func main() {
-	if len(os.Args) != 3 {
-		fatalf("usage: godyn-gen <module-dir> <out-graph.json>")
+	if len(os.Args) < 3 {
+		fatalf("usage: godyn-gen <module-dir> <out-graph.json> [packages...]")
 	}
 	moduleDir, outPath := os.Args[1], os.Args[2]
+	patterns := os.Args[3:]
+	if len(patterns) == 0 {
+		patterns = []string{"./..."}
+	}
 
-	cmd := exec.Command("go", "list", "-deps", "-json", "./...")
+	cmd := exec.Command("go", append([]string{"list", "-deps", "-json"}, patterns...)...)
 	cmd.Dir = moduleDir
 	// GOFLAGS / CGO_ENABLED / CC come from the caller: CGO_ENABLED=1 + CC for a
 	// module with cgo (so CgoFiles populate), -mod=vendor when third-party deps

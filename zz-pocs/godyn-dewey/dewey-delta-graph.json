@@ -1,0 +1,1685 @@
+[
+  {
+    "importPath": "filippo.io/age",
+    "dir": ".",
+    "name": "age",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "age.go",
+      "parse.go",
+      "pq.go",
+      "primitives.go",
+      "scrypt.go",
+      "x25519.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "filippo.io/age/internal/bech32",
+      "filippo.io/age/internal/format",
+      "filippo.io/age/internal/stream",
+      "filippo.io/hpke",
+      "golang.org/x/crypto/chacha20poly1305",
+      "golang.org/x/crypto/curve25519",
+      "golang.org/x/crypto/hkdf",
+      "golang.org/x/crypto/scrypt"
+    ]
+  },
+  {
+    "importPath": "filippo.io/age/internal/bech32",
+    "dir": "internal/bech32",
+    "name": "bech32",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "bech32.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "filippo.io/age/internal/format",
+    "dir": "internal/format",
+    "name": "format",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "format.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "filippo.io/age/internal/stream",
+    "dir": "internal/stream",
+    "name": "stream",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "stream.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "golang.org/x/crypto/chacha20poly1305"
+    ]
+  },
+  {
+    "importPath": "filippo.io/hpke",
+    "dir": ".",
+    "name": "hpke",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "aead.go",
+      "hpke.go",
+      "kdf.go",
+      "kem.go",
+      "pq.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "filippo.io/hpke/crypto",
+      "filippo.io/hpke/crypto/ecdh",
+      "filippo.io/hpke/internal/byteorder",
+      "golang.org/x/crypto/chacha20poly1305"
+    ]
+  },
+  {
+    "importPath": "filippo.io/hpke/crypto",
+    "dir": "crypto",
+    "name": "crypto",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "interfaces.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "filippo.io/hpke/crypto/ecdh",
+    "dir": "crypto/ecdh",
+    "name": "ecdh",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "interfaces.go",
+      "stubs.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "filippo.io/hpke/internal/byteorder",
+    "dir": "internal/byteorder",
+    "name": "byteorder",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "byteorder.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "github.com/DataDog/zstd",
+    "dir": ".",
+    "name": "zstd",
+    "isMain": false,
+    "local": false,
+    "goFiles": null,
+    "cgoFiles": [
+      "errors.go",
+      "zstd.go",
+      "zstd_bulk.go",
+      "zstd_ctx.go",
+      "zstd_stream.go"
+    ],
+    "cFiles": [
+      "cover.c",
+      "debug.c",
+      "divsufsort.c",
+      "entropy_common.c",
+      "error_private.c",
+      "fastcover.c",
+      "fse_compress.c",
+      "fse_decompress.c",
+      "hist.c",
+      "huf_compress.c",
+      "huf_decompress.c",
+      "pool.c",
+      "threading.c",
+      "xxhash.c",
+      "zbuff_common.c",
+      "zbuff_compress.c",
+      "zbuff_decompress.c",
+      "zdict.c",
+      "zstd_common.c",
+      "zstd_compress.c",
+      "zstd_compress_literals.c",
+      "zstd_compress_sequences.c",
+      "zstd_compress_superblock.c",
+      "zstd_ddict.c",
+      "zstd_decompress.c",
+      "zstd_decompress_block.c",
+      "zstd_double_fast.c",
+      "zstd_fast.c",
+      "zstd_lazy.c",
+      "zstd_ldm.c",
+      "zstd_opt.c",
+      "zstd_preSplit.c",
+      "zstd_v01.c",
+      "zstd_v02.c",
+      "zstd_v03.c",
+      "zstd_v04.c",
+      "zstd_v05.c",
+      "zstd_v06.c",
+      "zstd_v07.c",
+      "zstdmt_compress.c"
+    ],
+    "hFiles": [
+      "allocations.h",
+      "bits.h",
+      "bitstream.h",
+      "clevels.h",
+      "compiler.h",
+      "cover.h",
+      "cpu.h",
+      "debug.h",
+      "divsufsort.h",
+      "error_private.h",
+      "fse.h",
+      "hist.h",
+      "huf.h",
+      "mem.h",
+      "pool.h",
+      "portability_macros.h",
+      "threading.h",
+      "xxhash.h",
+      "zbuff.h",
+      "zdict.h",
+      "zstd.h",
+      "zstd_compress_internal.h",
+      "zstd_compress_literals.h",
+      "zstd_compress_sequences.h",
+      "zstd_compress_superblock.h",
+      "zstd_cwksp.h",
+      "zstd_ddict.h",
+      "zstd_decompress_block.h",
+      "zstd_decompress_internal.h",
+      "zstd_deps.h",
+      "zstd_double_fast.h",
+      "zstd_errors.h",
+      "zstd_fast.h",
+      "zstd_internal.h",
+      "zstd_lazy.h",
+      "zstd_ldm.h",
+      "zstd_ldm_geartab.h",
+      "zstd_legacy.h",
+      "zstd_opt.h",
+      "zstd_preSplit.h",
+      "zstd_trace.h",
+      "zstd_v01.h",
+      "zstd_v02.h",
+      "zstd_v03.h",
+      "zstd_v04.h",
+      "zstd_v05.h",
+      "zstd_v06.h",
+      "zstd_v07.h",
+      "zstdmt_compress.h"
+    ],
+    "sFiles": [
+      "huf_decompress_amd64.S"
+    ],
+    "imports": null
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/box_chars",
+    "dir": "internal/0/box_chars",
+    "name": "box_chars",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/equality",
+    "dir": "internal/0/equality",
+    "name": "equality",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "golang.org/x/exp/constraints"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/flag_policy",
+    "dir": "internal/0/flag_policy",
+    "name": "flag_policy",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/http_statuses",
+    "dir": "internal/0/http_statuses",
+    "name": "http_statuses",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+    "dir": "internal/0/interfaces",
+    "name": "interfaces",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "coder.go",
+      "collections.go",
+      "command.go",
+      "context.go",
+      "contextstate_string.go",
+      "directory.go",
+      "elements.go",
+      "errors.go",
+      "io.go",
+      "iter.go",
+      "keyers.go",
+      "lock.go",
+      "main.go",
+      "pools.go",
+      "printer.go",
+      "string.go",
+      "value.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/primordial",
+    "dir": "internal/0/primordial",
+    "name": "primordial",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "is_tty.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "golang.org/x/term"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/reset",
+    "dir": "internal/0/reset",
+    "name": "reset",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "golang.org/x/exp/constraints"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/stack_frame",
+    "dir": "internal/0/stack_frame",
+    "name": "stack_frame",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "error_and_frame.go",
+      "error_tree.go",
+      "errors_and_frames.go",
+      "frame.go",
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/alfa/cmp",
+    "dir": "internal/alfa/cmp",
+    "name": "cmp",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "bytes.go",
+      "common.go",
+      "main.go",
+      "result.go",
+      "result_string.go",
+      "search.go",
+      "verify.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/alfa/pool",
+    "dir": "internal/alfa/pool",
+    "name": "pool",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "bespoke.go",
+      "common.go",
+      "fake_pool.go",
+      "main.go",
+      "repool_release.go",
+      "resetter.go",
+      "slice.go",
+      "value.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/alfa/test_ui",
+    "dir": "internal/alfa/test_ui",
+    "name": "test_ui",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "test_case.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/stack_frame"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/alfa/unicorn",
+    "dir": "internal/alfa/unicorn",
+    "name": "unicorn",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "case.go",
+      "diacritics.go",
+      "main.go",
+      "tokenize.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "golang.org/x/text/runes",
+      "golang.org/x/text/transform",
+      "golang.org/x/text/unicode/norm"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/collections_slice",
+    "dir": "internal/bravo/collections_slice",
+    "name": "collections_slice",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "common.go",
+      "main.go",
+      "sort.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/alfa/cmp"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors",
+    "dir": "internal/bravo/errors",
+    "name": "errors",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "context.go",
+      "context_sentinels.go",
+      "deferred.go",
+      "group.go",
+      "group_builder.go",
+      "helpful.go",
+      "http.go",
+      "http_util.go",
+      "interfaces.go",
+      "is.go",
+      "main.go",
+      "main_release.go",
+      "normal.go",
+      "sentinels.go",
+      "signal.go",
+      "wait_group_parallel.go",
+      "wait_group_serial.go",
+      "wrapped_helpful.go",
+      "wrapped_without_stack.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/http_statuses",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/stack_frame",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/alfa/pool",
+      "golang.org/x/xerrors"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/env_vars",
+    "dir": "internal/charlie/env_vars",
+    "name": "env_vars",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "buffered_coder_dotenv.go",
+      "directory_layout_base_env_var.go",
+      "directory_layout_path.go",
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/flags",
+    "dir": "internal/charlie/flags",
+    "name": "flags",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "errors.go",
+      "flag_with_policy.go",
+      "main.go",
+      "set.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/flag_policy",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/ohio",
+    "dir": "internal/charlie/ohio",
+    "name": "ohio",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "binary_field.go",
+      "buffered_reader_line_seq.go",
+      "copy.go",
+      "cursor.go",
+      "errors.go",
+      "fixed_bytes.go",
+      "line_reader.go",
+      "main.go",
+      "methods.go",
+      "nop.go",
+      "reader.go",
+      "rune_reader_scanner_adapter.go",
+      "strings.go",
+      "tee_rune_reader.go",
+      "tee_rune_scanner.go",
+      "writer.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/stack_frame",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/alfa/pool",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/ohio_buffer",
+    "dir": "internal/charlie/ohio_buffer",
+    "name": "ohio_buffer",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "errors.go",
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/quiter",
+    "dir": "internal/charlie/quiter",
+    "name": "quiter",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "add.go",
+      "at_least_once.go",
+      "chain.go",
+      "collection_functions.go",
+      "debug.go",
+      "error_wait_group_apply.go",
+      "iter.go",
+      "keyer_string.go",
+      "keyer_stringer.go",
+      "merge.go",
+      "pull.go",
+      "reduce.go",
+      "serializer_async.go",
+      "serializer_sync.go",
+      "strings.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/alfa/cmp",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/collections_slice",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/ui",
+    "dir": "internal/charlie/ui",
+    "name": "ui",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "bytes.go",
+      "cli_error_tree_coder.go",
+      "cli_error_tree_state.go",
+      "cli_error_tree_state_stack.go",
+      "errors.go",
+      "main.go",
+      "printer.go",
+      "printer_dev.go",
+      "printer_null.go",
+      "printer_optional.go",
+      "printer_prefix.go",
+      "priority_string.go",
+      "test_case.go",
+      "todo.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/box_chars",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/primordial",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/stack_frame",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/alfa/pool",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/alfa/test_ui",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/values",
+    "dir": "internal/charlie/values",
+    "name": "values",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "bool.go",
+      "int.go",
+      "int_slice.go",
+      "main.go",
+      "string.go",
+      "uri.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/catgut",
+    "dir": "internal/delta/catgut",
+    "name": "catgut",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "errors.go",
+      "main.go",
+      "multi_rune_reader.go",
+      "pool.go",
+      "ring_buffer.go",
+      "ring_buffer_rune_scanner.go",
+      "ring_buffer_scanner.go",
+      "scanner.go",
+      "scanner_experimental.go",
+      "slice.go",
+      "slice_reader.go",
+      "slice_rune_scanner.go",
+      "string.go",
+      "string_format_writer.go",
+      "string_io.go",
+      "string_util.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/alfa/cmp",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/alfa/pool",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/ohio_buffer",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/ui"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/cli",
+    "dir": "internal/delta/cli",
+    "name": "cli",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "completion.go",
+      "flag_set.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/flags"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/collections",
+    "dir": "internal/delta/collections",
+    "name": "collections",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "bitset.go",
+      "key_func.go",
+      "tridex_set.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/ui"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/collections_ptr",
+    "dir": "internal/delta/collections_ptr",
+    "name": "collections_ptr",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "construction.go",
+      "flag.go",
+      "set.go",
+      "set_mutable.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/quiter"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/collections_value",
+    "dir": "internal/delta/collections_value",
+    "name": "collections_value",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "construction.go",
+      "set.go",
+      "set_mutable.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/quiter"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/compression_type",
+    "dir": "internal/delta/compression_type",
+    "name": "compression_type",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/DataDog/zstd",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/ohio"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/delim_io",
+    "dir": "internal/delta/delim_io",
+    "name": "delim_io",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "copy.go",
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/alfa/pool",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/ui"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/fd",
+    "dir": "internal/delta/fd",
+    "name": "fd",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "std.go",
+      "util.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/ui"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/files",
+    "dir": "internal/delta/files",
+    "name": "files",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "binary.go",
+      "chflags.go",
+      "chflags_linux.go",
+      "dirnames.go",
+      "dirnames_iter.go",
+      "errors.go",
+      "exec.go",
+      "exists.go",
+      "filetype_string.go",
+      "hash_bucket.go",
+      "main.go",
+      "rename.go",
+      "temp.go",
+      "util.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/alfa/unicorn",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/collections_slice",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/ui"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/format",
+    "dir": "internal/delta/format",
+    "name": "format",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "line_reader.go",
+      "line_writer.go",
+      "main.go",
+      "strings.go",
+      "writer.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/ohio"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/heap",
+    "dir": "internal/delta/heap",
+    "name": "heap",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "constructors.go",
+      "constructors_new.go",
+      "main.go",
+      "merge_and_restore.go",
+      "private.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/alfa/cmp",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/alfa/pool",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/quiter"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/pivy",
+    "dir": "internal/delta/pivy",
+    "name": "pivy",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "agent.go",
+      "errors.go",
+      "identity.go",
+      "io_wrapper.go",
+      "recipient.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "filippo.io/age",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/ohio",
+      "golang.org/x/crypto/chacha20poly1305",
+      "golang.org/x/crypto/ssh",
+      "golang.org/x/crypto/ssh/agent"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/script_config",
+    "dir": "internal/delta/script_config",
+    "name": "script_config",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "main.go",
+      "main_tommy.go",
+      "with_output_format.go",
+      "with_output_format_tommy.go",
+      "writer_to.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/equality",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/reset",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/ui",
+      "github.com/amarbel-llc/tommy/pkg/cst",
+      "github.com/amarbel-llc/tommy/pkg/document"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/thyme",
+    "dir": "internal/delta/thyme",
+    "name": "thyme",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "time.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/ui",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/values",
+      "github.com/brandondube/tai"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/tommy_util",
+    "dir": "internal/delta/tommy_util",
+    "name": "tommy_util",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "map.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/tommy/pkg/cst",
+      "github.com/amarbel-llc/tommy/pkg/document"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/tridex",
+    "dir": "internal/delta/tridex",
+    "name": "tridex",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "main.go",
+      "marshal_binary.go",
+      "node.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/0/interfaces",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/bravo/errors",
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/ui"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/trie",
+    "dir": "internal/delta/trie",
+    "name": "trie",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/ui"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/purse-first/libs/dewey/internal/delta/xdg_defaults",
+    "dir": "internal/delta/xdg_defaults",
+    "name": "xdg_defaults",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/purse-first/libs/dewey/internal/charlie/env_vars"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/tommy/internal/lexer",
+    "dir": "internal/lexer",
+    "name": "lexer",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "lexer.go",
+      "token.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/tommy/internal/ringbuf"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/tommy/internal/ringbuf",
+    "dir": "internal/ringbuf",
+    "name": "ringbuf",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "errors.go",
+      "ring_buffer.go",
+      "slice.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "github.com/amarbel-llc/tommy/pkg/cst",
+    "dir": "pkg/cst",
+    "name": "cst",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "accessors.go",
+      "node.go",
+      "parser.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/tommy/internal/lexer"
+    ]
+  },
+  {
+    "importPath": "github.com/amarbel-llc/tommy/pkg/document",
+    "dir": "pkg/document",
+    "name": "document",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "comment.go",
+      "document.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "github.com/amarbel-llc/tommy/pkg/cst"
+    ]
+  },
+  {
+    "importPath": "github.com/brandondube/tai",
+    "dir": ".",
+    "name": "tai",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "gregorian.go",
+      "tai.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "golang.org/x/crypto/blowfish",
+    "dir": "blowfish",
+    "name": "blowfish",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "block.go",
+      "cipher.go",
+      "const.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "golang.org/x/crypto/chacha20",
+    "dir": "chacha20",
+    "name": "chacha20",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "chacha_generic.go",
+      "chacha_noasm.go",
+      "xor.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "golang.org/x/crypto/internal/alias"
+    ]
+  },
+  {
+    "importPath": "golang.org/x/crypto/chacha20poly1305",
+    "dir": "chacha20poly1305",
+    "name": "chacha20poly1305",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "chacha20poly1305.go",
+      "chacha20poly1305_amd64.go",
+      "chacha20poly1305_generic.go",
+      "fips140only_go1.26.go",
+      "xchacha20poly1305.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": [
+      "chacha20poly1305_amd64.s"
+    ],
+    "imports": [
+      "golang.org/x/crypto/chacha20",
+      "golang.org/x/crypto/internal/alias",
+      "golang.org/x/crypto/internal/poly1305",
+      "golang.org/x/sys/cpu"
+    ]
+  },
+  {
+    "importPath": "golang.org/x/crypto/curve25519",
+    "dir": "curve25519",
+    "name": "curve25519",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "curve25519.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "golang.org/x/crypto/hkdf",
+    "dir": "hkdf",
+    "name": "hkdf",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "hkdf.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "golang.org/x/crypto/internal/alias",
+    "dir": "internal/alias",
+    "name": "alias",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "alias.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "golang.org/x/crypto/internal/poly1305",
+    "dir": "internal/poly1305",
+    "name": "poly1305",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "poly1305.go",
+      "sum_asm.go",
+      "sum_generic.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": [
+      "sum_amd64.s"
+    ],
+    "imports": null
+  },
+  {
+    "importPath": "golang.org/x/crypto/pbkdf2",
+    "dir": "pbkdf2",
+    "name": "pbkdf2",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "pbkdf2.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "golang.org/x/crypto/scrypt",
+    "dir": "scrypt",
+    "name": "scrypt",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "scrypt.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "golang.org/x/crypto/pbkdf2"
+    ]
+  },
+  {
+    "importPath": "golang.org/x/crypto/ssh",
+    "dir": "ssh",
+    "name": "ssh",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "buffer.go",
+      "certs.go",
+      "channel.go",
+      "cipher.go",
+      "client.go",
+      "client_auth.go",
+      "common.go",
+      "connection.go",
+      "doc.go",
+      "handshake.go",
+      "kex.go",
+      "keys.go",
+      "mac.go",
+      "messages.go",
+      "mlkem.go",
+      "mux.go",
+      "server.go",
+      "session.go",
+      "ssh_gss.go",
+      "streamlocal.go",
+      "tcpip.go",
+      "transport.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "golang.org/x/crypto/chacha20",
+      "golang.org/x/crypto/curve25519",
+      "golang.org/x/crypto/internal/poly1305",
+      "golang.org/x/crypto/ssh/internal/bcrypt_pbkdf"
+    ]
+  },
+  {
+    "importPath": "golang.org/x/crypto/ssh/agent",
+    "dir": "ssh/agent",
+    "name": "agent",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "client.go",
+      "forward.go",
+      "keyring.go",
+      "server.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "golang.org/x/crypto/ssh"
+    ]
+  },
+  {
+    "importPath": "golang.org/x/crypto/ssh/internal/bcrypt_pbkdf",
+    "dir": "ssh/internal/bcrypt_pbkdf",
+    "name": "bcrypt_pbkdf",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "bcrypt_pbkdf.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "golang.org/x/crypto/blowfish"
+    ]
+  },
+  {
+    "importPath": "golang.org/x/exp/constraints",
+    "dir": "constraints",
+    "name": "constraints",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "constraints.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "golang.org/x/sys/cpu",
+    "dir": "cpu",
+    "name": "cpu",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "byteorder.go",
+      "cpu.go",
+      "cpu_gc_x86.go",
+      "cpu_linux_noinit.go",
+      "cpu_other_x86.go",
+      "cpu_x86.go",
+      "endian_little.go",
+      "hwcap_linux.go",
+      "parse.go",
+      "runtime_auxv.go",
+      "runtime_auxv_go121.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": [
+      "cpu_gc_x86.s"
+    ],
+    "imports": null
+  },
+  {
+    "importPath": "golang.org/x/sys/unix",
+    "dir": "unix",
+    "name": "unix",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "affinity_linux.go",
+      "aliases.go",
+      "auxv.go",
+      "bluetooth_linux.go",
+      "constants.go",
+      "dev_linux.go",
+      "dirent.go",
+      "endian_little.go",
+      "env_unix.go",
+      "fcntl.go",
+      "fdset.go",
+      "ifreq_linux.go",
+      "ioctl_linux.go",
+      "ioctl_unsigned.go",
+      "mremap.go",
+      "pagesize_unix.go",
+      "race0.go",
+      "readdirent_getdents.go",
+      "sockcmsg_linux.go",
+      "sockcmsg_unix.go",
+      "sockcmsg_unix_other.go",
+      "syscall.go",
+      "syscall_linux.go",
+      "syscall_linux_alarm.go",
+      "syscall_linux_amd64.go",
+      "syscall_linux_amd64_gc.go",
+      "syscall_linux_gc.go",
+      "syscall_unix.go",
+      "syscall_unix_gc.go",
+      "sysvshm_linux.go",
+      "sysvshm_unix.go",
+      "timestruct.go",
+      "vgetrandom_linux.go",
+      "zerrors_linux.go",
+      "zerrors_linux_amd64.go",
+      "zptrace_x86_linux.go",
+      "zsyscall_linux.go",
+      "zsyscall_linux_amd64.go",
+      "zsysnum_linux_amd64.go",
+      "ztypes_linux.go",
+      "ztypes_linux_amd64.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": [
+      "asm_linux_amd64.s"
+    ],
+    "imports": null
+  },
+  {
+    "importPath": "golang.org/x/term",
+    "dir": ".",
+    "name": "term",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "term.go",
+      "term_unix.go",
+      "term_unix_other.go",
+      "terminal.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "golang.org/x/sys/unix"
+    ]
+  },
+  {
+    "importPath": "golang.org/x/text/runes",
+    "dir": "runes",
+    "name": "runes",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "cond.go",
+      "runes.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "golang.org/x/text/transform"
+    ]
+  },
+  {
+    "importPath": "golang.org/x/text/transform",
+    "dir": "transform",
+    "name": "transform",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "transform.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  },
+  {
+    "importPath": "golang.org/x/text/unicode/norm",
+    "dir": "unicode/norm",
+    "name": "norm",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "composition.go",
+      "forminfo.go",
+      "input.go",
+      "iter.go",
+      "normalize.go",
+      "readwriter.go",
+      "tables15.0.0.go",
+      "transform.go",
+      "trie.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "golang.org/x/text/transform"
+    ]
+  },
+  {
+    "importPath": "golang.org/x/xerrors",
+    "dir": ".",
+    "name": "xerrors",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "adaptor.go",
+      "doc.go",
+      "errors.go",
+      "fmt.go",
+      "format.go",
+      "frame.go",
+      "wrap.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": [
+      "golang.org/x/xerrors/internal"
+    ]
+  },
+  {
+    "importPath": "golang.org/x/xerrors/internal",
+    "dir": "internal",
+    "name": "internal",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "internal.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "imports": null
+  }
+]

@@ -56,6 +56,30 @@
         name = "tommy";
       }).go-pkgs;
 
+      # godyn-v2 native eval-time graph (one CA derivation per package, scheduled
+      # by nix — no recursive-nix), built over the SAME internal/delta closure as
+      # deweyDelta, for the real-scale head-to-head. The 74-package closure
+      # exercises every ported compile-kind: zstd (cgo), x/sys + x/crypto (asm),
+      # tommy (vendored — apples-to-apples with bga, not bridged), dewey (local).
+      #
+      # vendorEnv = buildGoApplication's gomod2nix vendor tree (committed
+      # dewey-gomod2nix.toml snapshot of purse-first's workspace-root toml); only
+      # .passthru.vendorEnv is forced, so dewey's mains never build here.
+      deweyVendorEnv = (pkgs.buildGoApplication {
+        pname = "dewey";
+        version = "0";
+        src = dewey-src;
+        modules = ./dewey-gomod2nix.toml;
+      }).passthru.vendorEnv;
+      deweyDeltaNative = pkgs.callPackage ../godyn-v2/native.nix {
+        inherit go stdlib;
+        src = dewey-src;
+        graphFile = ./dewey-delta-graph.json;
+        vendorEnv = deweyVendorEnv;
+        cc = pkgs.stdenv.cc;
+        pname = "godyn-dewey-delta";
+      };
+
       # D5: dewey's internal/delta/... subtree — 18 dewey packages whose closure
       # exercises cgo (zstd via compression_type), the tommy bridge
       # (script_config, tommy_util -> cst/document/lexer/ringbuf), and ~36
@@ -113,6 +137,8 @@
         # Final: outputOf(wrapper) -> the compile-only manifest (the list of
         # compiled dewey/internal/delta packages; building it realises them all).
         dewey-delta = deweyDelta.target;
+        # Approach A on the same closure: the native eval-time graph manifest.
+        dewey-delta-native = deweyDeltaNative;
       };
 
       devShells.${system}.default = pkgs.mkShell {
