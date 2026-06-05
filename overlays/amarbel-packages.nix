@@ -58,6 +58,27 @@ final: prev: {
     godynStdlib
     ;
 
+  # nixgc — targeted Nix store GC CLI (extracted + generalized from spinclass's
+  # internal/nixgc, igloo#28). Reaps the dead subgraph anchored at seed store
+  # paths, keeping anything a live GC root holds.
+  nixgc = final.callPackage ../pkgs/build-support/nixgc { };
+
+  nixgc-man = final.stdenvNoCC.mkDerivation {
+    pname = "nixgc-man";
+    version = "0.1.0";
+    src = ../pkgs/build-support/nixgc;
+    nativeBuildInputs = [ final.scdoc ];
+    dontUnpack = true;
+    dontBuild = true;
+    installPhase = ''
+      mkdir -p $out/share/man/man1
+      for f in $src/*.1.scd; do
+        [ -e "$f" ] || continue
+        scdoc < "$f" > "$out/share/man/man1/$(basename "$f" .scd)"
+      done
+    '';
+  };
+
   gomod2nix = final.callPackage ../pkgs/build-support/gomod2nix/cli {
     inherit (final) buildGoApplication go;
   };
