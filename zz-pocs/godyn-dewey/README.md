@@ -74,29 +74,49 @@ Known throughput costs (not capability gaps): the resolver fetches *all* 55
 lockfile FODs up front regardless of scope, and the `path:` worktree input
 re-copies `.tmp` on every eval (the ~24s warm floor).
 
-### godyn vs `go build` (native) — same delta scope, same four scenarios
+### godyn vs `buildGoApplication` — the nix builder it would replace
 
-`go build` has its own in-process content-addressed cache, so it is the
-speed-of-light incremental baseline. Same `./internal/delta/...`, fresh GOCACHE:
+This is the comparison that matters: both are hermetic nix builds.
+`buildGoApplication` (gomod2nix) builds a binary as **one** derivation — external
+deps cached (`go-cache-env`), but the module's own packages recompile on every
+source change, because nix has no per-package granularity inside the build. Same
+binary (`seqerror`), built both ways, editing the same `cmd/seqerror/main.go`:
 
-| scenario | `go build` (native) | godyn (`nix build`) |
+| scenario | `buildGoApplication` | godyn |
 |---|---|---|
-| cold (empty cache) | **23 s** | ~47 s (65/74 fresh compiles) |
-| warm (no change) | **69 ms** | ~24 s (0 compiles; nix eval + `path:` re-copy) |
-| edit tier-0 pkg (29 deps) | **568 ms** (recompiles cone) | ~57 s (27/74 recompile) |
-| comment-only edit | **84 ms** (early cutoff) | ~20 s (1 recompile, early cutoff) |
+| cold | 34 s | 43 s¹ |
+| warm (no change) | **0 s** (derivation cached) | 38 s² |
+| comment edit | **24 s — full closure rebuild** | 52 s wall / **1 pkg** recompiled |
+| semantic edit | **23 s — full closure rebuild** | 39 s wall / **1 pkg** recompiled |
 
-**Reading this honestly:** godyn is ~100–1000× slower than `go build` in absolute
-terms — nix eval, daemon round-trips, a derivation registered + built per
-package, and the worktree re-copy all dominate. What godyn reproduces is the
-*shape* of the incremental: editing one package rebuilds only its dependency
-cone, and a comment early-cuts off — identical behaviour to go's cache. The win
-is **not local speed**; it is that those per-package results are content-addressed
-nix store paths — hermetic, and substitutable from a binary cache (build once in
-CI, fetch everywhere). The status-quo nix path, `buildGoApplication`, gives the
-same hermeticity but rebuilds the **whole module** on any edit (≈ the cold column,
-every time); godyn's contribution is keeping that hermeticity while collapsing the
-edit cost to the cone.
+¹ godyn reused most of seqerror's closure from the earlier `.#dewey-all` build —
+cross-target CA sharing, only 26 packages were fresh. ² almost entirely the
+POC's `path:` worktree re-copy each eval (see below); the resolver is cached.
+
+**The honest result — two things are true at once:**
+
+- godyn rebuilds the **right set**: editing `main` recompiles exactly 1 package
+  (main has no dependents). `buildGoApplication` recompiles seqerror's whole
+  closure whether you touch a comment or a function — comment = semantic = 24 s,
+  no granularity, no early cutoff.
+- ...but godyn's **wall-clock is worse here** (52 s vs 24 s), because its
+  per-invocation overhead — dominated by the `path:` worktree re-copy (~38 s),
+  plus a `nix build` daemon round-trip per package — exceeds the cost of
+  `buildGoApplication` simply rebuilding this small closure.
+
+So per-package CA is the correct **shape** (rebuild only the dependency cone, with
+comment-level early cutoff, and outputs that are binary-cache-substitutable across
+machines *and* across build targets), but it only becomes a wall-clock **win**
+once the rebuild it avoids exceeds godyn's fixed overhead. For dewey's small
+analyzer closures, `buildGoApplication` wins today. The overhead is the thing to
+kill — the `path:` re-copy (POC artifact) and the all-55 FOD over-fetch are the
+two biggest levers; the daemon-round-trip-per-package is the structural one
+numtide's in-process resolver avoids. Until those land, the shape is right but the
+clock is not.
+
+(For reference, native `go build` — non-hermetic, in-process content cache — is
+the speed-of-light baseline at ~50× under either nix builder: with the **real**
+user cache nuked, cold 31 s / warm 97 ms / edit-cone 863 ms / comment 102 ms.)
 
 ## Findings
 

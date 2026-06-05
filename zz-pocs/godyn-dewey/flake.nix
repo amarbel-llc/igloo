@@ -71,6 +71,20 @@
         inherit stdlib;
       };
 
+      # Same binary as purse-first's buildGoApplication `.#seqerror`, built
+      # per-package — for an apples-to-apples godyn-vs-buildGoApplication edit
+      # comparison on one target.
+      deweySeqerror = mkDynamic {
+        src = dewey-src;
+        pname = "godyn-dewey-seqerror";
+        lockfile = ./dewey.lock;
+        packages = "./cmd/seqerror";
+        bridges = {
+          "github.com/amarbel-llc/tommy" = tommyGoPkgs;
+        };
+        inherit stdlib;
+      };
+
       # Full ./... — every dewey package (169 own + the full dep stack, ~400
       # packages incl. 4 analyzer mains). Throughput stress of the same pipeline;
       # has mains, so it links one binary + compiles the rest.
@@ -91,6 +105,7 @@
         tommy-go-pkgs = tommyGoPkgs;
         # Intermediate wrapper (runs the resolver; $out is the manifest .drv).
         dewey-all = deweyAll.target;
+        dewey-seqerror = deweySeqerror.target;
         dewey-delta-wrapper = deweyDelta.wrapper;
         # Final: outputOf(wrapper) -> the compile-only manifest (the list of
         # compiled dewey/internal/delta packages; building it realises them all).
