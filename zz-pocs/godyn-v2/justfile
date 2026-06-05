@@ -3,6 +3,17 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 v2 := justfile_directory()
 poc := v2 / "../godyn-poc"
 
+# Crossover sweep: across synthetic module sizes, time a LOCAL edit (cone 2)
+# under native vs the whole-module buildGoApplication rebuild. JSON to stdout
+# with the crossover_n. See sweep.sh.
+[group('explore')]
+sweep sizes="5 10 25 50 100" runs="2":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    jqbin=$(nix build --no-link --print-out-paths nixpkgs#jq 2>/dev/null)/bin
+    export PATH="$jqbin:$PATH"
+    bash {{v2}}/sweep.sh "{{sizes}}" {{runs}}
+
 # Regenerate graph.json from the module. Run after the import structure / file
 # set changes — NOT after a content-only edit (same contract as gomod2nix.toml).
 [group('dev')]

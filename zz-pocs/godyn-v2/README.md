@@ -80,6 +80,47 @@ buildGoApplication only once the module is large enough** that the avoided
 whole-module rebuild outweighs N × per-derivation overhead. toy/tommy are below
 that crossover; seqerror is above it.
 
+## Crossover sweep — the axis is edit *locality*, not module size
+
+`just sweep "5 10 25 50 100" 2` (see `sweep.sh`) generates synthetic "wide-star"
+modules (a `main` importing N−1 independent leaves) and times a **local** edit —
+one leaf, cone = 2 — under native vs buildGoApplication, per size:
+
+| N | native edit (cone 2) | buildGoApplication edit (whole) | native wins |
+|---|---|---|---|
+| 5 | ~942 ms | ~4351 ms | ✓ |
+| 10 | ~858 ms | ~4549 ms | ✓ |
+| 25 | ~1043 ms | ~4763 ms | ✓ |
+| 50 | ~1078 ms | ~4913 ms | ✓ |
+| 100 | ~1022 ms | ~5477 ms | ✓ |
+
+native is **flat** (~900 ms — it rebuilds the 2-package cone regardless of N);
+bga **grows with N and never goes below ~4 s**, because **a nix buildGoApplication
+has no incremental rebuild — every edit re-runs the whole derivation
+(`go build ./...`)**. So for a *local* edit native wins at **every** size (the
+sweep's `crossover_n` is the smallest probed, 5).
+
+This reframes the earlier "bga beats native at small scale" result: that was the
+**foundational** edit (tommy edit-bottom, cone ≈ whole), where native's
+per-derivation overhead ×cone exceeds bga's one-shot whole rebuild. The real
+determinant is **cone size vs module size**:
+
+- **local edit (small cone)** — the common case — native wins at any size; bga has
+  zero incremental, native rebuilds only the cone.
+- **foundational edit (cone ≈ whole)** — rare — bga's single derivation wins; native
+  pays N × per-derivation overhead.
+
+### Implication for build-system selection
+
+A pure size threshold is the wrong knob — locality is. A practical default:
+**native for the incremental dev/test loop** (most edits are local → native's
+cone-rebuild beats bga's mandatory whole-rebuild) and **buildGoApplication for
+cold / CI / release builds** (everything rebuilds anyway → bga's single-derivation
+`go build` has less overhead than N per-package derivations, and parallelism is
+in-process). Expose both with a config override; the heuristic is a default, not a
+guarantee — a foundational edit in the dev loop is the case where native loses, and
+a cold build is where bga is simply the right tool.
+
 ## The `godyn gen` contract
 
 `graph.json` is committed (like `gomod2nix.toml`) and regenerated with `just gen`
