@@ -117,6 +117,14 @@
         graphFile = ./asm-test-graph.json;
         pname = "godyn-asm";
       };
+
+      # godyn TEST-SUPPORT POC: per-package `go test` on the eval-time graph.
+      # leaf (in-package + external tests) + mid (imports leaf). Proves the
+      # merkle-delta extends to tests — only the changed cone's tests re-run.
+      testPoc = pkgs.callPackage ./test-native.nix {
+        inherit go stdlib;
+        src = ./test-poc;
+      };
     in
     {
       packages.${system} = {
@@ -134,6 +142,9 @@
           cgo-test-bga
           asm-test-native
           ;
+        test-poc-leaf = testPoc.leafTest;
+        test-poc-mid = testPoc.midTest;
+        test-poc-all = testPoc.checkAll;
       };
 
       devShells.${system}.default = pkgs.mkShell {
