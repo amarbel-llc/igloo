@@ -99,6 +99,15 @@
             graphFile = ./pkgs/build-support/godyn/tests/embed/graph.json;
             strategy = "native";
           };
+          # graphFiles (per-system graphs, igloo#33): the same embed fixture with its
+          # graph supplied via the per-system attrset — exercises the selection path.
+          # The fixture is platform-independent, so the one graph is valid for the
+          # evaluating system.
+          godyn-graphfiles-test = pkgs.buildGodynModule {
+            pname = "godyn-embed-test";
+            src = ./pkgs/build-support/godyn/tests/embed;
+            graphFiles.${system} = ./pkgs/build-support/godyn/tests/embed/graph.json;
+          };
 
           # -- godyn cross-module fixtures (godyn→godyn composition) --
           # dep (A, example.com/dep) is built once; app (B, example.com/app) consumes
@@ -270,6 +279,13 @@
           godyn-selector-test = pkgs.runCommandLocal "godyn-selector-test-check" { } ''
             got=$(${self.packages.${system}.godyn-selector-test}/bin/godyn-embed-test)
             [ "$got" = "godyn embed works" ] || { echo "selector native mismatch: [$got]" >&2; exit 1; }
+            echo OK > $out
+          '';
+          # per-system graph selection (graphFiles, igloo#33): the graph resolved via
+          # graphFiles.''${system} builds a working binary.
+          godyn-graphfiles-test = pkgs.runCommandLocal "godyn-graphfiles-test-check" { } ''
+            got=$(${self.packages.${system}.godyn-graphfiles-test}/bin/godyn-embed-test)
+            [ "$got" = "godyn embed works" ] || { echo "graphFiles mismatch: [$got]" >&2; exit 1; }
             echo OK > $out
           '';
           # godyn→godyn composition: both consumption modes must produce a working

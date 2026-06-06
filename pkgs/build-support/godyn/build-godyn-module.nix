@@ -26,7 +26,15 @@
   # module dir is auto-read; else "dev". Drives -X main.version.
   version ? null,
   src, # the main module's source root (a flake input — local packages live under it)
-  graphFile, # ./godyn-graph.json (committed, produced by godyn-gen)
+  # The committed package graph (produced by godyn-gen). `go list`'s file/import
+  # selection honors GOOS/GOARCH build constraints, so a graph is only valid for the
+  # platform it was generated for (igloo#33). Single-platform consumers pass
+  # graphFile; multi-platform consumers pass graphFiles keyed by system. godyn-gen
+  # respects GOOS/GOARCH (+ CGO_ENABLED) from its environment, so every platform's
+  # graph can be generated from ONE host:
+  #   CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 godyn-gen . godyn-graph.aarch64-darwin.json
+  graphFile ? null, # ./godyn-graph.json (single platform)
+  graphFiles ? null, # { "<system>" = ./godyn-graph.<system>.json; … }
   # Third-party packages come from a gomod2nix vendor tree. Pass `modules`
   # (./gomod2nix.toml) to derive it via buildGoApplication, or pass a prebuilt
   # `vendorEnv` directly. null for an all-local module.
@@ -118,7 +126,17 @@ let
   # each `-X a.b=c` becomes the two tokens the linker wants).
   effectiveLdflagsStr = lib.concatStringsSep " " (versionLdflags ++ ldflags ++ ldflagsXFlags);
 
-  graph = builtins.fromJSON (builtins.readFile graphFile);
+  resolvedGraphFile =
+    if graphFiles != null then
+      (graphFiles.${system} or (throw ''
+        buildGodynModule(${pname}): graphFiles has no graph for ${system} (have: ${lib.concatStringsSep ", " (builtins.attrNames graphFiles)}).
+        Generate it from any host: CGO_ENABLED=0 GOOS=<os> GOARCH=<arch> godyn-gen . godyn-graph.${system}.json''))
+    else if graphFile != null then
+      graphFile
+    else
+      throw ''buildGodynModule(${pname}): pass graphFile (single platform) or graphFiles ({ "<system>" = <path>; })'';
+
+  graph = builtins.fromJSON (builtins.readFile resolvedGraphFile);
   byImport = lib.listToAttrs (map (p: lib.nameValuePair p.importPath p) graph);
 
   # A pre-existing read-only $out (a CA scratch path stranded by an interrupted

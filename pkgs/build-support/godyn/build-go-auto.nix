@@ -21,7 +21,8 @@
 {
   pname,
   src,
-  graphFile, # committed graph.json (godyn backend)
+  graphFile ? null, # committed graph.json (godyn backend, single platform)
+  graphFiles ? null, # { "<system>" = ./godyn-graph.<system>.json; … } — per-system graphs (igloo#33)
   modules ? null, # gomod2nix.toml — both backends (bga builds from it; godyn derives its vendorEnv)
   version ? null,
   ldflags ? [ ],
@@ -39,7 +40,7 @@ let
     // lib.optionalAttrs (version != null) { inherit version; }
     // lib.optionalAttrs (modules != null) { inherit modules; };
 
-  native = buildGodynModule (common // { inherit graphFile; } // nativeArgs);
+  native = buildGodynModule (common // { inherit graphFile graphFiles; } // nativeArgs);
   bga = buildGoApplication (common // bgaArgs);
 
   backend =

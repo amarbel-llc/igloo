@@ -91,7 +91,16 @@ Arguments:
 
 - *pname* — package name; also the binary name.
 - *src* — the module source root (a flake input); local packages live under it.
-- *graphFile* — the committed graph.json produced by godyn-gen.
+- *graphFile* — the committed graph.json produced by godyn-gen (single platform).
+- *graphFiles* — per-system graphs as an attrset *{ "<system>" =
+  ./godyn-graph.<system>.json; ... }*, selected by *system* at eval time. *go list*'s
+  file/import selection honors GOOS/GOARCH build constraints, so a graph is only
+  valid for the platform it was generated for (igloo#33) — a module with
+  platform-dependent deps (e.g. golang.org/x/sys/unix) MUST use graphFiles to build
+  on more than one system. godyn-gen respects GOOS/GOARCH (and CGO_ENABLED) from its
+  environment, so every platform's graph can be generated from one host:
+  *CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 godyn-gen . godyn-graph.aarch64-darwin.json*.
+  Exactly one of graphFile/graphFiles is required.
 - *modules* — a gomod2nix.toml; its vendorEnv (third-party sources by import path)
   is derived internally via buildGoApplication. Omit for an all-local module.
 - *vendorEnv* — alternatively pass a prebuilt vendor tree directly.
@@ -159,8 +168,14 @@ The resolved version and assembled ldflag list are exposed as *passthru.version*
 # LIMITATIONS
 
 godyn is build-only (use *go test* / buildGoApplication for tests). go:embed
-supports literal and simple suffix-glob patterns. The builder is currently
-exercised on x86_64-linux.
+supports literal and simple suffix-glob patterns.
+
+A committed graph is platform-specific (see *graphFiles* above); building a module
+with platform-dependent deps from a single graphFile on another system fails in the
+per-package compiles (linux-only files on darwin, igloo#33). The builder is
+routinely exercised on x86_64-linux; darwin validation is tracked in igloo#33 —
+until it lands, multi-platform consumers should gate the godyn backend per system
+(e.g. buildGoAuto strategy native on x86_64-linux, bga elsewhere).
 
 # SEE ALSO
 
