@@ -167,6 +167,18 @@ gen-godyn-test-fixture:
     CGO_ENABLED=0 "$gen" -tests . godyn-test-graph.json
     gum log --level info "regenerated gotest fixture graphs"
 
+# [explore] Build a real godyn flake-input consumer against THIS tree's igloo.
+# conformist's main package sits at the module ROOT (dir ".") and its src
+# arrives as a flake-input store path — the shape that hit the 69c772a
+# string-src filter regression (reported from eng). The pinned rev is the
+# verified repro: fails on unfixed igloo, must succeed on a fixed one.
+# Uses `.` (git+file) for the override, so commit/stage changes first.
+[group: 'explore']
+test-godyn-against-conformist rev="ccc91bed0accabf12f63abc00e583d78aa20183e":
+    nix build --no-link --print-out-paths \
+        "github:amarbel-llc/conformist/{{rev}}#conformist-native" \
+        --override-input igloo .
+
 # [explore] Test the overlay-flake migration against amarbel-llc/maneater
 # Clones into .tmp/maneater (or reuses), bumps the nixpkgs input, runs
 # nix flake check + nix build .#default.
