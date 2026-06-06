@@ -25,6 +25,7 @@ input. It exposes:
 | `overlays/amarbel-packages.nix`            | amarbel-specific package additions                        |
 | `overlays/pins/`                           | One file per upstream package override                    |
 | `pkgs/build-support/gomod2nix/`            | gomod2nix builder library + CLI                           |
+| `pkgs/build-support/godyn/`                | godyn per-package Go builder (graph-driven, see godyn(7)) |
 | `pkgs/build-support/bun2nix/`              | bun2nix builder library                                   |
 | `pkgs/build-support/fetch-gguf-model/`     | GGUF model fetcher                                        |
 | `docs/decisions/`                          | Architecture Decision Records (ADRs)                      |
