@@ -52,9 +52,17 @@
   overwriteLdflagsX ? false,
   # cc: a stdenv cc-wrapper, required iff any package is cgo (zstd etc.).
   cc ? null,
-  # bridges: modpath -> go-pkgs store path; a package whose module is bridged is
-  # sourced from there instead of vendorEnv (RFC 0001 cross-flake go-pkgs).
+  # bridges: modpath -> go-pkgs SOURCE store path; a package whose module is bridged
+  # is sourced from there instead of vendorEnv and COMPILED in this graph (RFC 0001
+  # cross-flake go-pkgs). This is the godyn→godyn "source" composition (approach 2).
   bridges ? { },
+  # archiveBridges: modpath -> go-pkgs-of-ARCHIVES store path (laid out as
+  # <importpath>/pkg.a, e.g. another godyn module's passthru.archiveGoPkgs). A package
+  # whose module is archive-bridged is NOT compiled here — dependents LINK its
+  # pre-built archive directly (the godyn→godyn "output" composition, approach 1).
+  # The two converge to the same CA archive under a matched toolchain; prefer
+  # `bridges` (no cross-flake toolchain lockstep). See zz-pocs/godyn-godyn/README.md.
+  archiveBridges ? { },
   system ? stdenv.system,
   goVersion ? "go1.26",
   # lazySrc (experiment, #27): source local packages directly from the flake input
@@ -129,6 +137,12 @@ let
   bridgeOf = importPath:
     lib.findFirst (m: m == importPath || lib.hasPrefix "${m}/" importPath) null (builtins.attrNames bridges);
 
+  # A package is archive-bridged iff its module is in `archiveBridges`: it is not
+  # compiled here, and dependents link its archive at <go-pkgs>/<importpath>/pkg.a.
+  archiveBridgeOf = importPath:
+    lib.findFirst (m: m == importPath || lib.hasPrefix "${m}/" importPath) null (builtins.attrNames archiveBridges);
+  archivePathOf = importPath: "${archiveBridges.${archiveBridgeOf importPath}}/${importPath}/pkg.a";
+
   # Transitive non-stdlib import closure of a package (go tool compile's importcfg
   # must carry every package whose export data is reachable). Go has no import
   # cycles, so the recursion terminates.
@@ -137,13 +151,19 @@ let
     in lib.unique (direct ++ lib.concatMap transitiveDeps direct);
 
   # importcfg lines for `cfgFile`: stdlib from the shared stdlib drv; each non-stdlib
-  # transitive dep contributes one `packagefile <imp>=<drv>/pkg.a`. Interpolating
-  # `${pkgDrvs.${dep}}` is what makes dep an inputDrv of this drv.
+  # transitive dep contributes one `packagefile <imp>=<archive>`. A compiled dep
+  # interpolates `${pkgDrvs.${dep}}` (making dep an inputDrv → the merkle-delta); an
+  # archive-bridged dep points at its pre-built archive (approach 1).
   cfgFor = importPath: cfgFile:
     lib.concatMapStringsSep "\n"
-      (dep: "echo 'packagefile ${dep}=${pkgDrvs.${dep}}/pkg.a' >> ${cfgFile}")
+      (dep:
+        let archive = if archiveBridgeOf dep != null then archivePathOf dep else "${pkgDrvs.${dep}}/pkg.a";
+        in "echo 'packagefile ${dep}=${archive}' >> ${cfgFile}")
       (transitiveDeps importPath);
 
+  # Compile a node per package, EXCEPT archive-bridged ones (those are linked from a
+  # pre-built archive, never compiled here). transitiveDeps still sees them (they stay
+  # in the graph) so dependents' importcfgs can reference their archives.
   pkgDrvs = lib.mapAttrs (importPath: p:
     let
       brMod = bridgeOf importPath;
@@ -306,18 +326,30 @@ let
         outputHashAlgo = "sha256";
       }
       (compile + link)
-  ) byImport;
+  ) (lib.filterAttrs (importPath: _: archiveBridgeOf importPath == null) byImport);
 
   mainPkg = lib.findFirst (p: p.isMain) null graph;
 
+  # Packages this graph actually compiles (archive-bridged ones are linked, not built).
+  ownPkgs = builtins.filter (p: archiveBridgeOf p.importPath == null) graph;
+
   # Compile-only terminal for a library graph (no package main): a manifest that
-  # depends on every package archive (so building it realises the whole graph) and
-  # lists the import paths.
+  # depends on every compiled package archive (so building it realises the whole
+  # graph) and lists the import paths.
   manifest = runCommandLocal "godyn-${pname}-manifest" { } (
     ": > $out\n"
     + lib.concatMapStringsSep "\n"
       (p: "test -s ${pkgDrvs.${p.importPath}}/pkg.a && echo '${p.importPath}' >> $out")
-      graph
+      ownPkgs
+  );
+
+  # This module's per-package compiled archives, laid out as <importpath>/pkg.a, so a
+  # downstream module can link them via archiveBridges (approach 1). Symlinks into the
+  # per-package CA derivations, so it stays incremental.
+  archiveGoPkgs = runCommandLocal "godyn-${pname}-archives" { } (
+    lib.concatMapStringsSep "\n"
+      (p: ''mkdir -p "$out/${p.importPath}"; ln -s ${pkgDrvs.${p.importPath}}/pkg.a "$out/${p.importPath}/pkg.a"'')
+      ownPkgs
   );
 
   terminal = if mainPkg != null then pkgDrvs.${mainPkg.importPath} else manifest;
@@ -328,6 +360,10 @@ terminal.overrideAttrs (old: {
   passthru = (old.passthru or { }) // {
     version = effectiveVersion;
     ldflags = versionLdflags ++ ldflags ++ ldflagsXFlags;
+    # For downstream godyn→godyn composition: archiveGoPkgs feeds a consumer's
+    # archiveBridges (approach 1). The source route (approach 2) just uses this
+    # module's `src` as a `bridges` value — no passthru needed.
+    inherit archiveGoPkgs;
   };
   meta = (old.meta or { }) // lib.optionalAttrs (mainPkg != null) { mainProgram = pname; };
 })

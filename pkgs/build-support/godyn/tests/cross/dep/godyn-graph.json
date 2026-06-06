@@ -1,0 +1,19 @@
+[
+  {
+    "importPath": "example.com/dep/greet",
+    "dir": "greet",
+    "name": "greet",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "greet.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "embedFiles": null,
+    "embedPatterns": null,
+    "imports": null
+  }
+]

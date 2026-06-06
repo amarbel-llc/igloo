@@ -1,0 +1,38 @@
+[
+  {
+    "importPath": "example.com/app",
+    "dir": ".",
+    "name": "main",
+    "isMain": true,
+    "local": true,
+    "goFiles": [
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "embedFiles": null,
+    "embedPatterns": null,
+    "imports": [
+      "example.com/dep/greet"
+    ]
+  },
+  {
+    "importPath": "example.com/dep/greet",
+    "dir": "greet",
+    "name": "greet",
+    "isMain": false,
+    "local": false,
+    "goFiles": [
+      "greet.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "embedFiles": null,
+    "embedPatterns": null,
+    "imports": null
+  }
+]

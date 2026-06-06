@@ -102,15 +102,44 @@ Arguments:
   "value"; }* rendered to *-X* tokens, appended last (Go's *-X* is last-wins). A key
   colliding with an already-set *-X* throws unless *overwriteLdflagsX = true*.
 - *cc* — a stdenv cc-wrapper, required iff any package is cgo.
-- *bridges* — modpath -> go-pkgs store path for cross-flake source.
+- *bridges* — modpath -> go-pkgs SOURCE store path; the bridged module's packages are
+  compiled in THIS graph (cross-module composition, approach 2). See CROSS-MODULE.
+- *archiveBridges* — modpath -> go-pkgs-of-ARCHIVES store path; the bridged module's
+  packages are LINKED from their pre-built archives, not compiled (approach 1).
 - *system*, *goVersion* — target tuning.
 
 A module with a *package main* links a binary at *$out/bin/<pname>*; a library
 graph (no main) produces a compile-only manifest realising every archive.
+*passthru.archiveGoPkgs* exposes this module's per-package archives (laid out as
+*<importpath>/pkg.a*) for a downstream consumer's *archiveBridges*.
 
 *//go:embed* is handled automatically: godyn-gen records each package's embed
 patterns + files, and the compile step writes an embedcfg and passes
 *go tool compile -embedcfg* (literal and simple suffix-glob patterns).
+
+# CROSS-MODULE COMPOSITION (godyn → godyn)
+
+A godyn module B can consume a godyn-built module A. godyn-gen on B already records
+A's packages in B's graph (as non-local nodes — go list resolves them via go.mod), so
+the SAME B graph supports two consumption modes; B's flake picks one:
+
+- *bridges = { "<A-module>" = <A source go-pkgs>; }* — approach 2, SOURCE: A's
+  packages are compiled inside B's graph. Use A's *src* as the value.
+- *archiveBridges = { "<A-module>" = A.passthru.archiveGoPkgs; }* — approach 1,
+  OUTPUT: A's packages are linked from A's pre-built archives, never recompiled.
+
+The two CONVERGE: godyn keys per-package archives by import path + content-addresses
+them, and *-trimpath* canonicalises the source path out of the *.a*, so A's archive is
+the same store object either way and the resulting binary is byte-identical — no
+duplicated compilation.
+
+*Prefer bridges (source).* It needs no cross-flake toolchain lockstep (B's toolchain
+compiles A — a go bump just works), keeps go.mod the single source of truth, and
+doesn't drift B's graph on A's internal churn. Reserve *archiveBridges* for when A is
+an independently-versioned / published / sealed unit, is closed-source / pre-built, or
+is large enough that isolating consumers from its graph matters. (Go archives are
+go-version-specific, so archiveBridges requires A and B to share the toolchain.) See
+*zz-pocs/godyn-godyn/README.md* for the measured tradeoff analysis.
 
 # VERSION EMBEDDING
 

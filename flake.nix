@@ -100,6 +100,37 @@
             strategy = "native";
           };
 
+          # -- godyn cross-module fixtures (godyn→godyn composition) --
+          # dep (A, example.com/dep) is built once; app (B, example.com/app) consumes
+          # it two ways from the SAME app graph: source (bridges → A compiled in B's
+          # graph, approach 2) and pre-built archive (archiveBridges → A's
+          # passthru.archiveGoPkgs linked, not recompiled, approach 1). The checks
+          # below assert both binaries print the cross-module call's output.
+          godyn-cross-source = pkgs.buildGodynModule {
+            pname = "godyn-cross-app";
+            src = ./pkgs/build-support/godyn/tests/cross/app;
+            graphFile = ./pkgs/build-support/godyn/tests/cross/app/godyn-graph.json;
+            bridges = {
+              "example.com/dep" = ./pkgs/build-support/godyn/tests/cross/dep;
+            };
+          };
+          godyn-cross-archive =
+            let
+              dep = pkgs.buildGodynModule {
+                pname = "godyn-cross-dep";
+                src = ./pkgs/build-support/godyn/tests/cross/dep;
+                graphFile = ./pkgs/build-support/godyn/tests/cross/dep/godyn-graph.json;
+              };
+            in
+            pkgs.buildGodynModule {
+              pname = "godyn-cross-app";
+              src = ./pkgs/build-support/godyn/tests/cross/app;
+              graphFile = ./pkgs/build-support/godyn/tests/cross/app/godyn-graph.json;
+              archiveBridges = {
+                "example.com/dep" = dep.passthru.archiveGoPkgs;
+              };
+            };
+
           # -- bun2nix test fixtures --
           # Exercise buildBunBinary / buildZxScript / buildZxScriptFromFile
           # against pinned source trees so the surface area is build-tested
@@ -239,6 +270,18 @@
           godyn-selector-test = pkgs.runCommandLocal "godyn-selector-test-check" { } ''
             got=$(${self.packages.${system}.godyn-selector-test}/bin/godyn-embed-test)
             [ "$got" = "godyn embed works" ] || { echo "selector native mismatch: [$got]" >&2; exit 1; }
+            echo OK > $out
+          '';
+          # godyn→godyn composition: both consumption modes must produce a working
+          # binary from the same app graph. (Source = bridges; archive = archiveBridges.)
+          godyn-cross-source = pkgs.runCommandLocal "godyn-cross-source-check" { } ''
+            got=$(${self.packages.${system}.godyn-cross-source}/bin/godyn-cross-app)
+            [ "$got" = "hello from dep/greet" ] || { echo "bridges (source) mismatch: [$got]" >&2; exit 1; }
+            echo OK > $out
+          '';
+          godyn-cross-archive = pkgs.runCommandLocal "godyn-cross-archive-check" { } ''
+            got=$(${self.packages.${system}.godyn-cross-archive}/bin/godyn-cross-app)
+            [ "$got" = "hello from dep/greet" ] || { echo "archiveBridges (output) mismatch: [$got]" >&2; exit 1; }
             echo OK > $out
           '';
         }
