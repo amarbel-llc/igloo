@@ -120,6 +120,19 @@ let
 
   graph = builtins.fromJSON (builtins.readFile graphFile);
   byImport = lib.listToAttrs (map (p: lib.nameValuePair p.importPath p) graph);
+
+  # A pre-existing read-only $out (a CA scratch path stranded by an interrupted
+  # build) makes `mkdir -p "$out"` succeed silently while every subsequent write
+  # fails EACCES with a cryptic compiler error (seen on darwin, igloo#33). Probe
+  # once right after the mkdir and fail actionably instead.
+  outWritableProbe = ''
+    if ! { : > "$out/.godyn-writable"; } 2>/dev/null; then
+      echo "godyn: $out exists but is not writable — likely a stale CA scratch output stranded by an interrupted build (igloo#33)." >&2
+      echo "godyn: clear it with:  nix store delete $out  — then retry the build." >&2
+      exit 1
+    fi
+    rm -f "$out/.godyn-writable"
+  '';
   importsOf = importPath: let i = byImport.${importPath}.imports; in if i == null then [ ] else i;
   sanitize = s: lib.replaceStrings [ "/" "." "_" ] [ "-" "-" "-" ] s;
   nl = xs: if xs == null then [ ] else xs; # go marshals empty slices as null
@@ -224,6 +237,7 @@ let
       pureScript = ''
         export GOROOT=${go}/share/go
         mkdir -p "$out"
+        ${outWritableProbe}
         cat ${stdlib}/importcfg > importcfg
         ${cfg}
         ${embedSetup}go tool compile -importcfg importcfg ${embedFlag}-p '${pflag}' -buildid "" \
@@ -238,6 +252,7 @@ let
         W="$NIX_BUILD_TOP"
         export HOME="$W" GOCACHE="$W/gocache"
         mkdir -p "$out"
+        ${outWritableProbe}
         cat ${stdlib}/importcfg > importcfg
         ${cfg}
         : > "$W/go_asm.h"
@@ -264,6 +279,7 @@ let
         export CC=${cc}/bin/cc
         export HOME="$NIX_BUILD_TOP"
         mkdir -p "$out"
+        ${outWritableProbe}
         work="$NIX_BUILD_TOP/cgo-${sanitize importPath}"; rm -rf "$work"; mkdir -p "$work"
         cat ${stdlib}/importcfg > importcfg
         ${cfg}
