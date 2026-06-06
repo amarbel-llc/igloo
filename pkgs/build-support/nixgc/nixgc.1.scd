@@ -57,6 +57,21 @@ build has rooted (e.g. a dependency two projects compile to the same store path)
 therefore kept, not deleted; a cold rebuild then re-uses it. This is intentional —
 nixgc will not break a concurrent build by deleting its live inputs.
 
+## Quiescence (temproots)
+
+GC roots include *temporary* roots — */nix/var/nix/temproots/<pid>* — that every
+running *nix build* / nix-daemon operation holds on the paths it touches. nixgc
+counts a live temproot as a root and (correctly) refuses to delete what it holds, so
+on a CONTENDED store a reap may free nothing even with no persistent root present.
+This bites even a self-contained run: reaping immediately after your OWN *nix build*
+can see that build's just-exited temproot before Nix has swept it.
+
+A reliable reap therefore wants a QUIESCENT store. Best-effort prep (none guaranteed
+on a busy host): sweep stale temproots first with *nix-store --gc --print-roots* or
+*nix-store -q --roots*; add a brief *sleep* after a seed build so its temproot goes
+stale; or run only when no other *nix build* is in flight. There is no safe override:
+ignoring temproots would let nixgc delete a path a concurrent build is mid-using.
+
 # SEE ALSO
 
 *nix-store*(1), *godyn*(7)

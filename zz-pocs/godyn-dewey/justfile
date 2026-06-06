@@ -217,7 +217,10 @@ bench-record runs="3":
              # cold download. Unlike the old name-glob, this reaps ONLY this build's
              # closure and KEEPS any compile output a concurrent godyn build (e.g.
              # conformist, which shares CA deps via dedup) has rooted — it never
-             # deletes another build's live inputs.
+             # deletes another build's live inputs. CAVEAT (nixgc(1) § Quiescence):
+             # on a contended store, temproots from concurrent (or just-exited) nix
+             # builds can leave the reap freeing nothing; cold is reliable only on a
+             # quiescent store. Run this bench solo for a genuinely cold lane.
       local mdrv; mdrv=$("$NS" -q --deriver "$manifest" 2>/dev/null)
       [ -n "$mdrv" ] || return 0
       nixgc reap --with-referrers "$manifest" "$mdrv" >/dev/null 2>&1 || true
