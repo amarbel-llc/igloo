@@ -118,6 +118,24 @@
             graphFile = ./pkgs/build-support/godyn/tests/gotest/godyn-graph.json;
             testGraphFile = ./pkgs/build-support/godyn/tests/gotest/godyn-test-graph.json;
           };
+          # string-typed src regression (the eng/conformist incident): flake-input
+          # consumers pass src as a store-path STRING, where `src + "/."` keeps the
+          # "/." suffix and the per-package filter's strip-prefix never matches a
+          # canonical path — dropping every root-package (dir ".") file. Path
+          # LITERALS canonicalize the "/." away, which is why the fixtures above
+          # never caught it. These variants interpolate the fixture path to a
+          # string; gotest's root package covers the test-graph (relTo) side.
+          godyn-string-src-test = pkgs.buildGodynModule {
+            pname = "godyn-embed-test";
+            src = "${./pkgs/build-support/godyn/tests/embed}";
+            graphFile = ./pkgs/build-support/godyn/tests/embed/graph.json;
+          };
+          godyn-string-src-gotest-test = pkgs.buildGodynModule {
+            pname = "godyn-gotest-test";
+            src = "${./pkgs/build-support/godyn/tests/gotest}";
+            graphFile = ./pkgs/build-support/godyn/tests/gotest/godyn-graph.json;
+            testGraphFile = ./pkgs/build-support/godyn/tests/gotest/godyn-test-graph.json;
+          };
 
           # -- godyn cross-module fixtures (godyn→godyn composition) --
           # dep (A, example.com/dep) is built once; app (B, example.com/app) consumes
@@ -304,6 +322,20 @@
             res=${self.packages.${system}.godyn-gotest-test.passthru.checkAll}
             grep -qx "ok example.com/gotest/leaf" "$res" || { echo "missing leaf result" >&2; cat "$res" >&2; exit 1; }
             grep -qx "ok example.com/gotest/mid" "$res" || { echo "missing mid result" >&2; cat "$res" >&2; exit 1; }
+            grep -qx "ok example.com/gotest" "$res" || { echo "missing root result" >&2; cat "$res" >&2; exit 1; }
+            echo OK > $out
+          '';
+          # string-typed src (dir "." filter regression): the embed binary must run
+          # and the gotest root-package test must report — both built from a
+          # store-path-string src, the shape every flake-input consumer supplies.
+          godyn-string-src-test = pkgs.runCommandLocal "godyn-string-src-test-check" { } ''
+            got=$(${self.packages.${system}.godyn-string-src-test}/bin/godyn-embed-test)
+            [ "$got" = "godyn embed works" ] || { echo "string-src mismatch: [$got]" >&2; exit 1; }
+            echo OK > $out
+          '';
+          godyn-string-src-gotest-test = pkgs.runCommandLocal "godyn-string-src-gotest-test-check" { } ''
+            res=${self.packages.${system}.godyn-string-src-gotest-test.passthru.checkAll}
+            grep -qx "ok example.com/gotest" "$res" || { echo "missing root result" >&2; cat "$res" >&2; exit 1; }
             echo OK > $out
           '';
           # godyn→godyn composition: both consumption modes must produce a working

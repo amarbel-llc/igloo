@@ -1,5 +1,22 @@
 [
   {
+    "importPath": "example.com/gotest",
+    "dir": ".",
+    "name": "gotest",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "root.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "embedFiles": null,
+    "embedPatterns": null,
+    "imports": null
+  },
+  {
     "importPath": "example.com/gotest/helper",
     "dir": "helper",
     "name": "helper",

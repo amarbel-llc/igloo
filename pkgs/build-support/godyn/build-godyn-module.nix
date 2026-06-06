@@ -237,6 +237,14 @@ let
         in "echo 'packagefile ${dep}=${archive}' >> ${cfgFile}")
       (transitiveDeps importPath);
 
+  # A local package's source root. dir "." MUST resolve to src itself: with a
+  # string-typed src (what flake inputs provide), `src + "/."` keeps the "/."
+  # suffix, so the source filters' strip-prefix (toString root + "/") never
+  # matches the canonical paths nix hands the filter and every file is silently
+  # dropped. Path literals canonicalize the "/." away, which is why path-literal
+  # fixtures never caught this (the eng/conformist incident).
+  pkgRootFor = dir: if dir == "." then src else src + "/${dir}";
+
   # Compile a node per package, EXCEPT archive-bridged ones (those are linked from a
   # pre-built archive, never compiled here). transitiveDeps still sees them (they stay
   # in the graph) so dependents' importcfgs can reference their archives.
@@ -257,14 +265,14 @@ let
         ++ nl p.sFiles
         ++ nl (p.embedFiles or null);
       srcFileSet = lib.listToAttrs (map (f: lib.nameValuePair f true) srcFiles);
-      pkgRoot = src + "/${p.dir}";
+      pkgRoot = pkgRootFor p.dir;
       # Local: in-repo subdir (per-package filtered builtins.path; lazySrc keeps its
       # documented unfiltered whole-input behavior). Bridged: the go-pkgs store path.
       # Third-party: the vendor tree by import path.
       srcDir =
         if p.local then
           (if lazySrc then
-            src + "/${p.dir}"
+            pkgRoot
           else
             builtins.path {
               path = pkgRoot;
@@ -470,7 +478,7 @@ let
       embedPats = nl (base.embedPatterns or null);
       hasEmbed = embedPats != [ ];
 
-      pkgRoot = src + "/${t.dir}";
+      pkgRoot = pkgRootFor t.dir;
       compileFiles = goFiles ++ testGoFiles ++ xTestGoFiles ++ embedFiles;
       compileFileSet = lib.listToAttrs (map (f: lib.nameValuePair f true) compileFiles);
       relTo = path: lib.removePrefix (toString pkgRoot + "/") (toString path);
