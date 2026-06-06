@@ -245,6 +245,22 @@ let
   # fixtures never caught this (the eng/conformist incident).
   pkgRootFor = dir: if dir == "." then src else src + "/${dir}";
 
+  # The other half of the pkgRootFor invariant: the per-package file sets hold
+  # paths RELATIVE to the package root, so every source filter strips the same
+  # root prefix from the canonical paths nix hands it. A no-op strip (result
+  # still absolute) means root and prefix disagree — the dir-"." bug class —
+  # so fail loud at the disagreement instead of silently dropping every file
+  # and surfacing as a distant "no such file" compile error.
+  relToRoot =
+    root: path:
+    let
+      rel = lib.removePrefix (toString root + "/") (toString path);
+    in
+    if lib.hasPrefix "/" rel then
+      throw "godyn: source filter prefix mismatch: ${toString path} is not under ${toString root}"
+    else
+      rel;
+
   # Compile a node per package, EXCEPT archive-bridged ones (those are linked from a
   # pre-built archive, never compiled here). transitiveDeps still sees them (they stay
   # in the graph) so dependents' importcfgs can reference their archives.
@@ -279,8 +295,7 @@ let
               name = "godyn-src-${sanitize importPath}";
               filter =
                 path: type:
-                type == "directory"
-                || builtins.hasAttr (lib.removePrefix (toString pkgRoot + "/") (toString path)) srcFileSet;
+                type == "directory" || builtins.hasAttr (relToRoot pkgRoot path) srcFileSet;
             })
         else if brMod != null then
           "${bridges.${brMod}}" + lib.optionalString (importPath != brMod) "/${lib.removePrefix "${brMod}/" importPath}"
@@ -481,7 +496,7 @@ let
       pkgRoot = pkgRootFor t.dir;
       compileFiles = goFiles ++ testGoFiles ++ xTestGoFiles ++ embedFiles;
       compileFileSet = lib.listToAttrs (map (f: lib.nameValuePair f true) compileFiles);
-      relTo = path: lib.removePrefix (toString pkgRoot + "/") (toString path);
+      relTo = relToRoot pkgRoot;
       compileSrc = builtins.path {
         path = pkgRoot;
         name = "godyn-testsrc-${sanitize importPath}";

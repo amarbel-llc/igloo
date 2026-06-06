@@ -118,13 +118,11 @@
             graphFile = ./pkgs/build-support/godyn/tests/gotest/godyn-graph.json;
             testGraphFile = ./pkgs/build-support/godyn/tests/gotest/godyn-test-graph.json;
           };
-          # string-typed src regression (the eng/conformist incident): flake-input
-          # consumers pass src as a store-path STRING, where `src + "/."` keeps the
-          # "/." suffix and the per-package filter's strip-prefix never matches a
-          # canonical path — dropping every root-package (dir ".") file. Path
-          # LITERALS canonicalize the "/." away, which is why the fixtures above
-          # never caught it. These variants interpolate the fixture path to a
-          # string; gotest's root package covers the test-graph (relTo) side.
+          # string-typed src regression (dir "." filter, the eng/conformist
+          # incident — mechanism documented at pkgRootFor in build-godyn-module.nix):
+          # flake inputs provide src as a store-path STRING, a shape the
+          # path-literal fixtures above can't represent. gotest's root package
+          # covers the test-graph (relTo) side.
           godyn-string-src-test = pkgs.buildGodynModule {
             pname = "godyn-embed-test";
             src = "${./pkgs/build-support/godyn/tests/embed}";
@@ -325,19 +323,13 @@
             grep -qx "ok example.com/gotest" "$res" || { echo "missing root result" >&2; cat "$res" >&2; exit 1; }
             echo OK > $out
           '';
-          # string-typed src (dir "." filter regression): the embed binary must run
-          # and the gotest root-package test must report — both built from a
-          # store-path-string src, the shape every flake-input consumer supplies.
-          godyn-string-src-test = pkgs.runCommandLocal "godyn-string-src-test-check" { } ''
-            got=$(${self.packages.${system}.godyn-string-src-test}/bin/godyn-embed-test)
-            [ "$got" = "godyn embed works" ] || { echo "string-src mismatch: [$got]" >&2; exit 1; }
-            echo OK > $out
-          '';
-          godyn-string-src-gotest-test = pkgs.runCommandLocal "godyn-string-src-gotest-test-check" { } ''
-            res=${self.packages.${system}.godyn-string-src-gotest-test.passthru.checkAll}
-            grep -qx "ok example.com/gotest" "$res" || { echo "missing root result" >&2; cat "$res" >&2; exit 1; }
-            echo OK > $out
-          '';
+          # string-typed src (dir "." filter regression, see pkgRootFor): a filter
+          # break makes these BUILDS fail (empty filtered srcDir → no such file),
+          # and the path-literal siblings above already run the same binaries/tests
+          # on what dedupes to identical store paths — so realising the build is
+          # the whole assertion; no run-and-compare wrapper needed.
+          godyn-string-src-test = self.packages.${system}.godyn-string-src-test;
+          godyn-string-src-gotest-test = self.packages.${system}.godyn-string-src-gotest-test.passthru.checkAll;
           # godyn→godyn composition: both consumption modes must produce a working
           # binary from the same app graph. (Source = bridges; archive = archiveBridges.)
           godyn-cross-source = pkgs.runCommandLocal "godyn-cross-source-check" { } ''
