@@ -127,8 +127,10 @@ let
   # once right after the mkdir and fail actionably instead.
   outWritableProbe = ''
     if ! { : > "$out/.godyn-writable"; } 2>/dev/null; then
-      echo "godyn: $out exists but is not writable — likely a stale CA scratch output stranded by an interrupted build (igloo#33)." >&2
-      echo "godyn: clear it with:  nix store delete $out  — then retry the build." >&2
+      echo "godyn: $out exists but is not writable — a scratch output stranded by an interrupted build (igloo#33)." >&2
+      echo "godyn: these strays are usually UNREGISTERED (owned by a _nixbld user, invalid per nix path-info)," >&2
+      echo "godyn: so 'nix store delete' cannot remove them. Clear and retry with:" >&2
+      echo "godyn:   nix path-info $out >/dev/null 2>&1 && nix store delete $out || sudo rm -rf $out" >&2
       exit 1
     fi
     rm -f "$out/.godyn-writable"
