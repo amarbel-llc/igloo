@@ -35,6 +35,18 @@
   #   CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 godyn-gen . godyn-graph.aarch64-darwin.json
   graphFile ? null, # ./godyn-graph.json (single platform)
   graphFiles ? null, # { "<system>" = ./godyn-graph.<system>.json; … }
+  # Per-package `go test` (igloo#32): a committed test graph produced by
+  # `godyn-gen -tests` — one node per TESTED package carrying the test file lists,
+  # the test variant's imports (a superset including test-only deps), and the
+  # captured go-generated testmain source. Platform-specific exactly like the build
+  # graph. When present, passthru gains tests.<importPath> (run derivations — a
+  # failing test fails the build), testBins.<importPath> (the linked test binaries,
+  # for manual -run/-v invocation) and checkAll (one manifest realising every run —
+  # wire it into flake checks). Tests must be hermetic and deterministic (the nix
+  # sandbox, as with buildGoModule doCheck); note a CA run caches a PASSING result,
+  # so an unchanged test cone never re-runs.
+  testGraphFile ? null,
+  testGraphFiles ? null,
   # Third-party packages come from a gomod2nix vendor tree. Pass `modules`
   # (./gomod2nix.toml) to derive it via buildGoApplication, or pass a prebuilt
   # `vendorEnv` directly. null for an all-local module.
@@ -126,15 +138,26 @@ let
   # each `-X a.b=c` becomes the two tokens the linker wants).
   effectiveLdflagsStr = lib.concatStringsSep " " (versionLdflags ++ ldflags ++ ldflagsXFlags);
 
+  # Resolve one of (single, per-system) graph file args; null when neither is set —
+  # an error for the build graph, "no tests" for the test graph.
+  resolveGraphFile =
+    what: single: perSystem:
+    if perSystem != null then
+      (perSystem.${system} or (throw ''
+        buildGodynModule(${pname}): ${what} has no graph for ${system} (have: ${lib.concatStringsSep ", " (builtins.attrNames perSystem)}).
+        Generate it from any host: CGO_ENABLED=0 GOOS=<os> GOARCH=<arch> godyn-gen ${lib.optionalString (what == "testGraphFiles") "-tests "}. <out>.json''))
+    else
+      single;
+
   resolvedGraphFile =
-    if graphFiles != null then
-      (graphFiles.${system} or (throw ''
-        buildGodynModule(${pname}): graphFiles has no graph for ${system} (have: ${lib.concatStringsSep ", " (builtins.attrNames graphFiles)}).
-        Generate it from any host: CGO_ENABLED=0 GOOS=<os> GOARCH=<arch> godyn-gen . godyn-graph.${system}.json''))
-    else if graphFile != null then
-      graphFile
+    let
+      g = resolveGraphFile "graphFiles" graphFile graphFiles;
+    in
+    if g != null then
+      g
     else
       throw ''buildGodynModule(${pname}): pass graphFile (single platform) or graphFiles ({ "<system>" = <path>; })'';
+  resolvedTestGraphFile = resolveGraphFile "testGraphFiles" testGraphFile testGraphFiles;
 
   graph = builtins.fromJSON (builtins.readFile resolvedGraphFile);
   byImport = lib.listToAttrs (map (p: lib.nameValuePair p.importPath p) graph);
@@ -183,6 +206,26 @@ let
     let direct = importsOf importPath;
     in lib.unique (direct ++ lib.concatMap transitiveDeps direct);
 
+  # go:embed -embedcfg JSON for a package's embed files against a source dir: a
+  # literal pattern (init.toml) is itself a file; a simple suffix glob (dir/*)
+  # matches embedFiles by prefix. Shared by the package compile and the test
+  # variant compile (the variant includes the package's goFiles, so its embeds
+  # come along).
+  embedCfgJSON =
+    srcDir: embedFiles: embedPats:
+    let
+      matchPat =
+        pat:
+        if lib.elem pat embedFiles then
+          [ pat ]
+        else
+          builtins.filter (f: lib.hasPrefix (lib.removeSuffix "*" pat) f) embedFiles;
+    in
+    builtins.toJSON {
+      Patterns = lib.listToAttrs (map (pat: lib.nameValuePair pat (matchPat pat)) embedPats);
+      Files = lib.listToAttrs (map (f: lib.nameValuePair f "${srcDir}/${f}") embedFiles);
+    };
+
   # importcfg lines for `cfgFile`: stdlib from the shared stdlib drv; each non-stdlib
   # transitive dep contributes one `packagefile <imp>=<archive>`. A compiled dep
   # interpolates `${pkgDrvs.${dep}}` (making dep an inputDrv → the merkle-delta); an
@@ -200,16 +243,36 @@ let
   pkgDrvs = lib.mapAttrs (importPath: p:
     let
       brMod = bridgeOf importPath;
-      # Local: in-repo subdir (per-package builtins.path). Bridged: the go-pkgs
-      # store path. Third-party: the vendor tree by import path.
+      # Everything the compile consumes, package-dir-relative (embedFiles may live in
+      # subdirectories, so membership is by relative path, not basename). Filtering
+      # srcDir to exactly this set is what gives finer-than-package merkle-delta: a
+      # _test.go edit, a stray scratch file, or a nested subpackage's churn leaves
+      # this builtins.path byte-identical, so the package and its whole dependent
+      # cone stay cached.
+      srcFiles =
+        nl p.goFiles
+        ++ nl p.cgoFiles
+        ++ nl p.cFiles
+        ++ nl p.hFiles
+        ++ nl p.sFiles
+        ++ nl (p.embedFiles or null);
+      srcFileSet = lib.listToAttrs (map (f: lib.nameValuePair f true) srcFiles);
+      pkgRoot = src + "/${p.dir}";
+      # Local: in-repo subdir (per-package filtered builtins.path; lazySrc keeps its
+      # documented unfiltered whole-input behavior). Bridged: the go-pkgs store path.
+      # Third-party: the vendor tree by import path.
       srcDir =
         if p.local then
           (if lazySrc then
             src + "/${p.dir}"
           else
             builtins.path {
-              path = src + "/${p.dir}";
+              path = pkgRoot;
               name = "godyn-src-${sanitize importPath}";
+              filter =
+                path: type:
+                type == "directory"
+                || builtins.hasAttr (lib.removePrefix (toString pkgRoot + "/") (toString path)) srcFileSet;
             })
         else if brMod != null then
           "${bridges.${brMod}}" + lib.optionalString (importPath != brMod) "/${lib.removePrefix "${brMod}/" importPath}"
@@ -236,17 +299,7 @@ let
       embedFiles = nl (p.embedFiles or null);
       embedPats = nl (p.embedPatterns or null);
       hasEmbed = embedPats != [ ];
-      # Map each pattern to the embedFiles it covers: a literal pattern (init.toml)
-      # is itself a file; a simple suffix glob (dir/*) matches embedFiles by prefix.
-      matchPat = pat:
-        if lib.elem pat embedFiles then
-          [ pat ]
-        else
-          builtins.filter (f: lib.hasPrefix (lib.removeSuffix "*" pat) f) embedFiles;
-      embedcfgJSON = builtins.toJSON {
-        Patterns = lib.listToAttrs (map (pat: lib.nameValuePair pat (matchPat pat)) embedPats);
-        Files = lib.listToAttrs (map (f: lib.nameValuePair f "${srcDir}/${f}") embedFiles);
-      };
+      embedcfgJSON = embedCfgJSON srcDir embedFiles embedPats;
       embedSetup = lib.optionalString hasEmbed "printf '%s' ${lib.escapeShellArg embedcfgJSON} > embedcfg.json\n";
       embedFlag = lib.optionalString hasEmbed "-embedcfg embedcfg.json ";
 
@@ -388,6 +441,167 @@ let
       ownPkgs
   );
 
+  # ---- per-package go test (igloo#32) ----
+  # Two CA derivations per tested package, from the `godyn-gen -tests` graph:
+  # testBin compiles the `go list -test` package shape — the test VARIANT (package
+  # sources + in-package _test.go, same import path), the external <ip>_test package
+  # compiled against the VARIANT's archive (so test-only exports resolve), and the
+  # captured go-generated testmain — then links <name>.test. testRun executes it
+  # with cwd = the package source (testdata/ and golden files resolve), writing
+  # "ok <ip>" to $out/result; a failing test fails the build. The bin/run boundary
+  # caches the binary across re-runs and exposes it for manual -run/-v invocation.
+  testGraph =
+    if resolvedTestGraphFile != null then builtins.fromJSON (builtins.readFile resolvedTestGraphFile) else [ ];
+
+  testDrvsFor =
+    t:
+    let
+      importPath = t.importPath;
+      base =
+        byImport.${importPath}
+          or (throw "buildGodynModule(${pname}): test-graph entry ${importPath} is not in the build graph — regenerate both graphs with godyn-gen");
+      goFiles = nl t.goFiles;
+      testGoFiles = nl t.testGoFiles;
+      xTestGoFiles = nl t.xTestGoFiles;
+      hasExt = xTestGoFiles != [ ];
+      binName = "${baseNameOf importPath}.test";
+
+      embedFiles = nl (base.embedFiles or null);
+      embedPats = nl (base.embedPatterns or null);
+      hasEmbed = embedPats != [ ];
+
+      pkgRoot = src + "/${t.dir}";
+      compileFiles = goFiles ++ testGoFiles ++ xTestGoFiles ++ embedFiles;
+      compileFileSet = lib.listToAttrs (map (f: lib.nameValuePair f true) compileFiles);
+      relTo = path: lib.removePrefix (toString pkgRoot + "/") (toString path);
+      compileSrc = builtins.path {
+        path = pkgRoot;
+        name = "godyn-testsrc-${sanitize importPath}";
+        filter = path: type: type == "directory" || builtins.hasAttr (relTo path) compileFileSet;
+      };
+      # The run's cwd: `go test` executes test binaries with cwd = the package dir,
+      # so testdata/ (and everything the compile saw) must be present.
+      runSrc = builtins.path {
+        path = pkgRoot;
+        name = "godyn-testcwd-${sanitize importPath}";
+        filter =
+          path: type:
+          type == "directory" || builtins.hasAttr (relTo path) compileFileSet || lib.hasPrefix "testdata/" (relTo path);
+      };
+
+      # Dep closure for the variant/external/link importcfgs. Direct deps come from
+      # the test graph (the variant's imports INCLUDE test-only deps); expand
+      # through the build graph. A dep absent from the build graph is a test-only
+      # third-party import — not yet supported.
+      directDeps = lib.unique (nl t.imports ++ nl t.xTestImports);
+      testDeps = lib.unique (
+        directDeps ++ lib.concatMap (d: if byImport ? ${d} then transitiveDeps d else [ ]) directDeps
+      );
+      depLine =
+        cfgFile: dep:
+        let
+          archive =
+            if archiveBridgeOf dep != null then
+              archivePathOf dep
+            else if byImport ? ${dep} then
+              "${pkgDrvs.${dep}}/pkg.a"
+            else
+              throw "buildGodynModule(${pname}): test dependency ${dep} of ${importPath} is not in the build graph (test-only third-party deps are not yet supported — igloo#32)";
+        in
+        "echo 'packagefile ${dep}=${archive}' >> ${cfgFile}";
+      testCfg = cfgFile: lib.concatMapStringsSep "\n" (depLine cfgFile) testDeps;
+
+      files = fs: lib.concatMapStringsSep " " (f: "${compileSrc}/${f}") fs;
+      testmainSrc = builtins.toFile "godyn-testmain-${sanitize importPath}.go" t.testmain;
+
+      variantEmbedSetup = lib.optionalString hasEmbed "printf '%s' ${lib.escapeShellArg (embedCfgJSON compileSrc embedFiles embedPats)} > \"$W/embedcfg.json\"\n";
+      variantEmbedFlag = lib.optionalString hasEmbed ''-embedcfg "$W/embedcfg.json" '';
+
+      bin =
+        if nl base.cgoFiles != [ ] || nl base.sFiles != [ ] then
+          throw "buildGodynModule(${pname}): tests for cgo/asm package ${importPath} are not yet supported (igloo#32)"
+        else
+          runCommandLocal "godyn-testbin-${sanitize importPath}"
+            {
+              nativeBuildInputs = [ go ];
+              __contentAddressed = true;
+              outputHashMode = "recursive";
+              outputHashAlgo = "sha256";
+            }
+            ''
+              export GOROOT=${go}/share/go
+              mkdir -p "$out"
+              ${outWritableProbe}
+              W="$NIX_BUILD_TOP"
+
+              # 1. the test VARIANT: package + in-package test sources, same import path.
+              CFG="$W/ic.variant"; cat ${stdlib}/importcfg > "$CFG"
+              ${testCfg ''"$CFG"''}
+              ${variantEmbedSetup}go tool compile -importcfg "$CFG" ${variantEmbedFlag}-p '${importPath}' -buildid "" \
+                -trimpath="${compileSrc}=>${importPath};$W=>" -nolocalimports -pack -lang=${goVersion} \
+                -o "$W/variant.a" ${files (goFiles ++ testGoFiles)}
+
+              ${lib.optionalString hasExt ''
+                # 2. the external test package <ip>_test, against the VARIANT's archive.
+                CFG="$W/ic.ext"; cat ${stdlib}/importcfg > "$CFG"
+                ${testCfg ''"$CFG"''}
+                echo "packagefile ${importPath}=$W/variant.a" >> "$CFG"
+                go tool compile -importcfg "$CFG" -p '${importPath}_test' -buildid "" \
+                  -trimpath="${compileSrc}=>${importPath}_test;$W=>" -nolocalimports -pack -lang=${goVersion} \
+                  -o "$W/xtest.a" ${files xTestGoFiles}
+              ''}
+
+              # 3. the captured go-generated testmain.
+              CFG="$W/ic.main"; cat ${stdlib}/importcfg > "$CFG"
+              echo "packagefile ${importPath}=$W/variant.a" >> "$CFG"
+              ${lib.optionalString hasExt ''echo "packagefile ${importPath}_test=$W/xtest.a" >> "$CFG"''}
+              go tool compile -importcfg "$CFG" -p main -buildid "" \
+                -trimpath="$W=>" -nolocalimports -pack -lang=${goVersion} \
+                -o "$W/testmain.a" ${testmainSrc}
+
+              # 4. link the test binary.
+              CFG="$W/ic.link"; cat ${stdlib}/importcfg > "$CFG"
+              echo "packagefile ${importPath}=$W/variant.a" >> "$CFG"
+              ${lib.optionalString hasExt ''echo "packagefile ${importPath}_test=$W/xtest.a" >> "$CFG"''}
+              ${testCfg ''"$CFG"''}
+              GOTOOLDIR="$(go env GOTOOLDIR)"
+              export GOROOT=
+              "$GOTOOLDIR/link" -buildid=redacted -buildmode=exe -importcfg "$CFG" \
+                -o "$out/${binName}" "$W/testmain.a"
+            '';
+
+      run =
+        runCommandLocal "godyn-test-${sanitize importPath}"
+          {
+            __contentAddressed = true;
+            outputHashMode = "recursive";
+            outputHashAlgo = "sha256";
+          }
+          ''
+            mkdir -p "$out"
+            ${outWritableProbe}
+            cd ${runSrc}
+            if ${bin}/${binName} > "$NIX_BUILD_TOP/test.log" 2>&1; then
+              echo "ok ${importPath}" > "$out/result"
+            else
+              echo "godyn-test FAIL ${importPath}:" >&2
+              cat "$NIX_BUILD_TOP/test.log" >&2
+              exit 1
+            fi
+          '';
+    in
+    { inherit bin run; };
+
+  testPairs = lib.listToAttrs (map (t: lib.nameValuePair t.importPath (testDrvsFor t)) testGraph);
+  testBins = lib.mapAttrs (_: v: v.bin) testPairs;
+  testRuns = lib.mapAttrs (_: v: v.run) testPairs;
+
+  # One manifest realising every test run — the flake-checks hook.
+  checkAll = runCommandLocal "godyn-${pname}-tests" { } (
+    ": > $out\n"
+    + lib.concatMapStringsSep "\n" (t: "cat ${testRuns.${t.importPath}}/result >> $out") testGraph
+  );
+
   terminal = if mainPkg != null then pkgDrvs.${mainPkg.importPath} else manifest;
 in
 # Surface the resolved version + assembled ldflags (parity with buildGoApplication,
@@ -400,6 +614,11 @@ terminal.overrideAttrs (old: {
     # archiveBridges (approach 1). The source route (approach 2) just uses this
     # module's `src` as a `bridges` value — no passthru needed.
     inherit archiveGoPkgs;
+    # go test (igloo#32): run derivations by import path (a failing test fails the
+    # build), the linked test binaries (manual -run/-v invocation), and the
+    # all-tests manifest for flake checks. Empty when no test graph was passed.
+    tests = testRuns;
+    inherit testBins checkAll;
   };
   meta = (old.meta or { }) // lib.optionalAttrs (mainPkg != null) { mainProgram = pname; };
 })

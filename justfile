@@ -149,6 +149,24 @@ test-gomod2nix:
     fi
     gum log --level info "all gomod2nix eval-tests passed"
 
+# [test] Regenerate the godyn gotest fixture's committed graphs (build + test)
+# with the IN-TREE godyn-gen (built from source, so the working tree's gen is
+# what's exercised). Run after changing the fixture's import structure, file
+# sets, or test functions — NOT after content-only edits. Serves the igloo#32
+# dev loop; the godyn-gotest-test flake check consumes the committed output.
+[group: 'test']
+gen-godyn-test-fixture:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    goStore=$(nix build --no-link --print-out-paths 'path:.#go')
+    export PATH="$goStore/bin:$PATH" GOCACHE=$(mktemp -d) GOPATH=$(mktemp -d)
+    gen=$(mktemp -d)/godyn-gen
+    ( cd pkgs/build-support/godyn/gen && go build -o "$gen" . )
+    cd pkgs/build-support/godyn/tests/gotest
+    CGO_ENABLED=0 "$gen" . godyn-graph.json
+    CGO_ENABLED=0 "$gen" -tests . godyn-test-graph.json
+    gum log --level info "regenerated gotest fixture graphs"
+
 # [explore] Test the overlay-flake migration against amarbel-llc/maneater
 # Clones into .tmp/maneater (or reuses), bumps the nixpkgs input, runs
 # nix flake check + nix build .#default.

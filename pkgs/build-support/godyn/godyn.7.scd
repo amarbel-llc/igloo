@@ -92,6 +92,9 @@ Arguments:
 - *pname* — package name; also the binary name.
 - *src* — the module source root (a flake input); local packages live under it.
 - *graphFile* — the committed graph.json produced by godyn-gen (single platform).
+- *testGraphFile*, *testGraphFiles* — the committed test graph produced by
+  *godyn-gen -tests* (single platform / per-system attrset). Optional; enables
+  per-package go test. See TESTS below.
 - *graphFiles* — per-system graphs as an attrset *{ "<system>" =
   ./godyn-graph.<system>.json; ... }*, selected by *system* at eval time. *go list*'s
   file/import selection honors GOOS/GOARCH build constraints, so a graph is only
@@ -165,10 +168,64 @@ boilerplate:
 The resolved version and assembled ldflag list are exposed as *passthru.version* and
 *passthru.ldflags*.
 
+# TESTS
+
+godyn runs go test per package as TWO content-addressed derivations: a test
+binary, and a run whose pass/fail is the build result. Generate the committed
+test graph alongside the build graph and pass it to buildGodynModule:
+
+```
+godyn-gen . godyn-graph.json
+godyn-gen -tests . godyn-test-graph.json
+```
+
+```
+pkgs.buildGodynModule {
+  # ... as above ...
+  testGraphFile = ./godyn-test-graph.json;  # or testGraphFiles."<system>" = ...
+}
+```
+
+The test graph has one node per TESTED package: the test file lists, the test
+variant's imports (a superset including test-only deps), and the captured
+go-generated testmain source (the capture route — *go list -test* materialises
+the same \_testmain.go that go test would use, so TestMain, examples with
+output, and fuzz targets are wired identically). Like the build graph it is
+platform-specific; multi-platform consumers commit one per system (godyn-gen
+honors GOOS/GOARCH).
+
+Per tested package the builder compiles the *go list -test* package shape: the
+test VARIANT (package sources + in-package \_test.go files, same import path),
+the external <pkg>\_test package compiled against the VARIANT's archive (so
+test-only exports resolve), and the testmain — then links <name>.test (the
+testBin derivation) and executes it with cwd = the package source, so testdata/
+and golden files resolve (the testRun derivation). A failing test fails the
+build with the test's output in the log.
+
+Passthru surface: *tests.<importPath>* (the run derivations),
+*testBins.<importPath>* (the binaries — invoke manually for -run / -v / -count),
+and *checkAll* (one manifest realising every run). Wire checkAll into flake
+checks:
+
+```
+checks.<system>.myapp-tests = myapp.passthru.checkAll;
+```
+
+Because runs are content-addressed, an unchanged test cone never re-runs — and
+the package's normal archive sources only non-test files, so a \_test.go edit
+re-runs exactly that package's tests and nothing else (finer than per-package
+granularity). The flip side: a PASSING flaky test caches; godyn tests must be
+hermetic and deterministic (no network, no clock/order dependence — the same
+contract as buildGoModule's doCheck). Runtime flags like -run or -count belong
+to manual testBins invocations, not the cached run.
+
 # LIMITATIONS
 
-godyn is build-only (use *go test* / buildGoApplication for tests). go:embed
-supports literal and simple suffix-glob patterns.
+go:embed supports literal and simple suffix-glob patterns.
+
+Tests: cgo and asm packages' tests, test-only THIRD-PARTY deps, the -race
+stdlib variant, and embeds referenced only by \_test.go files are not yet
+supported (igloo#32 tracks the remainder).
 
 A committed graph is platform-specific (see *graphFiles* above); building a module
 with platform-dependent deps from a single graphFile on another system fails in the

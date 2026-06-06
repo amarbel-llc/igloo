@@ -108,6 +108,16 @@
             src = ./pkgs/build-support/godyn/tests/embed;
             graphFiles.${system} = ./pkgs/build-support/godyn/tests/embed/graph.json;
           };
+          # go test support (igloo#32): a library fixture whose tests cover the
+          # in-package / external / TestMain / Example / go:embed / testdata /
+          # test-only-dep cases. The package is the manifest terminal; the check
+          # below realises passthru.checkAll (every per-package test run).
+          godyn-gotest-test = pkgs.buildGodynModule {
+            pname = "godyn-gotest-test";
+            src = ./pkgs/build-support/godyn/tests/gotest;
+            graphFile = ./pkgs/build-support/godyn/tests/gotest/godyn-graph.json;
+            testGraphFile = ./pkgs/build-support/godyn/tests/gotest/godyn-test-graph.json;
+          };
 
           # -- godyn cross-module fixtures (godyn→godyn composition) --
           # dep (A, example.com/dep) is built once; app (B, example.com/app) consumes
@@ -286,6 +296,14 @@
           godyn-graphfiles-test = pkgs.runCommandLocal "godyn-graphfiles-test-check" { } ''
             got=$(${self.packages.${system}.godyn-graphfiles-test}/bin/godyn-embed-test)
             [ "$got" = "godyn embed works" ] || { echo "graphFiles mismatch: [$got]" >&2; exit 1; }
+            echo OK > $out
+          '';
+          # go test (igloo#32): checkAll realises every per-package test run (a
+          # failing test fails this check); assert both packages reported.
+          godyn-gotest-test = pkgs.runCommandLocal "godyn-gotest-test-check" { } ''
+            res=${self.packages.${system}.godyn-gotest-test.passthru.checkAll}
+            grep -qx "ok example.com/gotest/leaf" "$res" || { echo "missing leaf result" >&2; cat "$res" >&2; exit 1; }
+            grep -qx "ok example.com/gotest/mid" "$res" || { echo "missing mid result" >&2; cat "$res" >&2; exit 1; }
             echo OK > $out
           '';
           # godyn→godyn composition: both consumption modes must produce a working
