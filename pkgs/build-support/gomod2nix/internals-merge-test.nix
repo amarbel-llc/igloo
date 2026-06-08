@@ -10,12 +10,19 @@
 #   - amarbel-llc/nixpkgs#36 — depth-1 inheritance of
 #     `passthru.goFlakeInputs` from each direct producer, with
 #     consumer-declared entries winning on conflict.
+#   - amarbel-llc/igloo#38 — the synthetic require sentinel's major is
+#     derived per-module from a /vN suffix so `go mod edit -require`
+#     accepts /v2+ goFlakeInputs module paths.
 { pkgs ? import ../../.. { } }:
 let
   inherit (pkgs.callPackage ./internals.nix { })
     mergeGomod2nixTomls
     inheritedGoFlakeInputs
+    mkMergedGoMod
+    sentinelFor
     ;
+
+  v0Sentinel = "v0.0.0-00010101000000-000000000000";
 
   # Fixture: consumer has its own pin for `shared` AND `only-in-consumer`.
   # Producer flake-input has pins for `shared` (different version,
@@ -112,6 +119,35 @@ let
   # entries layered on top — `//` makes consumer the conflict winner.
   effective = inherited // consumerGoFlakeInputs;
 
+  # #38 integration fixtures. `go mod edit -replace` does not require the
+  # target to exist on disk, so dummy store paths suffice for asserting
+  # the require/replace formatting that mkMergedGoMod emits.
+  consumerGoModFixture = pkgs.writeText "consumer-go.mod" ''
+    module example.com/consumer
+
+    go 1.26
+  '';
+  dummyV2Src = pkgs.runCommand "dummy-v2-src" { } "mkdir -p $out/go-crap";
+  dummyV0Src = pkgs.runCommand "dummy-v0-src" { } "mkdir -p $out";
+
+  # Building this derivation runs the real `go mod edit` pipeline: a /v2
+  # module routed through goFlakeInputs MUST get a v2-major sentinel so
+  # `go mod edit -require` accepts it (else the build fails here, which
+  # is the #38 regression signal); a non-suffixed module keeps the v0
+  # sentinel.
+  mergedV2GoMod = mkMergedGoMod {
+    consumerGoMod = consumerGoModFixture;
+    go = pkgs.go;
+    runCommand = pkgs.runCommand;
+    goFlakeInputs = {
+      "github.com/amarbel-llc/crap/go-crap/v2" = {
+        src = dummyV2Src;
+        subPath = "go-crap";
+      };
+      "github.com/amarbel-llc/tap/go" = dummyV0Src;
+    };
+  };
+
   assert' = label: cond: if cond then null else throw "${label}: assertion failed";
 in
 pkgs.runCommand "internals-merge-tests"
@@ -161,6 +197,35 @@ pkgs.runCommand "internals-merge-tests"
       # absence from the result is the test.)
       (assert' "#36 depth-1: only direct producers contribute"
         (builtins.length (builtins.attrNames inherited) == 3))
+
+      # #38 sentinelFor unit cases: the major is derived from a trailing
+      # /vN (N ≥ 2); everything else keeps the v0 sentinel.
+      (assert' "#38 sentinelFor: unsuffixed path keeps v0 sentinel"
+        (sentinelFor "github.com/amarbel-llc/tap/go" == v0Sentinel))
+      (assert' "#38 sentinelFor: /v2 path gets v2 sentinel"
+        (sentinelFor "github.com/amarbel-llc/crap/go-crap/v2"
+          == "v2.0.0-00010101000000-000000000000"))
+      (assert' "#38 sentinelFor: /v3 path gets v3 sentinel"
+        (sentinelFor "example.com/foo/v3" == "v3.0.0-00010101000000-000000000000"))
+      (assert' "#38 sentinelFor: multi-digit major /v10"
+        (sentinelFor "example.com/foo/v10" == "v10.0.0-00010101000000-000000000000"))
+      (assert' "#38 sentinelFor: /v1 is not a real major suffix, keeps v0 sentinel"
+        (sentinelFor "example.com/foo/v1" == v0Sentinel))
+      (assert' "#38 sentinelFor: /v0 keeps v0 sentinel"
+        (sentinelFor "example.com/foo/v0" == v0Sentinel))
+      (assert' "#38 sentinelFor: 'v2' as a non-final path component is ignored"
+        (sentinelFor "example.com/v2/foo" == v0Sentinel))
     ];
+
+    # #38 integration: building forces the real `go mod edit` pipeline.
+    inherit mergedV2GoMod;
   }
-  "touch $out"
+  ''
+    echo "=== merged go.mod (#38 /v2 sentinel) ==="
+    cat "$mergedV2GoMod"
+    grep -Eq 'github.com/amarbel-llc/crap/go-crap/v2 v2\.0\.0-00010101000000-000000000000' "$mergedV2GoMod" \
+      || { echo "FAIL(#38): /v2 require missing v2 sentinel"; exit 1; }
+    grep -Eq 'github.com/amarbel-llc/tap/go v0\.0\.0-00010101000000-000000000000' "$mergedV2GoMod" \
+      || { echo "FAIL(#38): non-suffixed require missing v0 sentinel"; exit 1; }
+    touch "$out"
+  ''

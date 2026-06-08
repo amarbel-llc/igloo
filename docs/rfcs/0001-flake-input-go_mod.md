@@ -208,7 +208,13 @@ declared in `goFlakeInputs` — leaving them in is cosmetically untidy
 but functionally harmless (the bridge strips them at merge time).
 `go.mod` retains the `require` line (Go's parser needs *some*
 version) with a sentinel pseudo-version such as
-`v0.0.0-00010101000000-000000000000`.
+`v0.0.0-00010101000000-000000000000`. The sentinel's major MUST match
+any major-version suffix in the module path: a path ending `/vN`
+(N ≥ 2) requires `vN.0.0-00010101000000-000000000000`, since
+`go mod edit -require` rejects a require whose major disagrees with the
+path's declared major (`should be vN, not v0`). The require is
+immediately shadowed by the local `replace`, so the only constraint is
+that `go mod edit` accept the major. See amarbel-llc/igloo#38.
 
 Implementations MUST remove all keys named in `goFlakeInputs` from
 the merged `modulesStruct.mod` table before passing it to the vendor

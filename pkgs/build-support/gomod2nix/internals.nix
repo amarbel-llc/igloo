@@ -2,6 +2,26 @@
 let
   sentinelPseudoVersion = "v0.0.0-00010101000000-000000000000";
 
+  # Pick the synthetic require sentinel for a module path. Go rejects
+  # `go mod edit -require=<path>@<version>` when <path> ends in a
+  # major-version suffix (/v2, /v3, …) whose major differs from
+  # <version>'s — `version "v0.0.0-…" invalid: should be v2, not v0`.
+  # The synthetic require is immediately shadowed by a -replace to the
+  # local src, so the only constraint is that the major match. Derive
+  # the sentinel's major from a trailing /vN (N ≥ 2); keep the v0
+  # sentinel for unsuffixed paths and for the implicit-v0/v1 majors
+  # (which never carry a suffix). See amarbel-llc/igloo#38.
+  sentinelFor =
+    modPath:
+    let
+      majorMatch = builtins.match ".*/v([0-9]+)" modPath;
+      major = if majorMatch == null then null else builtins.head majorMatch;
+    in
+    if major != null && builtins.fromJSON major >= 2 then
+      "v${major}.0.0-00010101000000-000000000000"
+    else
+      sentinelPseudoVersion;
+
   # Normalize a goFlakeInputs value into { src, subPath } form.
   # Accepts:
   #   - a derivation or path (subPath defaults to "")
@@ -43,7 +63,7 @@ let
                   target = "${v.src}${if v.subPath == "" then "" else "/${v.subPath}"}";
                 in
                 ''
-                  go mod edit -require=${modPath}@${sentinelPseudoVersion}
+                  go mod edit -require=${modPath}@${sentinelFor modPath}
                   go mod edit -replace=${modPath}=${target}
                 ''
               ) normalized
@@ -217,6 +237,7 @@ in
 {
   inherit
     sentinelPseudoVersion
+    sentinelFor
     normalizeFlakeInput
     inheritedGoFlakeInputs
     mkMergedGoMod
