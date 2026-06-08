@@ -82,6 +82,50 @@ let
         ''
       );
 
+  # Build the CONTENT of a go.work overlay that `use`s the consumer module
+  # plus each goFlakeInputs producer (absolute store paths). This is the
+  # Design A merge primitive (igloo#39): an alternative to mkMergedGoMod's
+  # require+replace injection. Each producer's identity — including any /vN
+  # major — comes from its own go.mod, so there is NO synthetic version and
+  # NO sentinel (sentinelFor is unnecessary in this mode).
+  #
+  # Returns a string, not a derivation: go.work is plain generated text, so
+  # the caller materializes it into the build sandbox directly (e.g. a
+  # postPatch `cat > go.work`). `consumerUsePath` is the consumer module's
+  # location in the build tree — "." for the in-sandbox source root; a
+  # subdir (e.g. "go") for a polyglot layout.
+  #
+  # NOTE (igloo#39 spikes): bridged producers are resolved from source via
+  # `use`; they are NOT vendored and MUST NOT appear in vendor/modules.txt.
+  # Their external transitive deps still vendor normally — the consumer's
+  # modulesStruct (with bridged keys stripped by mergeGomod2nixTomls) drives
+  # mkWorkspaceModulesTxt's externalEntries, and `go build -mod=vendor`
+  # consumes the nix-prebuilt vendor tree. Module-level `replace` is ignored
+  # in workspace mode, so any resolution override must live in this go.work.
+  mkMergedGoWork =
+    {
+      goVersion,
+      goFlakeInputs,
+      consumerUsePath ? ".",
+    }:
+    let
+      targetOf =
+        v:
+        let
+          n = normalizeFlakeInput v;
+        in
+        "${n.src}${if n.subPath == "" then "" else "/${n.subPath}"}";
+      useTargets = [ consumerUsePath ] ++ builtins.attrValues (builtins.mapAttrs (_: targetOf) goFlakeInputs);
+      useBlock = builtins.concatStringsSep "\n" (map (p: "\t${p}") useTargets);
+    in
+    ''
+      go ${goVersion}
+
+      use (
+      ${useBlock}
+      )
+    '';
+
   # Read `passthru.goFlakeInputs` from each direct producer in a
   # consumer's `goFlakeInputs` map and union the inherited entries.
   # Depth-1 only — the helper MUST NOT recurse into inherited entries'
@@ -238,6 +282,7 @@ in
   inherit
     sentinelPseudoVersion
     sentinelFor
+    mkMergedGoWork
     normalizeFlakeInput
     inheritedGoFlakeInputs
     mkMergedGoMod
