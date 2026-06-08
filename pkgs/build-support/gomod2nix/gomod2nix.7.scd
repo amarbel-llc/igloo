@@ -255,11 +255,14 @@ and no sentinel, so a producer whose module path carries a major suffix
 *go.mod*. Bridged producers resolve from source via *use* and are not
 vendored; their external transitive deps still vendor normally.
 
-This mode is EXPERIMENTAL and currently wired for *buildGoApplication* only;
-*mkGoEnv* always uses *replace* mode (devshell parity for workspace mode is a
-follow-up — amarbel-llc/igloo#39). Mixing them (workspace build, replace
-devshell) does not reintroduce lockstep drift, since both modes resolve a
-bridged module to the same */nix/store* path.
+This mode is EXPERIMENTAL. Both *buildGoApplication* and *mkGoEnv* honour
+*goFlakeInputsMode* — pass the same value to both for a given consumer so the
+build and devshell agree. In workspace mode *mkGoEnv* exposes the synthesized
+overlay as *passthru.mergedGoWork* (the analog of *passthru.mergedGoMod*) for
+shellHook materialization. Remaining follow-ups (amarbel-llc/igloo#39): the Go
+build cache is disabled for workspace-bridge builds, polyglot-subdir consumers
+are not yet handled (the consumer is *use*d as *.*), and the RFC 0001
+merge-primitive revision is pending.
 
 ## Effect on gomod2nix.toml
 
@@ -285,10 +288,9 @@ harmless. See amarbel-llc/nixpkgs#50.
 
 ## mkGoEnv parity
 
-*mkGoEnv* accepts the same *goFlakeInputs* attribute and applies the same
-*replace*-mode synthesis (see *Bridging mode* — workspace mode is
-*buildGoApplication*-only for now). Devshells see the same merged module
-graph as *nix build*, so
+*mkGoEnv* accepts the same *goFlakeInputs* and *goFlakeInputsMode* attributes
+and applies the same synthesis (replace or workspace — see *Bridging mode*).
+Devshells see the same merged module graph as *nix build*, so
 *go build ./...*, *gopls*, and editor tooling resolve cross-flake imports
 identically to the production build.
 

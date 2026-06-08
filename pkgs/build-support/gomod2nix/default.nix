@@ -504,6 +504,9 @@ let
       toolsGo ? null,
       modules ? null,
       goFlakeInputs ? { },
+      # "replace" (default) | "workspace" — must match the buildGoApplication
+      # call for the same consumer so devshell and build agree (igloo#39).
+      goFlakeInputsMode ? "replace",
       allowGoReference ? false,
       ...
     }@attrs:
@@ -530,12 +533,18 @@ let
         modules = effectiveModules;
         inherit
           goFlakeInputs
+          goFlakeInputsMode
           go
           runCommand
           parseGoMod
           ;
       };
-      inherit (merged) goMod modulesStruct mergedGoModFile;
+      inherit (merged) goMod modulesStruct mergedGoModFile mergedGoWork;
+
+      # Workspace-bridge mode (Design A, igloo#39): the synthesized go.work
+      # drives the vendor env (localReplaceCommands skipped, modules.txt
+      # workspace-shaped). null in replace mode → mkVendorEnv unchanged.
+      effectiveGoWork = if mergedGoWork != null then parseGoWork mergedGoWork else null;
 
       vendorEnv = mkVendorEnv {
         inherit
@@ -543,6 +552,7 @@ let
           goMod
           modulesStruct
           ;
+        goWork = effectiveGoWork;
         pwd = effectivePwd;
       };
 
@@ -569,6 +579,7 @@ let
         "toolsGo"
         "modules"
         "goFlakeInputs"
+        "goFlakeInputsMode"
         "allowGoReference"
       ]
       // {
@@ -610,6 +621,9 @@ let
           } source/go.mod
           cp ${effectivePwd + "/go.sum"} source/go.sum
           cp ${effectiveToolsGo} source/tools.go
+          ${optionalString (mergedGoWork != null)
+            "cp ${writeText "merged-go.work" mergedGoWork} source/go.work"
+          }
           cd source
 
           rsync -a -K --ignore-errors ${vendorEnv}/ vendor
@@ -618,10 +632,11 @@ let
         '';
 
         # Devshell parity with buildGoApplication: surface the merged
-        # go.mod so flake consumers can wire it into the user's working
-        # tree (e.g. via a shellHook that copies it on entry). The vendor
-        # tree already reflects the merged module graph above. mkGoEnv
-        # intentionally does NOT mutate the user's working directory.
+        # go.mod (replace mode) or go.work (workspace mode) so flake
+        # consumers can wire it into the user's working tree (e.g. via a
+        # shellHook that copies it on entry). The vendor tree already
+        # reflects the merged module graph above. mkGoEnv intentionally does
+        # NOT mutate the user's working directory.
         passthru =
           (attrs.passthru or { })
           // {
@@ -629,6 +644,11 @@ let
           }
           // optionalAttrs (mergedGoModFile != null) {
             mergedGoMod = mergedGoModFile;
+          }
+          // optionalAttrs (mergedGoWork != null) {
+            # Workspace mode (igloo#39): consumers materialize this as go.work
+            # in their tree (shellHook `cp`) so gopls/go resolve the bridge.
+            mergedGoWork = writeText "merged-go.work" mergedGoWork;
           };
       }
     );
