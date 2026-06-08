@@ -36,6 +36,7 @@
   stdenv,
   stdenvNoCC,
   writeScript,
+  writeText,
   zstd,
 }:
 let
@@ -196,7 +197,14 @@ let
   mkWorkspaceModulesTxt =
     pwd: goWork: modulesStruct:
     let
-      # Parse all workspace modules' go.mod files
+      # Bridged producers (Design A, igloo#39) appear as absolute /nix/store
+      # `use` targets. They resolve from source and are NOT vendored or listed
+      # in modules.txt, so skip them here — only in-tree (relative) `use`
+      # targets get a workspace entry. This also avoids `${pwd}/${usePath}`
+      # mangling an absolute path into a non-existent readFile.
+      inTreeUse = builtins.filter (usePath: !lib.hasPrefix "/" usePath) goWork.use;
+
+      # Parse all (in-tree) workspace modules' go.mod files
       workspaceModules = map (
         usePath:
         let
@@ -208,7 +216,7 @@ let
           goVersion = moduleGoMod.go;
           requires = builtins.attrNames (moduleGoMod.require or { });
         }
-      ) goWork.use;
+      ) inTreeUse;
 
       # Collect all module paths that are required by any workspace module
       allRequired = builtins.concatLists (map (m: m.requires) workspaceModules);
@@ -631,6 +639,9 @@ let
       src ? null,
       pwd ? null,
       goFlakeInputs ? { },
+      # "replace" (default) — require+replace+sentinel merged go.mod.
+      # "workspace" — Design A go.work overlay, sentinel-free (igloo#39).
+      goFlakeInputsMode ? "replace",
       nativeBuildInputs ? [ ],
       allowGoReference ? false,
       meta ? { },
@@ -692,12 +703,21 @@ let
         modules = effectiveModules;
         inherit
           goFlakeInputs
+          goFlakeInputsMode
           go
           runCommand
           parseGoMod
           ;
       };
-      inherit (merged) goMod modulesStruct mergedGoModFile;
+      inherit (merged) goMod modulesStruct mergedGoModFile mergedGoWork;
+
+      # Design A (igloo#39): in workspace-bridge mode the synthesized go.work
+      # overlay supersedes any pathExists-detected consumer go.work. The
+      # cache derivation reconstructs an in-tree `source/`, which can't yet
+      # carry out-of-tree (store-path) `use` targets, so the cache is disabled
+      # for bridge builds — a documented follow-up, not a correctness gap.
+      effectiveGoWork = if mergedGoWork != null then parseGoWork mergedGoWork else goWork;
+      effectiveDisableGoCache = disableGoCache || mergedGoWork != null;
 
       defaultPackage = modulesStruct.goPackagePath or "";
 
@@ -707,9 +727,9 @@ let
             inherit
               defaultPackage
               go
-              goWork
               modulesStruct
               ;
+            goWork = effectiveGoWork;
             pwd = effectivePwd;
             goMod = if goMod != null then goMod else { replace = { }; };
           }
@@ -728,7 +748,7 @@ let
           effectiveSrc;
 
       depFilesPath =
-        if (!disableGoCache && modulesStruct != { } && depFilesSrc != null) then
+        if (!effectiveDisableGoCache && modulesStruct != { } && depFilesSrc != null) then
           if hasWorkspace then
             # For workspaces, include go.work and all module go.mod/go.sum files
             lib.cleanSourceWith {
@@ -771,7 +791,7 @@ let
           null;
 
       cacheEnv =
-        if (!disableGoCache && modulesStruct != { } && depFilesPath != null) then
+        if (!effectiveDisableGoCache && modulesStruct != { } && depFilesPath != null) then
           mkGoCacheEnv {
             inherit
               go
@@ -881,6 +901,7 @@ let
       }
       // (removeAttrs attrs [
         "goFlakeInputs"
+        "goFlakeInputsMode"
         "ldflagsX"
         "overwriteLdflagsX"
       ])
@@ -924,6 +945,16 @@ let
         postPatch =
           optionalString (mergedGoModFile != null) ''
             cp --no-preserve=mode ${mergedGoModFile} go.mod
+          ''
+          # Workspace mode (Design A, igloo#39): drop in the synthesized
+          # go.work overlay instead of editing go.mod. Materializing it here
+          # (before goConfigHook in postPatchHooks) puts go.work alongside the
+          # consumer go.mod at the build root, so the rsynced vendor/ + the
+          # hook's `-mod=vendor` build run in workspace mode. The producer
+          # store paths the go.work references are pulled into the build
+          # closure via writeText's string context.
+          + optionalString (mergedGoWork != null) ''
+            cp --no-preserve=mode ${writeText "merged-go.work" mergedGoWork} go.work
           ''
           + (attrs.postPatch or "");
 

@@ -208,6 +208,10 @@ let
       go,
       runCommand,
       parseGoMod,
+      # "replace" (default): inject require+replace into a merged go.mod.
+      # "workspace": synthesize a go.work overlay (Design A, igloo#39) — no
+      # require/replace/sentinel; bridged producers resolve from source.
+      goFlakeInputsMode ? "replace",
     }:
     let
       goModPath = "${toString pwd}/go.mod";
@@ -225,12 +229,27 @@ let
       normalizedFlakeInputs = builtins.mapAttrs (_: normalizeFlakeInput) effectiveGoFlakeInputs;
       hasFlakeInputs = normalizedFlakeInputs != { };
 
+      # Replace mode only: a merged go.mod with synthetic require+replace.
       mergedGoModFile =
-        if hasFlakeInputs && consumerGoMod != null then
+        if goFlakeInputsMode == "replace" && hasFlakeInputs && consumerGoMod != null then
           mkMergedGoMod {
             consumerGoMod = pwd + "/go.mod";
             inherit go runCommand;
             goFlakeInputs = effectiveGoFlakeInputs;
+          }
+        else
+          null;
+
+      # Workspace mode (Design A): synthesized go.work overlay content. The
+      # consumer go.mod is left untouched; producers resolve from source via
+      # `use`, so there is no sentinel. The caller materializes this into the
+      # build sandbox (postPatch `cp`). See igloo#39.
+      mergedGoWork =
+        if goFlakeInputsMode == "workspace" && hasFlakeInputs && consumerGoMod != null then
+          mkMergedGoWork {
+            goVersion = consumerGoMod.go;
+            goFlakeInputs = effectiveGoFlakeInputs;
+            consumerUsePath = ".";
           }
         else
           null;
@@ -273,6 +292,7 @@ let
         goMod
         modulesStruct
         mergedGoModFile
+        mergedGoWork
         hasFlakeInputs
         normalizedFlakeInputs
         ;

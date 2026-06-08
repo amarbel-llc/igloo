@@ -244,6 +244,23 @@ will appear even if *go.mod* already declares an organic *require* for the
 same module path. *go.mod* on disk is not modified — the edit happens on a
 copy used for the build.
 
+## Bridging mode (experimental workspace alternative)
+
+The *require*+*replace* mechanism above is the default
+(*goFlakeInputsMode = "replace"*). An experimental alternative,
+*goFlakeInputsMode = "workspace"*, instead synthesizes a *go.work* overlay
+that *use*s each producer's source tree: no synthetic *require*/*replace*
+and no sentinel, so a producer whose module path carries a major suffix
+(*/v2*, …) needs no special handling — its identity comes from its own
+*go.mod*. Bridged producers resolve from source via *use* and are not
+vendored; their external transitive deps still vendor normally.
+
+This mode is EXPERIMENTAL and currently wired for *buildGoApplication* only;
+*mkGoEnv* always uses *replace* mode (devshell parity for workspace mode is a
+follow-up — amarbel-llc/igloo#39). Mixing them (workspace build, replace
+devshell) does not reintroduce lockstep drift, since both modes resolve a
+bridged module to the same */nix/store* path.
+
 ## Effect on gomod2nix.toml
 
 If the flake input ships its own *gomod2nix.toml*, it is unioned with the
@@ -269,7 +286,9 @@ harmless. See amarbel-llc/nixpkgs#50.
 ## mkGoEnv parity
 
 *mkGoEnv* accepts the same *goFlakeInputs* attribute and applies the same
-synthesis. Devshells see the same merged module graph as *nix build*, so
+*replace*-mode synthesis (see *Bridging mode* — workspace mode is
+*buildGoApplication*-only for now). Devshells see the same merged module
+graph as *nix build*, so
 *go build ./...*, *gopls*, and editor tooling resolve cross-flake imports
 identically to the production build.
 
