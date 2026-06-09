@@ -19,27 +19,10 @@ let
     mergeGomod2nixTomls
     inheritedGoFlakeInputs
     mkMergedGoMod
-    mkMergedGoWork
     sentinelFor
     ;
 
-  inherit (pkgs.lib) hasInfix;
-
   v0Sentinel = "v0.0.0-00010101000000-000000000000";
-
-  # igloo#39 Design A: a synthesized go.work `use`-block — consumer first,
-  # then each producer's store path (/vN identity from its own go.mod, no
-  # sentinel). Producers given as string srcs (suffices for content asserts).
-  sampleGoWork = mkMergedGoWork {
-    goVersion = "1.26";
-    goFlakeInputs = {
-      "github.com/amarbel-llc/crap/go-crap/v2" = {
-        src = "/nix/store/crap";
-        subPath = "go-crap";
-      };
-      "github.com/amarbel-llc/tap/go" = "/nix/store/tap";
-    };
-  };
 
   # Fixture: consumer has its own pin for `shared` AND `only-in-consumer`.
   # Producer flake-input has pins for `shared` (different version,
@@ -232,25 +215,6 @@ pkgs.runCommand "internals-merge-tests"
         (sentinelFor "example.com/foo/v0" == v0Sentinel))
       (assert' "#38 sentinelFor: 'v2' as a non-final path component is ignored"
         (sentinelFor "example.com/v2/foo" == v0Sentinel))
-
-      # #39 mkMergedGoWork: emits a block-form go.work `use`-ing the consumer
-      # ("." first) + each producer store path, with NO version/sentinel.
-      (assert' "#39 gowork: go directive carries the consumer version"
-        (hasInfix "go 1.26\n" sampleGoWork))
-      (assert' "#39 gowork: opens a use(...) block"
-        (hasInfix "use (\n" sampleGoWork))
-      (assert' "#39 gowork: consumer is the first use entry"
-        (hasInfix "\t.\n" sampleGoWork))
-      (assert' "#39 gowork: /v2 producer use target honours subPath"
-        (hasInfix "\t/nix/store/crap/go-crap\n" sampleGoWork))
-      (assert' "#39 gowork: non-suffixed producer use target"
-        (hasInfix "\t/nix/store/tap\n" sampleGoWork))
-      # The whole point: a /v2 producer carries NO synthetic version, so the
-      # sentinel (and its per-/vN major logic) is simply absent in this mode.
-      (assert' "#39 gowork: no v0 sentinel anywhere"
-        (! hasInfix "v0.0.0" sampleGoWork))
-      (assert' "#39 gowork: no v2 sentinel anywhere"
-        (! hasInfix "v2.0.0" sampleGoWork))
     ];
 
     # #38 integration: building forces the real `go mod edit` pipeline.

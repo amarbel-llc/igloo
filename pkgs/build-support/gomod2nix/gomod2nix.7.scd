@@ -246,22 +246,35 @@ copy used for the build.
 
 ## Bridging mode (experimental workspace alternative)
 
-The *require*+*replace* mechanism above is the default
+The *require*+*replace*+sentinel mechanism above is the default
 (*goFlakeInputsMode = "replace"*). An experimental alternative,
-*goFlakeInputsMode = "workspace"*, instead synthesizes a *go.work* overlay
-that *use*s each producer's source tree: no synthetic *require*/*replace*
-and no sentinel, so a producer whose module path carries a major suffix
-(*/v2*, …) needs no special handling — its identity comes from its own
-*go.mod*. Bridged producers resolve from source via *use* and are not
-vendored; their external transitive deps still vendor normally.
+*goFlakeInputsMode = "workspace"*, leaves the consumer *go.mod* untouched
+(no synthetic *require*, no sentinel — a */v2*+ producer needs no special
+handling, its identity comes from its own *go.mod*) and instead generates the
+vendor tree with *go work vendor*:
+
+. a *go.work* is synthesized with the consumer as the sole *use .* member and
+  every bridged producer AND external dep expressed as
+  *replace <module> => <store path>*;
+. *go work vendor* runs in-build (offline, *GOPROXY=off*) so GO itself
+  produces *vendor/* + *modules.txt*, owning the MVS / version-skew
+  reconciliation that a hand-written *modules.txt* cannot.
+
+Because producers are *replace*d (not *use*d) the consumer's own
+*require <producer> <real-version>* line resolves cleanly — a versioned
+require for a *use*d member would otherwise fail. This makes the consumer's
+real require versions the source of truth, so the mode requires that the
+consumer **organically require** each bridged producer (the normal case); a
+consumer with no organic require still needs the *replace*-mode sentinel.
 
 This mode is EXPERIMENTAL. Both *buildGoApplication* and *mkGoEnv* honour
-*goFlakeInputsMode* — pass the same value to both for a given consumer so the
-build and devshell agree. In workspace mode *mkGoEnv* exposes the synthesized
-overlay as *passthru.mergedGoWork* (the analog of *passthru.mergedGoMod*) for
-shellHook materialization. Remaining follow-ups (amarbel-llc/igloo#39): the Go
-build cache is disabled for workspace-bridge builds, polyglot-subdir consumers
-are not yet handled (the consumer is *use*d as *.*), and the RFC 0001
+*goFlakeInputsMode* — pass the same value to both so build and devshell agree.
+*mkGoEnv* exposes the synthesized go.work as *passthru.mergedGoWork* (the
+analog of *passthru.mergedGoMod*) for shellHook materialization. Caveats
+(amarbel-llc/igloo#39): the vendor derivation is source-dependent (*go work
+vendor* reads the import graph) so it caches less than the replace lane; the
+go build cache is disabled for bridge builds; polyglot-subdir consumers are
+not yet handled (the consumer is *use*d as *.*); and the RFC 0001
 merge-primitive revision is pending.
 
 ## Effect on gomod2nix.toml

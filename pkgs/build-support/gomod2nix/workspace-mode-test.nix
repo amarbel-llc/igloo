@@ -3,16 +3,18 @@
 # Build with: nix-build pkgs/build-support/gomod2nix/workspace-mode-test.nix
 #
 # A consumer bridges a /v2 producer via `goFlakeInputs` + the
-# `goFlakeInputsMode = "workspace"` opt-in. The builder synthesizes a
-# go.work overlay (mkMergedGoWork) that `use`s the producer from source —
-# the consumer's go.mod gets NO require/replace/sentinel. The producer's /v2
-# identity comes from its own go.mod, so the require-sentinel major-mismatch
-# that #38 worked around cannot arise in this mode at all.
+# `goFlakeInputsMode = "workspace"` opt-in. The builder (mkGoWorkVendorEnv)
+# synthesizes a go.work of `use .` + `replace <producer> => <store>` and runs
+# `go work vendor` to generate vendor/ + modules.txt. The consumer keeps its
+# organic `require example.com/prod/v2 v2.1.0` — a real /v2 version, NO
+# sentinel; the producer's identity comes from its own go.mod. (A versioned
+# require for a `use`d member would fail — see igloo#39 — which is why
+# producers are `replace`d, not `use`d, in this model.)
 #
-# This builds end-to-end and runs the binary: success requires the /v2
-# import to have resolved through the workspace. Leaf producer (no external
-# deps) keeps the build offline and fast; external-dep vendoring composes
-# via the existing mkVendorEnv/mkWorkspaceModulesTxt path (#39 spikes).
+# Builds end-to-end and runs the binary: success requires the /v2 import to
+# have resolved + vendored through `go work vendor`. Leaf producer (no
+# external deps) keeps it offline; external-dep + version-skew reconciliation
+# is exercised by the madder tracer (igloo#39).
 { pkgs ? import ../../.. { } }:
 let
   prodV2 = pkgs.runCommand "gowork-test-prod-v2" { } ''
@@ -29,14 +31,17 @@ let
     EOF
   '';
 
-  # Consumer imports the /v2 producer; its go.mod has NO require/replace for
-  # it — the synthesized go.work is the only thing that pulls it in.
+  # Consumer organically requires the /v2 producer (the real-consumer case);
+  # the go.work `replace` redirects that require to the producer source. No
+  # sentinel — v2.1.0 is the consumer's own declared version.
   consumer = pkgs.runCommand "gowork-test-consumer" { } ''
     mkdir -p $out
     cat > $out/go.mod <<'EOF'
     module example.com/consumer
 
     go 1.26
+
+    require example.com/prod/v2 v2.1.0
     EOF
     cat > $out/main.go <<'EOF'
     package main
