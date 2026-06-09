@@ -148,6 +148,29 @@ let
     };
   };
 
+  # #39 conditional-require: when the consumer ALREADY requires a bridged
+  # module, mkMergedGoMod keeps the real version and emits NO sentinel — the
+  # sentinel-elimination for the normal (organic-require) consumer case.
+  consumerWithRequire = pkgs.writeText "consumer-organic-go.mod" ''
+    module example.com/consumer
+
+    go 1.26
+
+    require github.com/amarbel-llc/crap/go-crap/v2 v2.1.0
+  '';
+  mergedOrganicGoMod = mkMergedGoMod {
+    consumerGoMod = consumerWithRequire;
+    go = pkgs.go;
+    runCommand = pkgs.runCommand;
+    goFlakeInputs = {
+      "github.com/amarbel-llc/crap/go-crap/v2" = {
+        src = dummyV2Src;
+        subPath = "go-crap";
+      };
+    };
+    consumerRequires = [ "github.com/amarbel-llc/crap/go-crap/v2" ];
+  };
+
   assert' = label: cond: if cond then null else throw "${label}: assertion failed";
 in
 pkgs.runCommand "internals-merge-tests"
@@ -217,15 +240,26 @@ pkgs.runCommand "internals-merge-tests"
         (sentinelFor "example.com/v2/foo" == v0Sentinel))
     ];
 
-    # #38 integration: building forces the real `go mod edit` pipeline.
-    inherit mergedV2GoMod;
+    # Integration: building forces the real `go mod edit` pipeline.
+    inherit mergedV2GoMod mergedOrganicGoMod;
   }
   ''
-    echo "=== merged go.mod (#38 /v2 sentinel) ==="
+    echo "=== merged go.mod (#38 /v2 sentinel — no organic require) ==="
     cat "$mergedV2GoMod"
     grep -Eq 'github.com/amarbel-llc/crap/go-crap/v2 v2\.0\.0-00010101000000-000000000000' "$mergedV2GoMod" \
       || { echo "FAIL(#38): /v2 require missing v2 sentinel"; exit 1; }
     grep -Eq 'github.com/amarbel-llc/tap/go v0\.0\.0-00010101000000-000000000000' "$mergedV2GoMod" \
       || { echo "FAIL(#38): non-suffixed require missing v0 sentinel"; exit 1; }
+
+    echo "=== merged go.mod (#39 organic require → real version, NO sentinel) ==="
+    cat "$mergedOrganicGoMod"
+    grep -Eq 'github.com/amarbel-llc/crap/go-crap/v2 v2\.1\.0' "$mergedOrganicGoMod" \
+      || { echo "FAIL(#39): organic require version not preserved"; exit 1; }
+    if grep -q '00010101000000' "$mergedOrganicGoMod"; then
+      echo "FAIL(#39): sentinel leaked despite an organic require"; exit 1
+    fi
+    grep -Eq 'replace github.com/amarbel-llc/crap/go-crap/v2 =>' "$mergedOrganicGoMod" \
+      || { echo "FAIL(#39): replace directive missing"; exit 1; }
+
     touch "$out"
   ''

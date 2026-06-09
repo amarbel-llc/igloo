@@ -41,12 +41,22 @@ let
 
   # Build a go.mod that includes synthetic require + replace lines for
   # each entry in goFlakeInputs. Pure-eval derivation, no network.
+  #
+  # The `-replace` is unconditional. The `-require` is injected ONLY for
+  # modules the consumer's go.mod does not already require: when the consumer
+  # organically requires a bridged module (the normal case — that's how the
+  # dependency is declared), its real version stands and NO sentinel is
+  # emitted. The synthetic require (with the /vN-aware sentinel) is the
+  # fallback for the rare module bridged without an organic require, where the
+  # replace would otherwise have nothing to bind to. `consumerRequires` is the
+  # set of module paths the consumer already requires. See amarbel-llc/igloo#39.
   mkMergedGoMod =
     {
       consumerGoMod,
       go,
       goFlakeInputs,
       runCommand,
+      consumerRequires ? [ ],
     }:
     runCommand "merged-go.mod"
       {
@@ -61,9 +71,14 @@ let
                 modPath: v:
                 let
                   target = "${v.src}${if v.subPath == "" then "" else "/${v.subPath}"}";
+                  requireCmd =
+                    if builtins.elem modPath consumerRequires then
+                      "" # consumer already requires it — keep the real version, no sentinel
+                    else
+                      "go mod edit -require=${modPath}@${sentinelFor modPath}";
                 in
                 ''
-                  go mod edit -require=${modPath}@${sentinelFor modPath}
+                  ${requireCmd}
                   go mod edit -replace=${modPath}=${target}
                 ''
               ) normalized
@@ -186,12 +201,15 @@ let
       hasFlakeInputs = normalizedFlakeInputs != { };
 
       # Replace mode only: a merged go.mod with synthetic require+replace.
+      # The synthetic require is skipped for modules the consumer already
+      # requires (their real version stands — no sentinel); see mkMergedGoMod.
       mergedGoModFile =
         if goFlakeInputsMode == "replace" && hasFlakeInputs && consumerGoMod != null then
           mkMergedGoMod {
             consumerGoMod = pwd + "/go.mod";
             inherit go runCommand;
             goFlakeInputs = effectiveGoFlakeInputs;
+            consumerRequires = builtins.attrNames (consumerGoMod.require or { });
           }
         else
           null;

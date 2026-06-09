@@ -236,13 +236,19 @@ goFlakeInputs = {
 ## Effect on go.mod
 
 At eval time, *buildGoApplication* and *mkGoEnv* invoke *go mod edit* to
-inject a synthetic *require* and *replace* line per entry. The *replace*
-points at the absolute */nix/store* path of the flake input (plus *subPath*
-when set). The injected pseudo-version is the zero sentinel
-*v0.0.0-00010101000000-000000000000*; the *require* line is unconditional and
-will appear even if *go.mod* already declares an organic *require* for the
-same module path. *go.mod* on disk is not modified — the edit happens on a
-copy used for the build.
+inject a *replace* line per entry, pointing at the absolute */nix/store*
+path of the flake input (plus *subPath* when set). *go.mod* on disk is not
+modified — the edit happens on a copy used for the build.
+
+A synthetic *require* is injected ONLY for modules the consumer's *go.mod*
+does not already require. When the consumer organically requires a bridged
+module — the normal case, since that is how the dependency is declared — its
+real version stands and NO sentinel is emitted (the *replace* binds to the
+existing require). The synthetic *require* uses the sentinel pseudo-version
+*vN.0.0-00010101000000-000000000000* (major *N* derived from any */vN* suffix
+in the path; *v0* otherwise) and is the fallback for the rare module bridged
+without an organic require, where the *replace* would otherwise have nothing
+to bind to. So in practice a bridged module almost never carries a sentinel.
 
 ## Bridging mode (experimental workspace alternative)
 
