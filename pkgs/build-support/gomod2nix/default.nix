@@ -348,8 +348,33 @@ let
       modulesStruct,
     }:
     let
+      # `go work vendor` requires every directory replace-target to carry a
+      # go.mod. Pre-modules deps (e.g. github.com/dsnet/compress, a 2017
+      # pseudo-version) ship none, so synthesize a minimal one. The source
+      # must be COPIED (not symlinked): `go work vendor` does not follow
+      # symlinked .go files, so a symlink farm yields an empty vendored
+      # package. (mkMergedView already IFDs these sources for the
+      # gomod2nix.toml union, so the eval-time pathExists here is consistent;
+      # producers always have a go.mod, so it's a no-op for them.) Only the
+      # rare go.mod-less deps pay the copy. See amarbel-llc/igloo#39.
+      ensureGoMod =
+        modPath: target:
+        if pathExists "${target}/go.mod" then
+          target
+        else
+          runCommand "${baseNameOf (toString target)}-gomod" { } ''
+            mkdir -p "$out"
+            cp -a ${target}/. "$out"/
+            chmod -R +w "$out"
+            printf 'module %s\n\ngo 1.16\n' '${modPath}' > "$out/go.mod"
+          '';
+
       producerReplaces = mapAttrsToList (
-        modPath: v: "replace ${modPath} => ${v.src}${optionalString (v.subPath != "") "/${v.subPath}"}"
+        modPath: v:
+        let
+          target = "${v.src}${optionalString (v.subPath != "") "/${v.subPath}"}";
+        in
+        "replace ${modPath} => ${ensureGoMod modPath target}"
       ) normalizedFlakeInputs;
 
       sources = mapAttrs (
@@ -362,7 +387,7 @@ let
       ) (modulesStruct.mod or { });
 
       externalReplaces = mapAttrsToList (
-        modPath: storePath: "replace ${modPath} => ${storePath}"
+        modPath: storePath: "replace ${modPath} => ${ensureGoMod modPath storePath}"
       ) sources;
 
       goWorkContent = ''
