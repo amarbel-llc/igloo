@@ -167,6 +167,13 @@ gen-godyn-test-fixture:
     CGO_ENABLED=0 "$gen" -tests . godyn-test-graph.json
     gum log --level info "regenerated gotest fixture graphs"
 
+# [explore] Prefetch a URL into the nix store and print its SRI hash.
+# Serves the overlay-pin dev loop: overlays/pins/*.nix src bumps need a
+# fetchurl hash, and sessions have no raw-shell path to nix-prefetch.
+[group: 'explore']
+prefetch-url url:
+    nix store prefetch-file --json "{{ url }}" | jq -r .hash
+
 # [explore] Build a real godyn flake-input consumer against THIS tree's igloo.
 # conformist's main package sits at the module ROOT (dir ".") and its src
 # arrives as a flake-input store path — the shape that hit the 69c772a
