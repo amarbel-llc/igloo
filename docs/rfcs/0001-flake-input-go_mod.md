@@ -207,14 +207,38 @@ The consumer's `gomod2nix.toml` SHOULD NOT carry entries for modules
 declared in `goFlakeInputs` — leaving them in is cosmetically untidy
 but functionally harmless (the bridge strips them at merge time).
 `go.mod` retains the `require` line (Go's parser needs *some*
-version) with a sentinel pseudo-version such as
-`v0.0.0-00010101000000-000000000000`. The sentinel's major MUST match
-any major-version suffix in the module path: a path ending `/vN`
-(N ≥ 2) requires `vN.0.0-00010101000000-000000000000`, since
-`go mod edit -require` rejects a require whose major disagrees with the
-path's declared major (`should be vN, not v0`). The require is
-immediately shadowed by the local `replace`, so the only constraint is
-that `go mod edit` accept the major. See amarbel-llc/igloo#38.
+version). Two cases:
+
+- **Organic require (the normal case).** The consumer's `go.mod`
+  already requires the bridged module at a real version — that is how
+  the dependency is declared in the first place. The bridge keeps the
+  organic version untouched and only injects the `replace`
+  (amarbel-llc/igloo#39, commit `82f3d8e`). No sentinel appears.
+- **No organic require (rare).** The bridge injects a synthetic
+  `require` with a sentinel pseudo-version such as
+  `v0.0.0-00010101000000-000000000000`. The sentinel's major MUST
+  match any major-version suffix in the module path: a path ending
+  `/vN` (N ≥ 2) requires `vN.0.0-00010101000000-000000000000`, since
+  `go mod edit -require` rejects a require whose major disagrees with
+  the path's declared major (`should be vN, not v0`). See
+  amarbel-llc/igloo#38.
+
+In both cases the require is immediately shadowed by the local
+`replace`; the version text is decoration.
+
+**Staleness of the organic version is the designed state.** The
+organic require's version (typically a pseudo-version or tag frozen at
+bridge-adoption time) goes stale as the flake input's rev advances in
+`flake.lock`. This is harmless by construction — the `replace` wins,
+and the flake input's rev remains the single source of truth. It is
+also **not fixable**: bumping the pseudo-version to track the flake
+rev would require a matching `go.sum` entry, which `go mod tidy`
+cannot compute for a private, proxy-unreachable module. Consumers
+MUST NOT hand-bump these versions, MUST NOT build self-healing lanes
+that rewrite them, and SHOULD exclude bridged modules from any
+"outdated dependency" tooling. The version's only remaining audiences
+are Go's parser and out-of-Nix tooling that the protocol already
+declares unsupported (§ *Out-of-Nix builds*).
 
 Implementations MUST remove all keys named in `goFlakeInputs` from
 the merged `modulesStruct.mod` table before passing it to the vendor
@@ -296,6 +320,71 @@ because the two audiences have opposed requirements:
   invalidation and store-size pressure.
 
 See amarbel-llc/nixpkgs#46 for the motivating discussion.
+
+### Producer `src` scoping
+
+Two scoping shapes exist in the fleet for repos whose Go module does
+not live at the repository root: scope `mkGoPkgs`'s `src` to the
+module directory (`src = self + "/go"`; consumers map the module path
+to `go-pkgs` with no `subPath`), or filter the full repo
+(`src = self`; every consumer passes `subPath = "go"`).
+
+**A single-Go-module producer SHOULD scope `src` to the module
+directory.** Rationale:
+
+- **Tightest cache key.** The filtered tree can only change when the
+  module directory changes. A full-repo filter additionally admits
+  `*.go`, `go.mod`, `go.sum`, and `gomod2nix.toml` files from anywhere
+  else in the repo (a stray tool script in a sibling language tree
+  leaks in), and preserves the whole repo's empty directory skeleton
+  (§ *Limitations*, empty directories).
+- **Simpler consumer wiring.** No `subPath` to coordinate; the
+  `goFlakeInputs` entry is a bare derivation. `subPath` mistakes are a
+  consumer-side failure class that scoping eliminates.
+- **Direct self-consumption.** `go.mod` sits at the filtered tree's
+  root, so `src`/`pwd` point at the output with no path arithmetic.
+
+Two obligations come with scoping:
+
+- Pass an explicit `name` (`"<repo>-go"`): the go.mod inference on a
+  module path ending `/go` yields the undiagnostic store-path prefix
+  `"go"`. See amarbel-llc/nixpkgs#49.
+- Keep a `version.env` **inside** the module directory if the producer
+  relies on `buildGoApplication`'s version auto-read; a repo-root
+  `version.env` is outside the scoped tree.
+
+A repo publishing **multiple** Go modules from one flake is the case
+full-repo-filtered + consumer `subPath` exists for (e.g. purse-first's
+`libs/dewey`): one output pair serves all modules and each consumer
+slices the module it wants. Existing single-module producers that ship
+full-repo-filtered outputs (tap, crap) MAY migrate to scoped `src`;
+migration changes the consumer contract (consumers drop their
+`subPath`), so it requires a coordinated consumer update.
+
+### Producers ship `gomod2nix.toml`
+
+A producer SHOULD ship a fresh `gomod2nix.toml` at the Go module root
+inside `go-pkgs` (the default keep-set preserves it; the obligation is
+that it exist and be current with `go.mod`).
+
+The consumer-side bridge unions each flake input's `gomod2nix.toml`
+into the consumer's own (consumer wins on conflict) to obtain NAR
+pins for the producer's **external** transitive deps. A producer that
+ships no `gomod2nix.toml` contributes an empty pin set — tolerated
+mechanically, but every consumer must then carry pins for the
+producer's externals itself. That reintroduces a lockstep class this
+protocol exists to close: consumers cannot regenerate pins for a
+producer-only external (their out-of-Nix `gomod2nix generate` cannot
+resolve the private producer module to walk its requires), so a
+producer adding an external dep breaks each consumer's build with a
+missing-module error and cross-repo triage.
+
+Producers whose own builds do not consume the file (e.g. binaries
+built with a `vendorHash`-based builder) SHOULD gate its freshness —
+either by self-consuming through `buildGoApplication` with
+`modules = ./gomod2nix.toml` (see § *Self-consumption SHOULD*, the
+RECOMMENDED shape, which makes staleness a build failure) or by a
+conformist lane that runs `gomod2nix generate` and fails on diff.
 
 ### `mkGoPkgs` helper
 
@@ -413,6 +502,43 @@ embed asset, a workspace file) and never notice. Self-consumption
 turns "the published tree is valid" from a documentation claim into a
 build invariant. See madder#212 for the originating adopter
 experience.
+
+The SHOULD is about **what** is consumed, not **which builder**
+consumes it. The contract is: *the producer's own merge gate builds —
+and, where the gate runs tests at all, tests — from the published
+`go-pkgs-test` tree rather than from the raw worktree.* In descending
+order of coverage:
+
+1. **`buildGoApplication` with `src`/`pwd` = `go-pkgs-test` and
+   `modules = ./gomod2nix.toml` (RECOMMENDED).** One derivation gates
+   three things at once: filter completeness, `gomod2nix.toml`
+   freshness, and the exact vendor machinery consumers will run the
+   published tree through.
+2. **Any other Nix Go builder pointed at `go-pkgs-test`** (e.g. an
+   existing `vendorHash`-based `buildGoModule` for the repo's
+   binaries) — acceptable. With its `checkPhase` enabled,
+   `go test ./...` walks the whole module and the coverage matches
+   shape 1 minus the gomod2nix-machinery leg (a stale or wrong
+   `gomod2nix.toml` passes this gate but breaks consumers — pair with
+   the freshness lane from § *Producers ship `gomod2nix.toml`*).
+   Build-only (no check) covers just the binaries' import graph and
+   the module files.
+3. **No Nix Go build in the repo at all** — the fallback floor is a
+   check-only derivation in the producer's gate that runs
+   `go vet ./...` against `go-pkgs-test`. `go vet` compiles and
+   type-checks every package *including test files*, so it catches the
+   missing-fixture/missing-embed/missing-child-`go.mod` filter class
+   without being a test run. Note `go vet` needs the module's
+   dependency graph, so in Nix this is in practice a `doCheck`-only
+   builder invocation with its outputs discarded — the "no Go build"
+   posture buys less than it appears to, which is why this is the
+   floor and not the recommendation.
+
+A producer that adopts none of these ships filter regressions that
+surface first in a **consumer's** merge gate, as cross-repo triage.
+That failure mode is the thing this section exists to prevent; gate
+maintainers accepting shape 3 (or less) accept that trade
+explicitly.
 
 The `modules` argument is a producer-discretion call: pointing at
 `./gomod2nix.toml` (worktree-relative) evaluates faster at
@@ -837,8 +963,8 @@ inheriting through either output see the same declarations.
 > the consumer-side bridge in `internals.nix` unions inherited
 > entries at depth-1 via `inheritedGoFlakeInputs`. An advisory
 > coverage warning (eval-time check that the producer's `go.mod`
-> requires are covered by the consumer's merged map) is a separate
-> follow-up.
+> requires are covered by the consumer's merged map) is tracked at
+> [amarbel-llc/igloo#45](https://github.com/amarbel-llc/igloo/issues/45).
 
 Implementations of the bridge MUST read each direct flake-input's
 `passthru.goFlakeInputs` and union the entries into the consumer's
@@ -882,6 +1008,61 @@ declaring each direct producer's flake input and aligning shared deps
 via `follows`. The depth-1 floor is sufficient for every closure shape
 the fork has surfaced so far.
 
+### Chains deeper than one level
+
+Depth-1 inheritance does **not** transitively flatten a chain. What
+holds instead is a per-level discipline that, when every party keeps
+it, resolves chains of arbitrary depth:
+
+- **(P) Producer duty.** Every producer declares its complete set of
+  direct bridged modules in `mkGoPkgs`'s `goFlakeInputs`, so its
+  `go-pkgs` passthru re-exports exactly its own directs. A producer
+  that bridges siblings but omits this argument publishes outputs
+  downstream consumers cannot inherit from (the gap madder itself
+  shipped with initially — see igloo#39).
+- **(C) Consumer duty.** A consumer's *effective* map (own
+  declarations ∪ depth-1 inherited) must cover **every private
+  (proxy-unreachable) module in its build's transitive import
+  graph.** Inheritance reaches only the union of the consumer's
+  direct producers' own directs; any private module that first
+  appears two producers away MUST be declared by the consumer
+  directly.
+
+Worked example — the fleet's deepest live chain,
+`dodder → madder → piggy → dewey`:
+
+- dodder bridges madder directly. madder's passthru (duty P) carries
+  madder's directs (tap, tommy, crap, hyphence, piggy once the
+  cutover lands, **and dewey** — madder bridges dewey itself). So
+  dodder inherits both piggy and dewey at depth-1 from madder, and
+  piggy's own dewey requirement is satisfied by that inherited dewey
+  entry — the module-path key is identical.
+- The chain is nonetheless fragile through inheritance alone: if
+  madder ever drops its own direct dewey usage, madder's passthru
+  loses the dewey entry and dodder goes red — a change in the
+  *middle* of the chain breaking the *end*. dodder immunizes itself
+  by declaring dewey directly (which it already does), per duty C.
+- Rev alignment: an inherited entry's derivation was evaluated
+  against the **producer's** `flake.lock`, not the consumer's. A
+  consumer that also holds the same flake input directly SHOULD add
+  `follows` (`inputs.madder.inputs.piggy.follows = "piggy"`, etc.)
+  so exactly one rev of each shared producer exists in the closure.
+  Without `follows`, consumer-wins conflict resolution can yield a
+  mixed-rev closure (consumer's rev for modules it declares,
+  producer's locked revs for inherited ones) — buildable, but two
+  sources of truth.
+
+Consequently, for multi-level closures the RECOMMENDED steady state
+is: **declare every private module in your transitive import graph
+explicitly, with `follows` alignment; treat depth-1 inheritance as
+the transition-time safety net** (it keeps you green while a producer
+inserts a new dependency underneath you), not as the load-bearing
+wiring. Producers keeping duty P is what makes the safety net exist;
+consumers keeping duty C is what makes chains robust to producer
+refactors. An eval-time coverage warning (producer `go.mod` requires
+vs. the consumer's merged map) is the advisory check tracked at
+[amarbel-llc/igloo#45](https://github.com/amarbel-llc/igloo/issues/45).
+
 ## Limitations
 
 The following limitations are known at protocol-design time. Each is
@@ -891,12 +1072,15 @@ relevant issue.
 
 ### Consumer side
 
-- **Caller manages the `require` line in `go.mod`.** *(open.)* The
-  consumer MUST keep a syntactically valid
-  `require <module> v0.0.0-<sentinel>` entry in `go.mod` alongside
-  declaring `goFlakeInputs`. Auto-injecting the `require` via
-  `go mod edit -require` at eval time is a follow-up ergonomics fix;
-  the bridge mechanic itself does not depend on it.
+- **Caller manages the `require` line in `go.mod`.** *(narrowed by
+  igloo#39 / commit `82f3d8e`.)* The consumer MUST keep a
+  syntactically valid `require` entry in `go.mod` for each bridged
+  module. In the normal case that is the organic require the module
+  was adopted with (real version, kept untouched, no sentinel); the
+  bridge auto-injects a sentinel require only for the rare
+  bridged-without-organic-require module. The organic version's
+  staleness relative to `flake.lock` is designed and MUST NOT be
+  "healed" — see § *Consumer interface* § *Example*.
 
 - **Transitive deps of the flake input.** *(deferred to
   [nixpkgs#36](https://github.com/amarbel-llc/nixpkgs/issues/36).)*
@@ -1013,6 +1197,46 @@ be revisited as the protocol promotes through `proposed → experimental
    `src.name`". Whether downstream adopters would prefer
    `${src.name}-go-source` is left to the first real adoption to
    surface; the answer changes the default but not the protocol shape.
+
+## Appendix A — producer adoption checklist
+
+Hand this list to a repo publishing its first `go-pkgs`. Each item
+points at the normative section; the checklist adds nothing the spec
+doesn't already say.
+
+1. **Scope `src` to the module directory** for a single-Go-module
+   repo (`src = self + "/go"` for polyglot layouts); full-repo
+   filtering + consumer `subPath` only for multi-module repos.
+   (§ *Producer `src` scoping*)
+2. **Set `name` explicitly** (`"<repo>-go"`) when the module path's
+   last element would infer an undiagnostic store-path prefix.
+   (§ *Producer `src` scoping*; nixpkgs#49)
+3. **Ship a fresh `gomod2nix.toml`** at the module root, and gate its
+   freshness if your own builds don't consume it.
+   (§ *Producers ship `gomod2nix.toml`*)
+4. **Declare your direct bridges in `mkGoPkgs.goFlakeInputs`** —
+   exactly the private/co-developed modules in your module's require
+   graph, nothing public and proxy-fetchable. This populates
+   `passthru.goFlakeInputs` so consumers inherit at depth-1.
+   (§ *Multi-producer closures*, duty P)
+5. **Self-consume from `go-pkgs-test`**: point your own Nix Go build
+   at the published tree — `buildGoApplication` RECOMMENDED, another
+   builder acceptable, `go vet ./...` check-only derivation as the
+   floor when the repo has no Nix Go build.
+   (§ *Self-consumption SHOULD*)
+6. **Keep `version.env` inside the module directory** if you rely on
+   version auto-read and you scoped `src`.
+   (§ *Producer `src` scoping*)
+7. **Name flake inputs predictably** (the producing repo's name) so
+   consumers can `follows`-align without guessing.
+   (§ *Multi-producer closures* § *Shared transitive deps*)
+8. **Colocate the wiring in `gomod.nix`** (`go/gomod.nix` for
+   polyglot repos): producer half, plus consumer half if the module
+   bridges siblings. (§ *The `gomod.nix` convention*)
+9. **Leave the vestigial require versions alone** — bridged modules'
+   organic `require` versions freeze at adoption time by design; no
+   hand-bumps, no self-heal lanes.
+   (§ *Consumer interface* § *Example*)
 
 ## References
 
