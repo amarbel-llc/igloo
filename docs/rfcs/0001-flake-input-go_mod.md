@@ -386,6 +386,22 @@ either by self-consuming through `buildGoApplication` with
 RECOMMENDED shape, which makes staleness a build failure) or by a
 conformist lane that runs `gomod2nix generate` and fails on diff.
 
+**Workspace producers (known gap).** A `go.work` workspace keeps one
+shared lockfile at the workspace root, but the union reads the toml
+from the consumer's `subPath` slice — so a subPath consumer of a
+workspace producer (e.g. dewey via `subPath = "libs/dewey"` of
+purse-first) receives **zero** pins from that producer today, even
+though the workspace-root toml carries them. Live consequence: the
+§ *Coverage warning* fires fleet-wide for dewey's tommy pin. The
+staged resolution (workspace-root toml fallback in the union now;
+transitive resolution via the nixpkgs#36 FOD-regen path eventually,
+after which the warning can harden to an error for genuinely
+unresolvable closures) is tracked at
+[amarbel-llc/igloo#49](https://github.com/amarbel-llc/igloo/issues/49).
+The direction is deliberate: coverage gaps a producer has already
+paid for (a pin in its own lockfile) are the machinery's to close,
+not each consumer's to re-declare.
+
 ### `mkGoPkgs` helper
 
 The fork's overlay SHOULD expose `pkgs.mkGoPkgs` as the canonical
