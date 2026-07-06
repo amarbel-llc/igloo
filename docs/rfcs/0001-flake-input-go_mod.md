@@ -1034,16 +1034,20 @@ Worked example — the fleet's deepest live chain,
 `dodder → madder → piggy → dewey`:
 
 - dodder bridges madder directly. madder's passthru (duty P) carries
-  madder's directs (tap, tommy, crap, hyphence, piggy once the
-  cutover lands, **and dewey** — madder bridges dewey itself). So
-  dodder inherits both piggy and dewey at depth-1 from madder, and
-  piggy's own dewey requirement is satisfied by that inherited dewey
-  entry — the module-path key is identical.
-- The chain is nonetheless fragile through inheritance alone: if
-  madder ever drops its own direct dewey usage, madder's passthru
-  loses the dewey entry and dodder goes red — a change in the
-  *middle* of the chain breaking the *end*. dodder immunizes itself
-  by declaring dewey directly (which it already does), per duty C.
+  madder's *bridged* directs — tap, tommy, crap, hyphence, and piggy
+  once that cutover lands — so dodder inherits those at depth-1.
+- dewey shows the other coverage path: madder organically requires
+  dewey but does **not** bridge it (madder covers it through its own
+  `gomod2nix.toml` pin), so no dewey entry arrives at dodder by
+  inheritance — passthru re-exports only what a producer chooses to
+  *bridge*, not everything it requires. piggy's dewey requirement is
+  therefore dodder's to cover, per duty C: dodder declares dewey
+  directly (as it does today), or carries a pin for it in its merged
+  `gomod2nix.toml`.
+- This is also the fragility to design for: what downstream inherits
+  changes when a producer moves a dep between the bridge and the pin,
+  or drops it — a change in the *middle* of the chain surfacing at
+  the *end*. A consumer's own direct declaration immunizes it.
 - Rev alignment: an inherited entry's derivation was evaluated
   against the **producer's** `flake.lock`, not the consumer's. A
   consumer that also holds the same flake input directly SHOULD add
