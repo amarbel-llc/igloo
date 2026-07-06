@@ -96,16 +96,31 @@ let
                   }
                 )
 
-              # Single-line require/exclude entries accumulate into the
-              # directive's set (same `path = version` shape as block
-              # entries) instead of clobbering it with a raw string, so a
-              # go.mod mixing single-line and block forms — what
-              # `go mod tidy` emits for indirect deps — parses correctly
-              # in either order. See amarbel-llc/igloo#48.
-              else if directive == "require" || directive == "exclude" then
+              # Single-line entries of block-capable directives accumulate
+              # into the directive's set instead of clobbering it with a
+              # raw string, using the same line-split as block entries
+              # (first token = key, remainder = value — empty for
+              # bare-token directives like use/tool/retract). Valid go
+              # files mix the two forms freely (`go mod tidy` emits
+              # standalone indirect requires beside the grouped block;
+              # `go work init` emits a single-line use), so parsing must
+              # be order-independent. `replace` keeps its dedicated
+              # ` => ` branch above; scalar directives (module, go,
+              # toolchain) keep the default string assignment below.
+              # See amarbel-llc/igloo#48 (require/exclude) and #50
+              # (use/tool/retract).
+              else if
+                builtins.elem directive [
+                  "require"
+                  "exclude"
+                  "tool"
+                  "retract"
+                  "use"
+                ]
+              then
                 (
                   let
-                    m2 = match "([^ ]+) (.+)" rest;
+                    m2 = match "([^ ]+) *(.*)" rest;
                   in
                   assert m2 != null;
                   {
