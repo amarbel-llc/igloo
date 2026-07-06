@@ -961,10 +961,12 @@ inheriting through either output see the same declarations.
 > **Implementation status:** `mkGoPkgs` accepts a `goFlakeInputs`
 > argument that attaches `passthru.goFlakeInputs` to both outputs;
 > the consumer-side bridge in `internals.nix` unions inherited
-> entries at depth-1 via `inheritedGoFlakeInputs`. An advisory
-> coverage warning (eval-time check that the producer's `go.mod`
-> requires are covered by the consumer's merged map) is tracked at
-> [amarbel-llc/igloo#45](https://github.com/amarbel-llc/igloo/issues/45).
+> entries at depth-1 via `inheritedGoFlakeInputs`. The advisory
+> coverage warning (eval-time check that each bridged producer's
+> `go.mod` requires are covered by the consumer's merged map) ships
+> as `goFlakeInputsCoverageGaps`, surfaced by `mkMergedView` as a
+> trace warning
+> ([amarbel-llc/igloo#45](https://github.com/amarbel-llc/igloo/issues/45)).
 
 Implementations of the bridge MUST read each direct flake-input's
 `passthru.goFlakeInputs` and union the entries into the consumer's
@@ -1060,8 +1062,10 @@ inserts a new dependency underneath you), not as the load-bearing
 wiring. Producers keeping duty P is what makes the safety net exist;
 consumers keeping duty C is what makes chains robust to producer
 refactors. An eval-time coverage warning (producer `go.mod` requires
-vs. the consumer's merged map) is the advisory check tracked at
-[amarbel-llc/igloo#45](https://github.com/amarbel-llc/igloo/issues/45).
+vs. the consumer's merged map) is the advisory check that surfaces
+duty-C gaps before any building starts; see § *Producer-side passthru
+inheritance* for its implementation status
+([amarbel-llc/igloo#45](https://github.com/amarbel-llc/igloo/issues/45)).
 
 ## Limitations
 

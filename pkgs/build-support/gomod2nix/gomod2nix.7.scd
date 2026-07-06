@@ -305,6 +305,25 @@ Consumers SHOULD remove their own *gomod2nix.toml* lines for bridged
 modules — it keeps the file tidy — but leaving them in is functionally
 harmless. See amarbel-llc/nixpkgs#50.
 
+## Coverage warning
+
+At eval time the bridge inspects each bridged producer's *go.mod* and emits
+an advisory trace warning when a require that looks private (its host/org
+prefix matches a bridged module's) is covered by neither the effective
+*goFlakeInputs* map (declared or depth-1 inherited) nor the merged
+*gomod2nix.toml*:
+
+```
+trace: warning: gomod2nix goFlakeInputs coverage (RFC 0001 duty C,
+amarbel-llc/igloo#45): bridged producer <module> requires private
+module(s) not covered by the effective goFlakeInputs: <modules>. ...
+```
+
+This surfaces a missing bridge (typically a module first appearing two
+producers deep, which depth-1 inheritance cannot reach) before the vendor
+step fails on it. Advisory only — the build proceeds; fix it by declaring
+the named module in *goFlakeInputs* or pinning it in *gomod2nix.toml*.
+
 ## mkGoEnv parity
 
 *mkGoEnv* accepts the same *goFlakeInputs* and *goFlakeInputsMode* attributes

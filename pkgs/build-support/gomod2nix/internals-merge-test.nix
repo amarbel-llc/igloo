@@ -18,9 +18,13 @@ let
   inherit (pkgs.callPackage ./internals.nix { })
     mergeGomod2nixTomls
     inheritedGoFlakeInputs
+    goFlakeInputsCoverageGaps
     mkMergedGoMod
+    mkMergedView
     sentinelFor
     ;
+
+  inherit (import ./parser.nix) parseGoMod;
 
   v0Sentinel = "v0.0.0-00010101000000-000000000000";
 
@@ -171,6 +175,78 @@ let
     consumerRequires = [ "github.com/amarbel-llc/crap/go-crap/v2" ];
   };
 
+  # #45 coverage-gap fixtures. A bridged producer whose go.mod requires
+  # four modules with distinct coverage outcomes:
+  #   - covered-dep: present in the effective map        → no warning
+  #   - pinned-dep:  pinned in the merged gomod2nix.toml → no warning
+  #   - private-dep: same org prefix, uncovered          → THE gap
+  #   - public-dep:  foreign org prefix                  → out of scope
+  coverageProducer = pkgs.runCommand "coverage-producer" { } ''
+    mkdir -p $out/go
+    cat > $out/go/go.mod <<'EOF'
+    module github.com/amarbel-llc/prod/go
+
+    go 1.26
+
+    require (
+    	github.com/amarbel-llc/covered-dep v0.1.0
+    	github.com/amarbel-llc/pinned-dep v0.2.0
+    	github.com/amarbel-llc/private-dep v0.3.0
+    	github.com/other/public-dep v1.0.0
+    )
+    EOF
+  '';
+
+  coverageEffective = {
+    # Record form with subPath — the go.mod lives at go/ inside the tree.
+    "github.com/amarbel-llc/prod/go" = {
+      src = coverageProducer;
+      subPath = "go";
+    };
+    # Fake but syntactically valid store path (pathExists rejects
+    # malformed /nix/store names outright); never realized.
+    "github.com/amarbel-llc/covered-dep" =
+      "/nix/store/ffffffffffffffffffffffffffffffff-covered";
+  };
+
+  coverageGaps = goFlakeInputsCoverageGaps {
+    effectiveGoFlakeInputs = coverageEffective;
+    inherit parseGoMod;
+    pinnedModules = [ "github.com/amarbel-llc/pinned-dep" ];
+  };
+
+  # A producer tree without a go.mod (pre-modules dep, or a fake path
+  # that never existed) MUST contribute nothing and MUST NOT throw.
+  coverageGapsNoGoMod = goFlakeInputsCoverageGaps {
+    effectiveGoFlakeInputs = {
+      "github.com/amarbel-llc/tap/go" = dummyV0Src;
+      "github.com/amarbel-llc/ghost" =
+        "/nix/store/ffffffffffffffffffffffffffffffff-does-not-exist";
+    };
+    inherit parseGoMod;
+  };
+
+  # Wiring: mkMergedView exposes coverageGaps computed from the
+  # effective (inherited // declared) map against the merged mod table.
+  coverageConsumer = pkgs.runCommand "coverage-consumer" { } ''
+    mkdir -p $out
+    cat > $out/go.mod <<'EOF'
+    module example.com/consumer
+
+    go 1.26
+
+    require github.com/amarbel-llc/prod/go v0.1.0
+    EOF
+  '';
+  coverageMergedView = mkMergedView {
+    pwd = coverageConsumer;
+    modules = null;
+    goFlakeInputs = coverageEffective;
+    go = pkgs.go;
+    runCommand = pkgs.runCommand;
+    inherit parseGoMod;
+  };
+
   assert' = label: cond: if cond then null else throw "${label}: assertion failed";
 in
 pkgs.runCommand "internals-merge-tests"
@@ -238,6 +314,29 @@ pkgs.runCommand "internals-merge-tests"
         (sentinelFor "example.com/foo/v0" == v0Sentinel))
       (assert' "#38 sentinelFor: 'v2' as a non-final path component is ignored"
         (sentinelFor "example.com/v2/foo" == v0Sentinel))
+
+      # #45 advisory coverage: exactly one producer has gaps, and the
+      # only missing module is the org-prefixed, uncovered, unpinned one.
+      (assert' "#45 gaps: one producer reported"
+        (builtins.length coverageGaps == 1))
+      (assert' "#45 gaps: producer attributed by module path"
+        ((builtins.head coverageGaps).producer == "github.com/amarbel-llc/prod/go"))
+      (assert' "#45 gaps: covered/pinned/foreign requires excluded, private-dep flagged"
+        ((builtins.head coverageGaps).missing == [ "github.com/amarbel-llc/private-dep" ]))
+
+      # #45: producers without a readable go.mod contribute nothing and
+      # never throw (pre-modules deps, dangling paths).
+      (assert' "#45 gaps: go.mod-less and nonexistent producers are silent"
+        (coverageGapsNoGoMod == [ ]))
+
+      # #45 wiring: mkMergedView surfaces coverageGaps. With modules =
+      # null nothing is pinned, so pinned-dep joins private-dep in the
+      # missing set (attrNames order: pinned-dep sorts first).
+      (assert' "#45 mkMergedView: coverageGaps exposed with unpinned toml"
+        ((builtins.head coverageMergedView.coverageGaps).missing == [
+          "github.com/amarbel-llc/pinned-dep"
+          "github.com/amarbel-llc/private-dep"
+        ]))
     ];
 
     # Integration: building forces the real `go mod edit` pipeline.

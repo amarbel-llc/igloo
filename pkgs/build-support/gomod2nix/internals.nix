@@ -127,6 +127,74 @@ let
       acc // inherited
     ) { } (builtins.attrValues goFlakeInputs);
 
+  # Advisory coverage check (amarbel-llc/igloo#45, RFC 0001 § Chains
+  # deeper than one level, duty C): for each bridged producer whose
+  # go.mod is readable at eval, report its "private-looking" requires
+  # that nothing in the consumer's effective bridge map covers.
+  #
+  # "Private-looking" is a self-configuring heuristic: a require whose
+  # host/org prefix (first two path elements) matches the prefix of any
+  # bridged module. Bridged modules are exactly the ones this fork
+  # cannot fetch from a proxy, so their org prefixes are the private
+  # namespace(s) in play — no hardcoded org list.
+  #
+  # A require escapes the report when it is covered by the effective
+  # map (bridged, directly or via depth-1 inheritance) or listed in
+  # `pinnedModules` (present in the merged gomod2nix.toml `mod` table,
+  # i.e. fetchable and pinned like any external). Producers without a
+  # readable go.mod contribute nothing and never throw — same tolerance
+  # as the gomod2nix.toml union.
+  #
+  # Returns a list of { producer, missing } for producers with at least
+  # one uncovered require. Pure; the caller decides how to surface it
+  # (mkMergedView emits an eval-time trace warning).
+  goFlakeInputsCoverageGaps =
+    {
+      effectiveGoFlakeInputs,
+      parseGoMod,
+      pinnedModules ? [ ],
+    }:
+    let
+      normalized = builtins.mapAttrs (_: normalizeFlakeInput) effectiveGoFlakeInputs;
+      bridgedPaths = builtins.attrNames normalized;
+
+      # host/org prefix: the first two path elements ("github.com/org").
+      # Falls back to the whole path for single-element module paths.
+      prefixOf =
+        modPath:
+        let
+          m = builtins.match "([^/]+/[^/]+).*" modPath;
+        in
+        if m == null then modPath else builtins.head m;
+
+      privatePrefixes = builtins.foldl' (
+        acc: p: if builtins.elem (prefixOf p) acc then acc else acc ++ [ (prefixOf p) ]
+      ) [ ] bridgedPaths;
+
+      gapsFor =
+        producerPath: v:
+        let
+          goModPath = "${v.src}${if v.subPath == "" then "" else "/${v.subPath}"}/go.mod";
+          requires =
+            if builtins.pathExists goModPath then
+              builtins.attrNames ((parseGoMod (builtins.readFile goModPath)).require or { })
+            else
+              [ ];
+        in
+        {
+          producer = producerPath;
+          missing = builtins.filter (
+            r:
+            builtins.elem (prefixOf r) privatePrefixes
+            && !builtins.elem r bridgedPaths
+            && !builtins.elem r pinnedModules
+          ) requires;
+        };
+    in
+    builtins.filter (g: g.missing != [ ]) (
+      builtins.attrValues (builtins.mapAttrs gapsFor normalized)
+    );
+
   # Union the consumer's gomod2nix.toml with each flake input's. On
   # conflict (same Go module path in both), consumer wins.
   #
@@ -252,18 +320,50 @@ let
           }
         else
           consumerModulesStruct;
+
+      # #45 advisory coverage: private-looking producer requires that
+      # neither the effective map nor the merged mod table covers. A
+      # non-empty result surfaces as an eval-time trace warning below;
+      # the data itself is exposed for tests and tooling.
+      coverageGaps =
+        if hasFlakeInputs then
+          goFlakeInputsCoverageGaps {
+            inherit effectiveGoFlakeInputs parseGoMod;
+            pinnedModules = builtins.attrNames (modulesStruct.mod or { });
+          }
+        else
+          [ ];
+
+      coverageWarning = builtins.concatStringsSep "; " (
+        map (
+          g:
+          "bridged producer ${g.producer} requires private module(s) not covered by the "
+          + "effective goFlakeInputs: ${builtins.concatStringsSep ", " g.missing}"
+        ) coverageGaps
+      );
+
+      result = {
+        inherit
+          consumerGoMod
+          goMod
+          modulesStruct
+          mergedGoModFile
+          workspaceBridge
+          hasFlakeInputs
+          normalizedFlakeInputs
+          coverageGaps
+          ;
+      };
     in
-    {
-      inherit
-        consumerGoMod
-        goMod
-        modulesStruct
-        mergedGoModFile
-        workspaceBridge
-        hasFlakeInputs
-        normalizedFlakeInputs
-        ;
-    };
+    if coverageGaps == [ ] then
+      result
+    else
+      builtins.trace (
+        "warning: gomod2nix goFlakeInputs coverage (RFC 0001 duty C, amarbel-llc/igloo#45): "
+        + coverageWarning
+        + ". Declare them in goFlakeInputs or pin them in gomod2nix.toml; "
+        + "the vendor step may otherwise fail to resolve them."
+      ) result;
 in
 {
   inherit
@@ -271,6 +371,7 @@ in
     sentinelFor
     normalizeFlakeInput
     inheritedGoFlakeInputs
+    goFlakeInputsCoverageGaps
     mkMergedGoMod
     mergeGomod2nixTomls
     mkMergedView
