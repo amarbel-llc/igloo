@@ -96,6 +96,25 @@ let
                   }
                 )
 
+              # Single-line require/exclude entries accumulate into the
+              # directive's set (same `path = version` shape as block
+              # entries) instead of clobbering it with a raw string, so a
+              # go.mod mixing single-line and block forms — what
+              # `go mod tidy` emits for indirect deps — parses correctly
+              # in either order. See amarbel-llc/igloo#48.
+              else if directive == "require" || directive == "exclude" then
+                (
+                  let
+                    m2 = match "([^ ]+) (.+)" rest;
+                  in
+                  assert m2 != null;
+                  {
+                    ${directive} = (acc.data.${directive} or { }) // {
+                      ${elemAt m2 0} = elemAt m2 1;
+                    };
+                  }
+                )
+
               # The default operation is to just assign the value
               else
                 {
