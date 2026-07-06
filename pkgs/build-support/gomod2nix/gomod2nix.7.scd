@@ -383,10 +383,15 @@ the *tap* flake:
 - *goFlakeInputs* values must be source derivations (a flake's *self*, a
   path, or a fetched src). Pre-built Go binary derivations are not supported
   — only sources are consumed.
-- The synthetic *require* line is unconditional. An organic *require* in
-  *go.mod* for the same module path is not auto-removed; both lines coexist
-  and *go.mod* should be kept tidy manually (or the organic *require*
-  removed once the flake input is wired in).
+- Bridged modules still need a syntactically valid *require* line in
+  *go.mod*. The organic *require* (the normal case) is kept untouched and
+  shadowed by the *replace*; keep it — it is what makes the merged *go.mod*
+  sentinel-free. Its version freezes at bridge-adoption time and goes stale
+  as the flake input's rev advances. That staleness is designed and
+  harmless: the *replace* wins, and hand-bumping is not possible anyway (a
+  private module's newer version has no computable *go.sum* entry). The
+  sentinel *require* is injected only for modules with no organic require.
+  See RFC 0001 § *Consumer interface*.
 - Transitive deps of the flake input that are not in the consumer's
   *gomod2nix.toml* must be added there (regen via *go-sync-wrap* in the
   devshell). Full FOD-driven regeneration of the merged *gomod2nix.toml* is
