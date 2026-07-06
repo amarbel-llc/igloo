@@ -386,21 +386,21 @@ either by self-consuming through `buildGoApplication` with
 RECOMMENDED shape, which makes staleness a build failure) or by a
 conformist lane that runs `gomod2nix generate` and fails on diff.
 
-**Workspace producers (known gap).** A `go.work` workspace keeps one
-shared lockfile at the workspace root, but the union reads the toml
-from the consumer's `subPath` slice — so a subPath consumer of a
+**Workspace producers.** A `go.work` workspace keeps one shared
+lockfile at the workspace root, so a subPath slice often has no toml
+of its own. The union falls back to the workspace-root
+`gomod2nix.toml` when the `${subPath}` slice lacks one (a toml at the
+subPath itself stays authoritative), so a subPath consumer of a
 workspace producer (e.g. dewey via `subPath = "libs/dewey"` of
-purse-first) receives **zero** pins from that producer today, even
-though the workspace-root toml carries them. Live consequence: the
-§ *Coverage warning* fires fleet-wide for dewey's tommy pin. The
-staged resolution (workspace-root toml fallback in the union now;
-transitive resolution via the nixpkgs#36 FOD-regen path eventually,
-after which the warning can harden to an error for genuinely
-unresolvable closures) is tracked at
-[amarbel-llc/igloo#49](https://github.com/amarbel-llc/igloo/issues/49).
-The direction is deliberate: coverage gaps a producer has already
-paid for (a pin in its own lockfile) are the machinery's to close,
-not each consumer's to re-declare.
+purse-first) still receives the producer's pins — and the coverage
+warning self-silences for deps the producer has already paid for
+([amarbel-llc/igloo#49](https://github.com/amarbel-llc/igloo/issues/49)).
+The direction is deliberate: coverage gaps closable from the
+producer's own lockfile are the machinery's to close, not each
+consumer's to re-declare. Full transitive resolution (bridged
+privates chaining with no pins at all) remains the nixpkgs#36
+FOD-regen path; once that lands, the coverage warning can harden to
+an error for genuinely unresolvable closures.
 
 ### `mkGoPkgs` helper
 

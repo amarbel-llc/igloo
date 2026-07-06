@@ -302,9 +302,24 @@ let
         builtins.mapAttrs (
           _: v:
           let
-            path = "${v.src}${if v.subPath == "" then "" else "/${v.subPath}"}/gomod2nix.toml";
+            moduleToml = "${v.src}${if v.subPath == "" then "" else "/${v.subPath}"}/gomod2nix.toml";
+            # go.work workspace producers keep ONE shared lockfile at
+            # the workspace root, so a subPath slice often has no toml
+            # of its own. Fall back to the root lockfile so the
+            # producer's pins (e.g. purse-first's tommy pin, required
+            # by the bridged dewey module) reach subPath consumers.
+            # A toml at the subPath itself stays authoritative.
+            # See amarbel-llc/igloo#49.
+            rootToml = "${v.src}/gomod2nix.toml";
+            path =
+              if builtins.pathExists moduleToml then
+                moduleToml
+              else if v.subPath != "" && builtins.pathExists rootToml then
+                rootToml
+              else
+                null;
           in
-          if builtins.pathExists path then builtins.fromTOML (builtins.readFile path) else { mod = { }; }
+          if path != null then builtins.fromTOML (builtins.readFile path) else { mod = { }; }
         ) normalizedFlakeInputs
       );
 

@@ -247,6 +247,97 @@ let
     inherit parseGoMod;
   };
 
+  # #49 workspace-root toml fallback fixtures. A go.work-style producer
+  # keeps ONE lockfile at the repo root (pinning the bridged module's
+  # private dep); the bridged module lives at a subPath with no toml of
+  # its own. The union must fall back to the root lockfile so the
+  # producer's pins reach subPath consumers (live case: purse-first's
+  # tommy pin never reaching dewey bridgers).
+  workspaceProducer = pkgs.runCommand "workspace-producer" { } ''
+    mkdir -p $out/libs/dewey
+    cat > $out/gomod2nix.toml <<'EOF'
+    schema = 3
+
+    [mod]
+      [mod.'github.com/amarbel-llc/tommy']
+        version = 'v0.0.0-20260405143331-87255e87bf37'
+        hash = 'sha256-0000000000000000000000000000000000000000000='
+    EOF
+    cat > $out/libs/dewey/go.mod <<'EOF'
+    module github.com/amarbel-llc/purse-first/libs/dewey
+
+    go 1.26
+
+    require github.com/amarbel-llc/tommy v0.0.0-20260405143331-87255e87bf37
+    EOF
+  '';
+
+  workspaceConsumer = pkgs.runCommand "workspace-consumer" { } ''
+    mkdir -p $out
+    cat > $out/go.mod <<'EOF'
+    module example.com/ws-consumer
+
+    go 1.26
+
+    require github.com/amarbel-llc/purse-first/libs/dewey v0.3.2
+    EOF
+  '';
+
+  workspaceMergedView = mkMergedView {
+    pwd = workspaceConsumer;
+    modules = null;
+    goFlakeInputs = {
+      "github.com/amarbel-llc/purse-first/libs/dewey" = {
+        src = workspaceProducer;
+        subPath = "libs/dewey";
+      };
+    };
+    go = pkgs.go;
+    runCommand = pkgs.runCommand;
+    inherit parseGoMod;
+  };
+
+  # Precedence: a subPath slice that HAS its own toml must win over the
+  # workspace root's (the module's own lockfile is authoritative).
+  bothTomlsProducer = pkgs.runCommand "both-tomls-producer" { } ''
+    mkdir -p $out/go
+    cat > $out/gomod2nix.toml <<'EOF'
+    schema = 3
+
+    [mod]
+      [mod.'example.com/shared-pin']
+        version = 'v1.0.0-root'
+        hash = 'sha256-root'
+    EOF
+    cat > $out/go/gomod2nix.toml <<'EOF'
+    schema = 3
+
+    [mod]
+      [mod.'example.com/shared-pin']
+        version = 'v1.0.0-module'
+        hash = 'sha256-module'
+    EOF
+    cat > $out/go/go.mod <<'EOF'
+    module example.com/both-tomls/go
+
+    go 1.26
+    EOF
+  '';
+
+  bothTomlsMergedView = mkMergedView {
+    pwd = workspaceConsumer;
+    modules = null;
+    goFlakeInputs = {
+      "example.com/both-tomls/go" = {
+        src = bothTomlsProducer;
+        subPath = "go";
+      };
+    };
+    go = pkgs.go;
+    runCommand = pkgs.runCommand;
+    inherit parseGoMod;
+  };
+
   assert' = label: cond: if cond then null else throw "${label}: assertion failed";
 in
 pkgs.runCommand "internals-merge-tests"
@@ -337,6 +428,20 @@ pkgs.runCommand "internals-merge-tests"
           "github.com/amarbel-llc/pinned-dep"
           "github.com/amarbel-llc/private-dep"
         ]))
+
+      # #49 workspace-root fallback: the producer's root-lockfile pin
+      # reaches the subPath consumer's merged mod table...
+      (assert' "#49 fallback: root toml pin transported to subPath consumer"
+        (workspaceMergedView.modulesStruct.mod ? "github.com/amarbel-llc/tommy"))
+      # ...and the #45 coverage warning self-silences (tommy is pinned).
+      (assert' "#49 fallback: coverage warning silenced by transported pin"
+        (workspaceMergedView.coverageGaps == [ ]))
+
+      # #49 precedence: a subPath slice with its OWN toml wins over the
+      # workspace root's — the module's lockfile is authoritative.
+      (assert' "#49 precedence: module-local toml beats workspace root"
+        (bothTomlsMergedView.modulesStruct.mod."example.com/shared-pin".version
+          == "v1.0.0-module"))
     ];
 
     # Integration: building forces the real `go mod edit` pipeline.

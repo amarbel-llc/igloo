@@ -293,6 +293,12 @@ does not yet track must be added to the consumer's *gomod2nix.toml* (regen
 via *go-sync-wrap*) until full FOD-regen lands as a follow-up — see
 *LIMITATIONS* below.
 
+For a *subPath* entry the toml is read from the subPath slice; when the
+slice has none, the union falls back to the input's root *gomod2nix.toml*
+(go.work workspace producers keep one shared lockfile at the workspace
+root). A toml at the subPath itself stays authoritative. See
+amarbel-llc/igloo#49.
+
 After the union, all keys named in *goFlakeInputs* are stripped from the
 merged *mod* table. This prevents two leak vectors that would otherwise
 collide with the synthetic *replace*-driven vendor symlinks:
