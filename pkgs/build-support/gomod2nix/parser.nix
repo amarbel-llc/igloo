@@ -85,13 +85,20 @@ let
                     # Split `foo => bar` into segments
                     segments = split " => " rest;
                     getSegment = elemAt segments;
+                    # The LHS may carry a version restriction
+                    # (`replace mod v1.0.0 => target`): key on the bare
+                    # module path and keep the version in the value,
+                    # matching the block-entry value shape that
+                    # parseReplace normalises. See amarbel-llc/igloo#51.
+                    lhsMatch = match "([^ ]+) +(.+)" (getSegment 0);
+                    key = if lhsMatch == null then getSegment 0 else elemAt lhsMatch 0;
+                    lhsPrefix = if lhsMatch == null then "" else "${elemAt lhsMatch 1} ";
                   in
                   assert length segments == 3;
                   {
                     # Assert well formed
                     replace = acc.data.replace // {
-                      # Structure segments into attrset
-                      ${getSegment 0} = "=> ${getSegment 2}";
+                      ${key} = "${lhsPrefix}=> ${getSegment 2}";
                     };
                   }
                 )
@@ -195,18 +202,27 @@ let
         replace = mapAttrs (
           _: v:
           let
-            m = match "=> ([^ ]+) (.+)" v;
-            m2 = match "=> ([^ ]+)" v;
+            # An optional LHS version restriction precedes the arrow
+            # (`replace mod v1.0.0 => target`): block entries arrive as
+            # "v1.0.0 => target", unversioned ones as "=> target". See
+            # amarbel-llc/igloo#51.
+            mVer = match "([^ ]+) +=> +(.+)" v;
+            lhsVersion = if mVer == null then null else elemAt mVer 0;
+            target = if mVer == null then elemAt (match "=> +(.+)" v) 0 else elemAt mVer 1;
+            m = match "([^ ]+) (.+)" target;
           in
-          if m != null then
-            {
-              goPackagePath = elemAt m 0;
-              version = elemAt m 1;
-            }
-          else
-            {
-              path = elemAt m2 0;
-            }
+          (
+            if m != null then
+              {
+                goPackagePath = elemAt m 0;
+                version = elemAt m 1;
+              }
+            else
+              {
+                path = target;
+              }
+          )
+          // (if lhsVersion == null then { } else { inherit lhsVersion; })
         ) data.replace;
       }
     );
