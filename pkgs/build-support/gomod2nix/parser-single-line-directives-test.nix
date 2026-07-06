@@ -78,6 +78,32 @@ let
     )
   '';
 
+  # Mixed godebug, single-line first (igloo#52 — previously: crash).
+  godebugSingleThenBlock = parseGoMod ''
+    module example.com/consumer
+
+    go 1.26
+
+    godebug default=go1.21
+
+    godebug (
+    	panicnil=1
+    )
+  '';
+
+  # Mixed godebug, block first (previously: silent loss of the block set).
+  godebugBlockThenSingle = parseGoMod ''
+    module example.com/consumer
+
+    go 1.26
+
+    godebug (
+    	panicnil=1
+    )
+
+    godebug default=go1.21
+  '';
+
   assert' = label: cond: if cond then null else throw "${label}: assertion failed";
 in
 pkgs.runCommand "parser-single-line-directives-tests"
@@ -104,6 +130,16 @@ pkgs.runCommand "parser-single-line-directives-tests"
         (retractMixed.retract ? "v1.0.5"
           && retractMixed.retract ? "v1.0.0"
           && retractMixed.retract ? "v1.0.1"))
+
+      # #52 godebug: both forms land in one set, either order (entries
+      # are key=value tokens, so they key whole-token with empty value —
+      # the same shape block entries already produce).
+      (assert' "#52 godebug: single-then-block keeps both"
+        (godebugSingleThenBlock.godebug ? "default=go1.21"
+          && godebugSingleThenBlock.godebug ? "panicnil=1"))
+      (assert' "#52 godebug: block-then-single keeps both"
+        (godebugBlockThenSingle.godebug ? "default=go1.21"
+          && godebugBlockThenSingle.godebug ? "panicnil=1"))
 
       # Scalars unaffected.
       (assert' "#50 scalars: module and go stay strings"

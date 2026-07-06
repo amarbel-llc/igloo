@@ -114,8 +114,10 @@ let
               # be order-independent. `replace` keeps its dedicated
               # ` => ` branch above; scalar directives (module, go,
               # toolchain) keep the default string assignment below.
-              # See amarbel-llc/igloo#48 (require/exclude) and #50
-              # (use/tool/retract).
+              # See amarbel-llc/igloo#48 (require/exclude), #50
+              # (use/tool/retract), and #52 (godebug — entries are
+              # key=value tokens, keyed whole-token with empty value,
+              # matching the generic in-block handling).
               else if
                 builtins.elem directive [
                   "require"
@@ -123,6 +125,7 @@ let
                   "tool"
                   "retract"
                   "use"
+                  "godebug"
                 ]
               then
                 (
