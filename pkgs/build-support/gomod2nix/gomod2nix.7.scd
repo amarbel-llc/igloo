@@ -340,10 +340,20 @@ identically to the production build.
 
 ## passthru.mergedGoMod
 
-*mkGoEnv* exposes the synthesized *go.mod* as *passthru.mergedGoMod* —
-a derivation containing the *go.mod* and *go.sum* with the *replace* lines
-injected. Consumers who want the merged file materialized into their working
-tree (so editors and *gopls* read it directly) can wire it into a *shellHook*:
+Both *buildGoApplication* and *mkGoEnv* expose the synthesized *go.mod* as
+*passthru.mergedGoMod* — a derivation containing the *go.mod* (and, for
+*mkGoEnv*, *go.sum*) with the *replace* lines injected. This is the primary
+artifact for debugging a bridge: build it and read it to see exactly what the
+merged module graph became — which *replace* lines were emitted, and whether a
+bridged module carries a synthetic sentinel *require* or a real version:
+
+```
+nix build .#<pkg>.passthru.mergedGoMod && cat result
+```
+
+Consumers who want the merged file materialized into their working tree (so
+editors and *gopls* read it directly) can wire *mkGoEnv*'s output into a
+*shellHook*:
 
 ```
 let goEnv = pkgs.mkGoEnv { pwd = ./.; inherit goFlakeInputs; };
@@ -355,6 +365,28 @@ in pkgs-master.mkShell {
   '';
 }
 ```
+
+## Debugging a failed bridge build
+
+When the merged-*go.mod* step fails (an IFD named *merged-go.mod*), the bridge
+annotates the raw *go mod edit* error with context: the offending bridged
+module, its provenance (*consumer-declared* vs *inherited* from a producer's
+*passthru.goFlakeInputs* at depth 1), the synthesized *require* sentinel, and a
+pointer to *passthru.mergedGoMod*. A representative failure:
+
+```
+gomod2nix goFlakeInputs bridge: 'go mod edit -replace' failed for bridged module 'example.com/foo/v2'.
+  provenance: consumer-declared
+  replace target: /nix/store/...-foo-v2-src
+  NOTE: if the failing module differs from one you bridged, your own go.mod may carry an
+        invalid organic require that 'go mod edit' re-validates while editing this one.
+  inspect the merged go.mod:  nix build .#<pkg>.passthru.mergedGoMod && cat result
+```
+
+The *NOTE* covers the common mis-attribution case: *go mod edit* re-validates the
+whole *go.mod* on every edit, so an invalid organic *require* the consumer wrote
+by hand surfaces while editing an unrelated bridged module. See
+amarbel-llc/igloo#55.
 
 ## Example
 
