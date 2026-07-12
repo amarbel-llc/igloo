@@ -9,7 +9,9 @@
 #   - inherited (depth-1), not organically required -> synthetic v2 sentinel
 #   - consumer-declared, organically required        -> no sentinel (organic kept)
 #   - consumer-declared, NOT organically required    -> synthetic v0 sentinel
-{ pkgs ? import ../../.. { } }:
+{
+  pkgs ? import ../../.. { },
+}:
 let
   inherit (pkgs.callPackage ./internals.nix { }) mkMergedView bridgeCapabilities;
   inherit (import ./parser.nix) parseGoMod;
@@ -25,23 +27,24 @@ let
 
   # Producer mirroring cutting-garden's go-pkgs: carries an inherited /v2
   # transitive in passthru.goFlakeInputs (depth-1 inheritance source).
-  cuttingGardenGoPkgs = pkgs.runCommand "cutting-garden-go-pkgs"
-    {
-      passthru.goFlakeInputs = {
-        ${crapV2} = {
-          src = crapV2Src;
-          subPath = "go-crap";
+  cuttingGardenGoPkgs =
+    pkgs.runCommand "cutting-garden-go-pkgs"
+      {
+        passthru.goFlakeInputs = {
+          ${crapV2} = {
+            src = crapV2Src;
+            subPath = "go-crap";
+          };
         };
-      };
-    }
-    ''
-      mkdir -p $out
-      cat > $out/go.mod <<'EOF'
-      module github.com/amarbel-llc/cutting-garden
+      }
+      ''
+        mkdir -p $out
+        cat > $out/go.mod <<'EOF'
+        module github.com/amarbel-llc/cutting-garden
 
-      go 1.26
-      EOF
-    '';
+        go 1.26
+        EOF
+      '';
 
   # Consumer organically requires cutting-garden, but NOT example.com/extra
   # (declared-but-unimported) nor crap/go-crap/v2 (inherited).
@@ -77,37 +80,41 @@ pkgs.runCommand "bridge-report-test"
   {
     _ignored = [
       # #56 capability signal.
-      (assert' "#56: report carries the capability version (== constant, == 2)"
-        (report.version == bridgeCapabilities.version && report.version == 2))
-      (assert' "#56: features advertise the #55 failure annotation"
-        (builtins.elem "failure-annotation" report.features))
-      (assert' "#56: features advertise the #38 per-vn sentinel"
-        (builtins.elem "per-vn-sentinel" report.features))
+      (assert' "#56: report carries the capability version (== constant, == 2)" (
+        report.version == bridgeCapabilities.version && report.version == 2
+      ))
+      (assert' "#56: features advertise the #55 failure annotation" (
+        builtins.elem "failure-annotation" report.features
+      ))
+      (assert' "#56: features advertise the #38 per-vn sentinel" (
+        builtins.elem "per-vn-sentinel" report.features
+      ))
       (assert' "#57: mode reported" (report.mode == "replace"))
 
       # #56 overlay-level exposure: pkgs.bridgeCapabilities surfaces the same
       # constant (the pre-adoption query path — no build, no consumer bridge).
-      (assert' "#56: overlay exposes pkgs.bridgeCapabilities"
-        (pkgs.bridgeCapabilities.version == 2
-          && builtins.elem "failure-annotation" pkgs.bridgeCapabilities.features))
-      (assert' "#58: features advertise transitive inheritance"
-        (builtins.elem "transitive-passthru-inheritance" report.features
-          && builtins.elem "inheritance-conflict-guardrail" report.features))
+      (assert' "#56: overlay exposes pkgs.bridgeCapabilities" (
+        pkgs.bridgeCapabilities.version == 2
+        && builtins.elem "failure-annotation" pkgs.bridgeCapabilities.features
+      ))
+      (assert' "#58: features advertise transitive inheritance" (
+        builtins.elem "transitive-passthru-inheritance" report.features
+        && builtins.elem "inheritance-conflict-guardrail" report.features
+      ))
 
       # #57 inherited /v2, not organically required: inherited provenance,
       # synthetic v2 sentinel, subPath surfaced.
       (assert' "#57: inherited /v2 provenance" (mods.${crapV2}.provenance == "inherited"))
-      (assert' "#57: inherited /v2 not organically required"
-        (mods.${crapV2}.organicRequire == false))
+      (assert' "#57: inherited /v2 not organically required" (mods.${crapV2}.organicRequire == false))
       (assert' "#57: inherited /v2 gets the v2 sentinel" (mods.${crapV2}.sentinel == v2Sentinel))
       (assert' "#57: inherited /v2 subPath reported" (mods.${crapV2}.subPath == "go-crap"))
 
       # #57 consumer-declared producer, organically required: no sentinel.
       (assert' "#57: declared+organic provenance" (mods.${cgModule}.provenance == "declared"))
-      (assert' "#57: declared+organic is organically required"
-        (mods.${cgModule}.organicRequire == true))
-      (assert' "#57: declared+organic keeps its version (no sentinel)"
-        (mods.${cgModule}.sentinel == null))
+      (assert' "#57: declared+organic is organically required" (mods.${cgModule}.organicRequire == true))
+      (assert' "#57: declared+organic keeps its version (no sentinel)" (
+        mods.${cgModule}.sentinel == null
+      ))
 
       # #57 consumer-declared but NOT organically required: v0 sentinel.
       (assert' "#57: declared non-organic provenance" (mods.${extra}.provenance == "declared"))

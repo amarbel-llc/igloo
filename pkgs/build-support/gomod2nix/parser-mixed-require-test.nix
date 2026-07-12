@@ -10,7 +10,9 @@
 #     a raw string; the block entry's `//`-merge then threw);
 #   - block first, single-line second → SILENT data loss (the string
 #     assignment clobbered the accumulated set).
-{ pkgs ? import ../../.. { } }:
+{
+  pkgs ? import ../../.. { },
+}:
 let
   inherit (import ./parser.nix) parseGoMod;
 
@@ -75,36 +77,46 @@ pkgs.runCommand "parser-mixed-require-tests"
   {
     _ignored = [
       # #48 reported shape: both forms land in one require set.
-      (assert' "#48 single-then-block: single-line dep present"
-        (mixedSingleThenBlock.require."golang.org/x/text" or null == "v0.34.0"))
-      (assert' "#48 single-then-block: block deps present"
-        (mixedSingleThenBlock.require."github.com/charmbracelet/bubbles" or null == "v1.0.0"))
-      (assert' "#48 single-then-block: block indirect dep present"
-        (mixedSingleThenBlock.require."github.com/other/dep" or null == "v0.2.0"))
-      (assert' "#48 single-then-block: exactly the three deps"
-        (builtins.length (builtins.attrNames mixedSingleThenBlock.require) == 3))
+      (assert' "#48 single-then-block: single-line dep present" (
+        mixedSingleThenBlock.require."golang.org/x/text" or null == "v0.34.0"
+      ))
+      (assert' "#48 single-then-block: block deps present" (
+        mixedSingleThenBlock.require."github.com/charmbracelet/bubbles" or null == "v1.0.0"
+      ))
+      (assert' "#48 single-then-block: block indirect dep present" (
+        mixedSingleThenBlock.require."github.com/other/dep" or null == "v0.2.0"
+      ))
+      (assert' "#48 single-then-block: exactly the three deps" (
+        builtins.length (builtins.attrNames mixedSingleThenBlock.require) == 3
+      ))
 
       # #48 reverse order: the block set survives the later single-line.
-      (assert' "#48 block-then-single: block dep present"
-        (mixedBlockThenSingle.require."github.com/charmbracelet/bubbles" or null == "v1.0.0"))
-      (assert' "#48 block-then-single: single-line dep present"
-        (mixedBlockThenSingle.require."golang.org/x/text" or null == "v0.34.0"))
+      (assert' "#48 block-then-single: block dep present" (
+        mixedBlockThenSingle.require."github.com/charmbracelet/bubbles" or null == "v1.0.0"
+      ))
+      (assert' "#48 block-then-single: single-line dep present" (
+        mixedBlockThenSingle.require."golang.org/x/text" or null == "v0.34.0"
+      ))
 
       # Pure single-line file still yields a set.
-      (assert' "#48 pure single-line: set shape preserved"
-        (pureSingleLine.require."golang.org/x/text" or null == "v0.35.0"))
+      (assert' "#48 pure single-line: set shape preserved" (
+        pureSingleLine.require."golang.org/x/text" or null == "v0.35.0"
+      ))
 
       # exclude mixes the same way; replace + scalars unaffected.
-      (assert' "#48 exclude: single-line + block merge"
-        (kitchenSink.exclude."example.com/bad" or null == "v0.9.0"
-          && kitchenSink.exclude."example.com/worse" or null == "v0.8.0"))
-      (assert' "#48 replace: single-line replace keeps its dedicated shape"
-        (kitchenSink.replace."example.com/bad" or null == {
+      (assert' "#48 exclude: single-line + block merge" (
+        kitchenSink.exclude."example.com/bad" or null == "v0.9.0"
+        && kitchenSink.exclude."example.com/worse" or null == "v0.8.0"
+      ))
+      (assert' "#48 replace: single-line replace keeps its dedicated shape" (
+        kitchenSink.replace."example.com/bad" or null == {
           goPackagePath = "example.com/good";
           version = "v1.0.0";
-        }))
-      (assert' "#48 scalars: module and go stay strings"
-        (kitchenSink.module == "example.com/consumer" && kitchenSink.go == "1.26"))
+        }
+      ))
+      (assert' "#48 scalars: module and go stay strings" (
+        kitchenSink.module == "example.com/consumer" && kitchenSink.go == "1.26"
+      ))
     ];
   }
   ''

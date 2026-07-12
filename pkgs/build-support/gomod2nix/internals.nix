@@ -318,9 +318,7 @@ let
           ) requires;
         };
     in
-    builtins.filter (g: g.missing != [ ]) (
-      builtins.attrValues (builtins.mapAttrs gapsFor normalized)
-    );
+    builtins.filter (g: g.missing != [ ]) (builtins.attrValues (builtins.mapAttrs gapsFor normalized));
 
   # Union the consumer's gomod2nix.toml with each flake input's. On
   # conflict (same Go module path in both), consumer wins.
@@ -346,8 +344,7 @@ let
       # earlier ones. (For now we assume flake-input collisions are
       # rare — they'd indicate a deeper conflict the consumer should
       # resolve manually.)
-      flakeInputMerged =
-        builtins.foldl' (acc: t: acc // (t.mod or { })) { } flakeInputs;
+      flakeInputMerged = builtins.foldl' (acc: t: acc // (t.mod or { })) { } flakeInputs;
       mergedRaw = flakeInputMerged // (consumer.mod or { });
     in
     {
@@ -421,10 +418,7 @@ let
       workspaceBridge = goFlakeInputsMode == "workspace" && hasFlakeInputs && consumerGoMod != null;
 
       goMod =
-        if mergedGoModFile != null then
-          parseGoMod (builtins.readFile mergedGoModFile)
-        else
-          consumerGoMod;
+        if mergedGoModFile != null then parseGoMod (builtins.readFile mergedGoModFile) else consumerGoMod;
 
       consumerModulesStruct =
         if modules == null then { } else builtins.fromTOML (builtins.readFile modules);
@@ -503,18 +497,16 @@ let
         {
           inherit (bridgeCapabilities) version features;
           mode = goFlakeInputsMode;
-          modules = builtins.mapAttrs (
-            modPath: v: {
-              provenance = if builtins.elem modPath declaredKeys then "declared" else "inherited";
-              inherit (v) subPath;
-              organicRequire = builtins.elem modPath consumerRequires;
-              sentinel =
-                if goFlakeInputsMode != "replace" || builtins.elem modPath consumerRequires then
-                  null
-                else
-                  sentinelFor modPath;
-            }
-          ) normalizedFlakeInputs;
+          modules = builtins.mapAttrs (modPath: v: {
+            provenance = if builtins.elem modPath declaredKeys then "declared" else "inherited";
+            inherit (v) subPath;
+            organicRequire = builtins.elem modPath consumerRequires;
+            sentinel =
+              if goFlakeInputsMode != "replace" || builtins.elem modPath consumerRequires then
+                null
+              else
+                sentinelFor modPath;
+          }) normalizedFlakeInputs;
           inherit coverageGaps;
         };
 

@@ -79,7 +79,15 @@
 
   :::
 */
-{ pkgs, lib, bun, fetchBunDeps, eslintCache, mkWrapper, mkLint }:
+{
+  pkgs,
+  lib,
+  bun,
+  fetchBunDeps,
+  eslintCache,
+  mkWrapper,
+  mkLint,
+}:
 
 let
   # Map a .ts/.tsx/.mts/.cts basename to .js
@@ -124,12 +132,23 @@ let
       hasDeps = bunNix != null;
       bunDeps = lib.optionalAttrs hasDeps {
         cache = fetchBunDeps {
-          inherit bunNix bunfigPath npmrcPath overrides;
+          inherit
+            bunNix
+            bunfigPath
+            npmrcPath
+            overrides
+            ;
         };
       };
       runLint = !disableLint && eslintCache != null;
       lint = mkLint {
-        inherit pname version src eslintCache entrypointPaths;
+        inherit
+          pname
+          version
+          src
+          eslintCache
+          entrypointPaths
+          ;
       };
     in
     pkgs.stdenvNoCC.mkDerivation {
@@ -243,7 +262,12 @@ in
       wrappers = lib.mapAttrsToList (
         name: entrypoint:
         mkWrapper {
-          inherit name bundle runtimeInputs runtimeEnv;
+          inherit
+            name
+            bundle
+            runtimeInputs
+            runtimeEnv
+            ;
           jsFile = tsToJs entrypoint;
           lint = bundle.passthru.lint or null;
         }

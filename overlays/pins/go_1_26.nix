@@ -3,8 +3,7 @@
 # promotion. Upstream bump landed in NixOS/nixpkgs staging via PR #517757
 # on 2026-05-08; remove this pin once it reaches the master branch this
 # flake follows.
-final: prev:
-{
+final: prev: {
   go_1_26 = prev.go_1_26.overrideAttrs (_: {
     version = "1.26.3";
     src = final.fetchurl {

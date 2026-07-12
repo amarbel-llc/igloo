@@ -11,7 +11,9 @@
 #   2. `pwd` (or src-defaulted-pwd) points at a directory with no
 #      go.mod and no go.work (polyglot case: caller passed the repo
 #      root instead of the go/ subdir)
-{ pkgs ? import ../../.. { } }:
+{
+  pkgs ? import ../../.. { },
+}:
 let
   # Minimal valid single-module fixture: a directory with go.mod.
   withGoMod = pkgs.runCommand "pwd-fixture-with-go-mod" { } ''
@@ -44,57 +46,59 @@ let
   # FAIL: src given but it doesn't contain go.mod/go.work (the
   # polyglot footgun — caller passes the repo root instead of the
   # `go/` subdir).
-  bgaSrcNoGoMod = tryDrv (pkgs.buildGoApplication {
-    src = polyglotRoot;
-  });
+  bgaSrcNoGoMod = tryDrv (
+    pkgs.buildGoApplication {
+      src = polyglotRoot;
+    }
+  );
 
   # SUCCEED: single-module src — pwd defaults to src.
-  bgaSrcOnly = tryDrv (pkgs.buildGoApplication {
-    src = withGoMod;
-    pname = "smoke";
-    version = "0";
-  });
+  bgaSrcOnly = tryDrv (
+    pkgs.buildGoApplication {
+      src = withGoMod;
+      pname = "smoke";
+      version = "0";
+    }
+  );
 
   # SUCCEED: explicit pwd pointing at the polyglot subdir.
-  bgaPolyglot = tryDrv (pkgs.buildGoApplication {
-    src = polyglotRoot;
-    pwd = polyglotRoot + "/go";
-    pname = "smoke";
-    version = "0";
-  });
+  bgaPolyglot = tryDrv (
+    pkgs.buildGoApplication {
+      src = polyglotRoot;
+      pwd = polyglotRoot + "/go";
+      pname = "smoke";
+      version = "0";
+    }
+  );
 
   # --- mkGoEnv cases ---
 
   # FAIL: pwd lacks go.mod/go.work.
-  envBadPwd = tryDrv (pkgs.mkGoEnv {
-    pwd = polyglotRoot;
-  });
+  envBadPwd = tryDrv (
+    pkgs.mkGoEnv {
+      pwd = polyglotRoot;
+    }
+  );
 
   # SUCCEED: pwd pointing at the polyglot go/ subdir.
-  envGood = tryDrv (pkgs.mkGoEnv {
-    pwd = polyglotRoot + "/go";
-  });
+  envGood = tryDrv (
+    pkgs.mkGoEnv {
+      pwd = polyglotRoot + "/go";
+    }
+  );
 
   assert' = label: cond: if cond then null else throw "${label}: assertion failed";
 in
-pkgs.runCommand "pwd-validation-tests"
-  {
-    _ignored = [
-      # buildGoApplication validations
-      (assert' "bga: throws when neither pwd nor src given"
-        (! bgaNoAnchor.success))
-      (assert' "bga: throws when src lacks go.mod (polyglot footgun)"
-        (! bgaSrcNoGoMod.success))
-      (assert' "bga: succeeds when src has go.mod (pwd defaults to src)"
-        bgaSrcOnly.success)
-      (assert' "bga: succeeds with explicit polyglot pwd"
-        bgaPolyglot.success)
+pkgs.runCommand "pwd-validation-tests" {
+  _ignored = [
+    # buildGoApplication validations
+    (assert' "bga: throws when neither pwd nor src given" (!bgaNoAnchor.success))
+    (assert' "bga: throws when src lacks go.mod (polyglot footgun)" (!bgaSrcNoGoMod.success))
+    (assert' "bga: succeeds when src has go.mod (pwd defaults to src)" bgaSrcOnly.success)
+    (assert' "bga: succeeds with explicit polyglot pwd" bgaPolyglot.success)
 
-      # mkGoEnv validations
-      (assert' "mkGoEnv: throws when pwd lacks go.mod/go.work"
-        (! envBadPwd.success))
-      (assert' "mkGoEnv: succeeds when pwd has go.mod"
-        envGood.success)
-    ];
-  }
-  "touch $out"
+    # mkGoEnv validations
+    (assert' "mkGoEnv: throws when pwd lacks go.mod/go.work" (!envBadPwd.success))
+    (assert' "mkGoEnv: succeeds when pwd has go.mod" envGood.success)
+  ];
+} "touch $out"

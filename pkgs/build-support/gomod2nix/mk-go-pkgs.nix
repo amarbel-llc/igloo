@@ -62,13 +62,15 @@ let
           type == "directory" || predicate relPath;
       };
     in
-    runCommand name {
-      preferLocalBuild = true;
-      allowSubstitutes = false;
-      inherit passthru;
-    } ''
-      cp -r ${filteredPath} $out
-    '';
+    runCommand name
+      {
+        preferLocalBuild = true;
+        allowSubstitutes = false;
+        inherit passthru;
+      }
+      ''
+        cp -r ${filteredPath} $out
+      '';
 
   mkGoPkgs =
     {
@@ -116,10 +118,7 @@ let
             goMod = builtins.readFile (src + "/go.mod");
             match = builtins.match ".*\nmodule[ \t]+([^ \t\n]+).*" ("\n" + goMod);
           in
-          if match == null then
-            "source"
-          else
-            lib.last (lib.splitString "/" (lib.head match));
+          if match == null then "source" else lib.last (lib.splitString "/" (lib.head match));
 
       baseName =
         if name != null then
@@ -132,17 +131,13 @@ let
       isExtra = relPath: lib.any (re: builtins.match re relPath != null) extras;
       isTestExtra = relPath: lib.any (re: builtins.match re relPath != null) testExtras;
 
-      isProdGoFile =
-        relPath:
-        lib.hasSuffix ".go" relPath
-        && !lib.hasSuffix "_test.go" relPath;
+      isProdGoFile = relPath: lib.hasSuffix ".go" relPath && !lib.hasSuffix "_test.go" relPath;
 
       isTestGoFile = relPath: lib.hasSuffix "_test.go" relPath;
 
       isTestdataFile =
         relPath:
-        builtins.match ".*/testdata/.*" relPath != null
-        || builtins.match "^testdata/.*" relPath != null;
+        builtins.match ".*/testdata/.*" relPath != null || builtins.match "^testdata/.*" relPath != null;
 
       # Module files kept in BOTH outputs.
       #
@@ -182,23 +177,15 @@ let
       # repos keep one per package dir, and a testdata fixture's
       # version.env must not be promoted (mirrors isModuleFile's #47
       # exclusion).
-      isVersionEnvFile =
-        relPath:
-        baseNameOf relPath == "version.env" && !isTestdataFile relPath;
+      isVersionEnvFile = relPath: baseNameOf relPath == "version.env" && !isTestdataFile relPath;
 
       prodPredicate =
         relPath:
-        isProdGoFile relPath
-        || isModuleFile relPath
-        || isVersionEnvFile relPath
-        || isExtra relPath;
+        isProdGoFile relPath || isModuleFile relPath || isVersionEnvFile relPath || isExtra relPath;
 
       testPredicate =
         relPath:
-        prodPredicate relPath
-        || isTestGoFile relPath
-        || isTestdataFile relPath
-        || isTestExtra relPath;
+        prodPredicate relPath || isTestGoFile relPath || isTestdataFile relPath || isTestExtra relPath;
 
       # Surface goFlakeInputs through passthru only when the caller
       # actually declared cross-flake deps. Skipping the attribute

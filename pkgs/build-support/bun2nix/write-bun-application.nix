@@ -59,7 +59,12 @@
 
   :::
 */
-{ pkgs, lib, bun, mkDerivation }:
+{
+  pkgs,
+  lib,
+  bun,
+  mkDerivation,
+}:
 
 lib.extendMkDerivation {
   constructDrv = mkDerivation;

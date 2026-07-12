@@ -105,7 +105,11 @@ let
   #   - both null  → throw
   #   - effective pwd lacks go.mod AND go.work → throw (polyglot footgun)
   resolvePwd =
-    { caller, pwd, src }:
+    {
+      caller,
+      pwd,
+      src,
+    }:
     let
       p =
         if pwd != null then
@@ -710,7 +714,10 @@ let
           goConfigHook
         ];
 
-        propagatedBuildInputs = [ go gomod2nix ];
+        propagatedBuildInputs = [
+          go
+          gomod2nix
+        ];
 
         # Pass vendor directory to the setup hook
         goVendorDir = vendorEnv;
@@ -727,14 +734,10 @@ let
         ''
         + optionalString (pathExists effectiveToolsGo) ''
           mkdir source
-          cp ${
-            if mergedGoModFile != null then mergedGoModFile else effectivePwd + "/go.mod"
-          } source/go.mod
+          cp ${if mergedGoModFile != null then mergedGoModFile else effectivePwd + "/go.mod"} source/go.mod
           cp ${effectivePwd + "/go.sum"} source/go.sum
           cp ${effectiveToolsGo} source/tools.go
-          ${optionalString workspaceBridge
-            "cp ${bridgeVendorEnv.passthru.goWorkFile} source/go.work"
-          }
+          ${optionalString workspaceBridge "cp ${bridgeVendorEnv.passthru.goWorkFile} source/go.work"}
           cd source
 
           rsync -a -K --ignore-errors ${vendorEnv}/ vendor
@@ -813,8 +816,7 @@ let
       # Parse the consumer's organic go.mod (no goFlakeInputs synthesis yet).
       # We need this first to select Go (chicken-and-egg: mkMergedGoMod needs go).
       goModPath = "${toString effectivePwd}/go.mod";
-      consumerGoMod =
-        if pathExists goModPath then parseGoMod (readFile goModPath) else null;
+      consumerGoMod = if pathExists goModPath then parseGoMod (readFile goModPath) else null;
 
       # For Go version selection, prefer consumer go.mod, fall back to go.work.
       # Synthetic require/replace lines from goFlakeInputs don't change the Go
@@ -1019,9 +1021,7 @@ let
         in
         if m != null then elemAt m 0 else null;
 
-      claimedXSymbols = builtins.filter (s: s != null) (
-        map ldflagXSymbol (versionLdflags ++ ldflags)
-      );
+      claimedXSymbols = builtins.filter (s: s != null) (map ldflagXSymbol (versionLdflags ++ ldflags));
 
       ldflagsXCollisions = builtins.filter (k: builtins.elem k claimedXSymbols) (
         builtins.attrNames ldflagsX
@@ -1240,8 +1240,7 @@ let
       + (old.postInstall or "");
 
       doInstallCheck = true;
-      nativeInstallCheckInputs =
-        (old.nativeInstallCheckInputs or [ ]) ++ extraNativeInstallCheckInputs;
+      nativeInstallCheckInputs = (old.nativeInstallCheckInputs or [ ]) ++ extraNativeInstallCheckInputs;
       installCheckPhase = ''
         runHook preInstallCheck
 

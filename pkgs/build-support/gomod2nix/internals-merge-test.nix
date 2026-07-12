@@ -13,7 +13,9 @@
 #   - amarbel-llc/igloo#38 — the synthetic require sentinel's major is
 #     derived per-module from a /vN suffix so `go mod edit -require`
 #     accepts /v2+ goFlakeInputs module paths.
-{ pkgs ? import ../../.. { } }:
+{
+  pkgs ? import ../../.. { },
+}:
 let
   inherit (pkgs.callPackage ./internals.nix { })
     mergeGomod2nixTomls
@@ -162,8 +164,7 @@ let
     };
     # Fake but syntactically valid store path (pathExists rejects
     # malformed /nix/store names outright); never realized.
-    "github.com/amarbel-llc/covered-dep" =
-      "/nix/store/ffffffffffffffffffffffffffffffff-covered";
+    "github.com/amarbel-llc/covered-dep" = "/nix/store/ffffffffffffffffffffffffffffffff-covered";
   };
 
   coverageGaps = goFlakeInputsCoverageGaps {
@@ -177,8 +178,7 @@ let
   coverageGapsNoGoMod = goFlakeInputsCoverageGaps {
     effectiveGoFlakeInputs = {
       "github.com/amarbel-llc/tap/go" = dummyV0Src;
-      "github.com/amarbel-llc/ghost" =
-        "/nix/store/ffffffffffffffffffffffffffffffff-does-not-exist";
+      "github.com/amarbel-llc/ghost" = "/nix/store/ffffffffffffffffffffffffffffffff-does-not-exist";
     };
     inherit parseGoMod;
   };
@@ -303,14 +303,13 @@ pkgs.runCommand "internals-merge-tests"
       # #50 regression: bridged keys MUST be stripped from the merged
       # `mod` table, regardless of which side declared them (consumer
       # AND producer entries for the same key are both removed).
-      (assert' "bridged key stripped (consumer's pin removed) (#50)"
-        (! merged.mod ? "github.com/example/shared"))
+      (assert' "bridged key stripped (consumer's pin removed) (#50)" (
+        !merged.mod ? "github.com/example/shared"
+      ))
 
       # Non-bridged keys survive unchanged.
-      (assert' "non-bridged consumer key kept"
-        (merged.mod ? "github.com/example/only-in-consumer"))
-      (assert' "non-bridged producer key kept"
-        (merged.mod ? "github.com/example/only-in-flake"))
+      (assert' "non-bridged consumer key kept" (merged.mod ? "github.com/example/only-in-consumer"))
+      (assert' "non-bridged producer key kept" (merged.mod ? "github.com/example/only-in-flake"))
 
       # Schema preserved from consumer.
       (assert' "schema preserved" (merged.schema == 3))
@@ -318,63 +317,71 @@ pkgs.runCommand "internals-merge-tests"
       # Legacy behaviour without bridgedKeys: nothing stripped,
       # consumer wins on conflict.
       (assert' "no-bridge: shared key kept" (mergedNoBridge.mod ? "github.com/example/shared"))
-      (assert' "no-bridge: consumer wins on conflict"
-        (mergedNoBridge.mod."github.com/example/shared".hash == "consumer-hash"))
+      (assert' "no-bridge: consumer wins on conflict" (
+        mergedNoBridge.mod."github.com/example/shared".hash == "consumer-hash"
+      ))
 
       # #38 sentinelFor unit cases: the major is derived from a trailing
       # /vN (N ≥ 2); everything else keeps the v0 sentinel.
-      (assert' "#38 sentinelFor: unsuffixed path keeps v0 sentinel"
-        (sentinelFor "github.com/amarbel-llc/tap/go" == v0Sentinel))
-      (assert' "#38 sentinelFor: /v2 path gets v2 sentinel"
-        (sentinelFor "github.com/amarbel-llc/crap/go-crap/v2"
-          == "v2.0.0-00010101000000-000000000000"))
-      (assert' "#38 sentinelFor: /v3 path gets v3 sentinel"
-        (sentinelFor "example.com/foo/v3" == "v3.0.0-00010101000000-000000000000"))
-      (assert' "#38 sentinelFor: multi-digit major /v10"
-        (sentinelFor "example.com/foo/v10" == "v10.0.0-00010101000000-000000000000"))
-      (assert' "#38 sentinelFor: /v1 is not a real major suffix, keeps v0 sentinel"
-        (sentinelFor "example.com/foo/v1" == v0Sentinel))
-      (assert' "#38 sentinelFor: /v0 keeps v0 sentinel"
-        (sentinelFor "example.com/foo/v0" == v0Sentinel))
-      (assert' "#38 sentinelFor: 'v2' as a non-final path component is ignored"
-        (sentinelFor "example.com/v2/foo" == v0Sentinel))
+      (assert' "#38 sentinelFor: unsuffixed path keeps v0 sentinel" (
+        sentinelFor "github.com/amarbel-llc/tap/go" == v0Sentinel
+      ))
+      (assert' "#38 sentinelFor: /v2 path gets v2 sentinel" (
+        sentinelFor "github.com/amarbel-llc/crap/go-crap/v2" == "v2.0.0-00010101000000-000000000000"
+      ))
+      (assert' "#38 sentinelFor: /v3 path gets v3 sentinel" (
+        sentinelFor "example.com/foo/v3" == "v3.0.0-00010101000000-000000000000"
+      ))
+      (assert' "#38 sentinelFor: multi-digit major /v10" (
+        sentinelFor "example.com/foo/v10" == "v10.0.0-00010101000000-000000000000"
+      ))
+      (assert' "#38 sentinelFor: /v1 is not a real major suffix, keeps v0 sentinel" (
+        sentinelFor "example.com/foo/v1" == v0Sentinel
+      ))
+      (assert' "#38 sentinelFor: /v0 keeps v0 sentinel" (sentinelFor "example.com/foo/v0" == v0Sentinel))
+      (assert' "#38 sentinelFor: 'v2' as a non-final path component is ignored" (
+        sentinelFor "example.com/v2/foo" == v0Sentinel
+      ))
 
       # #45 advisory coverage: exactly one producer has gaps, and the
       # only missing module is the org-prefixed, uncovered, unpinned one.
-      (assert' "#45 gaps: one producer reported"
-        (builtins.length coverageGaps == 1))
-      (assert' "#45 gaps: producer attributed by module path"
-        ((builtins.head coverageGaps).producer == "github.com/amarbel-llc/prod/go"))
-      (assert' "#45 gaps: covered/pinned/foreign requires excluded, private-dep flagged"
-        ((builtins.head coverageGaps).missing == [ "github.com/amarbel-llc/private-dep" ]))
+      (assert' "#45 gaps: one producer reported" (builtins.length coverageGaps == 1))
+      (assert' "#45 gaps: producer attributed by module path" (
+        (builtins.head coverageGaps).producer == "github.com/amarbel-llc/prod/go"
+      ))
+      (assert' "#45 gaps: covered/pinned/foreign requires excluded, private-dep flagged" (
+        (builtins.head coverageGaps).missing == [ "github.com/amarbel-llc/private-dep" ]
+      ))
 
       # #45: producers without a readable go.mod contribute nothing and
       # never throw (pre-modules deps, dangling paths).
-      (assert' "#45 gaps: go.mod-less and nonexistent producers are silent"
-        (coverageGapsNoGoMod == [ ]))
+      (assert' "#45 gaps: go.mod-less and nonexistent producers are silent" (coverageGapsNoGoMod == [ ]))
 
       # #45 wiring: mkMergedView surfaces coverageGaps. With modules =
       # null nothing is pinned, so pinned-dep joins private-dep in the
       # missing set (attrNames order: pinned-dep sorts first).
-      (assert' "#45 mkMergedView: coverageGaps exposed with unpinned toml"
-        ((builtins.head coverageMergedView.coverageGaps).missing == [
+      (assert' "#45 mkMergedView: coverageGaps exposed with unpinned toml" (
+        (builtins.head coverageMergedView.coverageGaps).missing == [
           "github.com/amarbel-llc/pinned-dep"
           "github.com/amarbel-llc/private-dep"
-        ]))
+        ]
+      ))
 
       # #49 workspace-root fallback: the producer's root-lockfile pin
       # reaches the subPath consumer's merged mod table...
-      (assert' "#49 fallback: root toml pin transported to subPath consumer"
-        (workspaceMergedView.modulesStruct.mod ? "github.com/amarbel-llc/tommy"))
+      (assert' "#49 fallback: root toml pin transported to subPath consumer" (
+        workspaceMergedView.modulesStruct.mod ? "github.com/amarbel-llc/tommy"
+      ))
       # ...and the #45 coverage warning self-silences (tommy is pinned).
-      (assert' "#49 fallback: coverage warning silenced by transported pin"
-        (workspaceMergedView.coverageGaps == [ ]))
+      (assert' "#49 fallback: coverage warning silenced by transported pin" (
+        workspaceMergedView.coverageGaps == [ ]
+      ))
 
       # #49 precedence: a subPath slice with its OWN toml wins over the
       # workspace root's — the module's lockfile is authoritative.
-      (assert' "#49 precedence: module-local toml beats workspace root"
-        (bothTomlsMergedView.modulesStruct.mod."example.com/shared-pin".version
-          == "v1.0.0-module"))
+      (assert' "#49 precedence: module-local toml beats workspace root" (
+        bothTomlsMergedView.modulesStruct.mod."example.com/shared-pin".version == "v1.0.0-module"
+      ))
     ];
 
     # Integration: building forces the real `go mod edit` pipeline.

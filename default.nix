@@ -33,6 +33,8 @@ import nixpkgsSrc (
   // {
     inherit system;
     overlays = [ forkOverlay ] ++ overlays;
-    config = config // { allowUnfree = config.allowUnfree or true; };
+    config = config // {
+      allowUnfree = config.allowUnfree or true;
+    };
   }
 )

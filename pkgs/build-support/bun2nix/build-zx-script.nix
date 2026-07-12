@@ -95,7 +95,15 @@
 
   :::
 */
-{ pkgs, lib, bun, fetchBunDeps, eslintCache, mkWrapper, mkLint }:
+{
+  pkgs,
+  lib,
+  bun,
+  fetchBunDeps,
+  eslintCache,
+  mkWrapper,
+  mkLint,
+}:
 
 let
   # -- Helpers --
@@ -103,10 +111,9 @@ let
   # Map a .ts/.tsx/.mts/.cts basename to .js
   tsToJs =
     name:
-    lib.replaceStrings
-      [ ".ts" ".tsx" ".mts" ".cts" ]
-      [ ".js" ".js" ".js" ".js" ]
-      (builtins.baseNameOf name);
+    lib.replaceStrings [ ".ts" ".tsx" ".mts" ".cts" ] [ ".js" ".js" ".js" ".js" ] (
+      builtins.baseNameOf name
+    );
 
   # Parse "name@version" into { name, version }.
   parseDepKey =
@@ -117,14 +124,12 @@ let
       len = builtins.length parts;
       # For "@scope/pkg@1.0.0" → ["" "scope/pkg" "1.0.0"]
       # For "pkg@1.0.0" → ["pkg" "1.0.0"]
-      name =
-        if len == 3 then
-          "@${builtins.elemAt parts 1}"
-        else
-          builtins.elemAt parts 0;
+      name = if len == 3 then "@${builtins.elemAt parts 1}" else builtins.elemAt parts 0;
       version = builtins.elemAt parts (len - 1);
     in
-    { inherit name version; };
+    {
+      inherit name version;
+    };
 
   # Construct the npm registry tarball URL for a "name@version" key.
   mkTarballUrl =
@@ -267,18 +272,17 @@ let
       # -- Cache --
       # Tier 3: use fetchBunDeps (same as buildBunBinary)
       # Tiers 1&2: symlinkJoin of fetchurl tarballs
-      cache =
-        fetchBunDeps {
-          bunNix =
-            if useBunNix then
-              bunNix
-            else
-              # Programmatic bunNix: ignore injected fetchurl, return
-              # pre-fetched tarballs directly.
-              { ... }:
-              allDeps;
-          inherit bunfigPath npmrcPath overrides;
-        };
+      cache = fetchBunDeps {
+        bunNix =
+          if useBunNix then
+            bunNix
+          else
+            # Programmatic bunNix: ignore injected fetchurl, return
+            # pre-fetched tarballs directly.
+            { ... }:
+            allDeps;
+        inherit bunfigPath npmrcPath overrides;
+      };
 
       # -- Synthetic files (tiers 1 & 2 only) --
       syntheticPackageJson = pkgs.writeText "${pname}-package.json" (mkPackageJson pname allDeps);
@@ -289,7 +293,12 @@ let
       # unrelated bundle inputs change. Failures propagate to the
       # bundle via buildInputs.
       lint = mkLint {
-        inherit pname version src eslintCache;
+        inherit
+          pname
+          version
+          src
+          eslintCache
+          ;
         entrypointPaths = [ entrypoint ];
       };
 
@@ -301,39 +310,38 @@ let
         nativeBuildInputs = [ bun ];
         buildInputs = lib.optional runLint lint;
 
-        buildPhase =
-          ''
-            runHook preBuild
+        buildPhase = ''
+          runHook preBuild
 
-            export BUN_INSTALL_CACHE_DIR=$(mktemp -d)
-          ''
-          + ''
-            cp -r ${cache}/share/bun-cache/. "$BUN_INSTALL_CACHE_DIR"
-          ''
-          + (
-            if useBunNix then
-              # Tier 3: src contains bun.lock
-              ''
-                bun install --frozen-lockfile --linker=isolated
-              ''
-            else
-              # Tiers 1&2: inject synthetic package.json + bun.lock
-              ''
-                cp ${syntheticPackageJson} package.json
-                cp ${syntheticBunLock} bun.lock
-                bun install --frozen-lockfile --linker=isolated
-              ''
-          )
-          + ''
-            mkdir -p $out
-            bun build ${lib.escapeShellArg entrypoint} \
-              --target=bun \
-              --format=esm \
-              --outdir=$out \
-              ${lib.escapeShellArgs bunBuildFlags}
+          export BUN_INSTALL_CACHE_DIR=$(mktemp -d)
+        ''
+        + ''
+          cp -r ${cache}/share/bun-cache/. "$BUN_INSTALL_CACHE_DIR"
+        ''
+        + (
+          if useBunNix then
+            # Tier 3: src contains bun.lock
+            ''
+              bun install --frozen-lockfile --linker=isolated
+            ''
+          else
+            # Tiers 1&2: inject synthetic package.json + bun.lock
+            ''
+              cp ${syntheticPackageJson} package.json
+              cp ${syntheticBunLock} bun.lock
+              bun install --frozen-lockfile --linker=isolated
+            ''
+        )
+        + ''
+          mkdir -p $out
+          bun build ${lib.escapeShellArg entrypoint} \
+            --target=bun \
+            --format=esm \
+            --outdir=$out \
+            ${lib.escapeShellArgs bunBuildFlags}
 
-            runHook postBuild
-          '';
+          runHook postBuild
+        '';
 
         dontInstall = true;
         dontFixup = true;

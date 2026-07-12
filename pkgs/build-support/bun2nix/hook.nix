@@ -1,6 +1,11 @@
 # Setup hook for bun2nix builds.
 # Requires bunDeps (output of fetchBunDeps) to be set.
-{ pkgs, lib, bun, bun2nixNoOp }:
+{
+  pkgs,
+  lib,
+  bun,
+  bun2nixNoOp,
+}:
 
 pkgs.makeSetupHook {
   name = "bun2nix-hook";

@@ -414,7 +414,8 @@
           # on what dedupes to identical store paths — so realising the build is
           # the whole assertion; no run-and-compare wrapper needed.
           godyn-string-src-test = self.packages.${system}.godyn-string-src-test;
-          godyn-string-src-gotest-test = self.packages.${system}.godyn-string-src-gotest-test.passthru.checkAll;
+          godyn-string-src-gotest-test =
+            self.packages.${system}.godyn-string-src-gotest-test.passthru.checkAll;
           # godyn→godyn composition: both consumption modes must produce a working
           # binary from the same app graph. (Source = bridges; archive = archiveBridges.)
           godyn-cross-source = pkgs.runCommandLocal "godyn-cross-source-check" { } ''

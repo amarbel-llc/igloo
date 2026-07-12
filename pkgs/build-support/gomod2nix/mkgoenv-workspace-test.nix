@@ -6,7 +6,9 @@
 # expose that synthesized go.work as passthru.mergedGoWork so consumers can
 # materialize it (shellHook `cp`) for gopls/go to resolve the bridge — the
 # workspace-mode analog of passthru.mergedGoMod.
-{ pkgs ? import ../../.. { } }:
+{
+  pkgs ? import ../../.. { },
+}:
 let
   prodV2 = pkgs.runCommand "mkgoenv-test-prod-v2" { } ''
     mkdir -p $out

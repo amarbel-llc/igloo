@@ -1,6 +1,8 @@
 # Smoke tests for mkGoPkgs (RFC 0001 § Producer interface).
 # Build with: nix-build pkgs/build-support/gomod2nix/mk-go-pkgs-test.nix
-{ pkgs ? import ../../.. { } }:
+{
+  pkgs ? import ../../.. { },
+}:
 let
   # Realistic fixture exercising:
   #   - prod Go file (cmd/example/main.go)
@@ -131,8 +133,7 @@ let
   # leakthrough documented in goSourceFilter); what MUST be filtered is
   # the specific files inside them.
   prodHasRootTestdataFile = builtins.pathExists "${built.go-pkgs}/testdata/golden.txt";
-  prodHasNestedTestdataFile =
-    builtins.pathExists "${built.go-pkgs}/internal/foo/testdata/cases.json";
+  prodHasNestedTestdataFile = builtins.pathExists "${built.go-pkgs}/internal/foo/testdata/cases.json";
   prodHasMainTest = builtins.pathExists "${built.go-pkgs}/cmd/example/main_test.go";
 
   # Sub-module workspace files (#47).
@@ -141,14 +142,12 @@ let
   prodHasSubModuleGo = builtins.pathExists "${built.go-pkgs}/libs/dewey/dewey.go";
 
   # Testdata-resident go.mod fixture MUST stay out of prod (#47 negative).
-  prodHasTestdataGoMod =
-    builtins.pathExists "${built.go-pkgs}/internal/foo/testdata/fixturemod/go.mod";
+  prodHasTestdataGoMod = builtins.pathExists "${built.go-pkgs}/internal/foo/testdata/fixturemod/go.mod";
 
   # version.env kept in both outputs by basename, dropped under testdata (#31).
   prodHasRootVersionEnv = builtins.pathExists "${built.go-pkgs}/version.env";
   prodHasSubVersionEnv = builtins.pathExists "${built.go-pkgs}/libs/dewey/version.env";
-  prodHasTestdataVersionEnv =
-    builtins.pathExists "${built.go-pkgs}/internal/foo/testdata/version.env";
+  prodHasTestdataVersionEnv = builtins.pathExists "${built.go-pkgs}/internal/foo/testdata/version.env";
   testHasRootVersionEnv = builtins.pathExists "${built.go-pkgs-test}/version.env";
   testHasSubVersionEnv = builtins.pathExists "${built.go-pkgs-test}/libs/dewey/version.env";
 
@@ -162,124 +161,115 @@ let
 
   # #60: default mkGoPkgs drops //go:embed assets — they only survive
   # when the caller supplies a matching `extras` / `testExtras` regex.
-  defaultProdHasEmbedTmpl =
-    builtins.pathExists "${built.go-pkgs}/cmd/example/templates/hello.tmpl";
-  defaultTestHasEmbedJson =
-    builtins.pathExists "${built.go-pkgs-test}/cmd/example/fixtures/cases.json";
+  defaultProdHasEmbedTmpl = builtins.pathExists "${built.go-pkgs}/cmd/example/templates/hello.tmpl";
+  defaultTestHasEmbedJson = builtins.pathExists "${built.go-pkgs-test}/cmd/example/fixtures/cases.json";
 
   # #60: manual extras for //go:embed — the recommended workaround
   # while go2nix-style AST scanning is out of scope.
-  embedExtrasProdHasTmpl =
-    builtins.pathExists "${builtWithEmbedExtras.go-pkgs}/cmd/example/templates/hello.tmpl";
-  embedExtrasProdHasTestJson =
-    builtins.pathExists "${builtWithEmbedExtras.go-pkgs}/cmd/example/fixtures/cases.json";
-  embedExtrasTestHasTmpl =
-    builtins.pathExists "${builtWithEmbedExtras.go-pkgs-test}/cmd/example/templates/hello.tmpl";
-  embedExtrasTestHasJson =
-    builtins.pathExists "${builtWithEmbedExtras.go-pkgs-test}/cmd/example/fixtures/cases.json";
+  embedExtrasProdHasTmpl = builtins.pathExists "${builtWithEmbedExtras.go-pkgs}/cmd/example/templates/hello.tmpl";
+  embedExtrasProdHasTestJson = builtins.pathExists "${builtWithEmbedExtras.go-pkgs}/cmd/example/fixtures/cases.json";
+  embedExtrasTestHasTmpl = builtins.pathExists "${builtWithEmbedExtras.go-pkgs-test}/cmd/example/templates/hello.tmpl";
+  embedExtrasTestHasJson = builtins.pathExists "${builtWithEmbedExtras.go-pkgs-test}/cmd/example/fixtures/cases.json";
 in
-pkgs.runCommand "mk-go-pkgs-tests"
-  {
-    _ignored = [
-      # Schema-acceptance regression: both outputs must be real
-      # derivations so they pass `nix flake check` (cf. #38, #44).
-      (assert' "type: go-pkgs is a derivation" (isDerivation built.go-pkgs))
-      (assert' "type: go-pkgs-test is a derivation" (isDerivation built.go-pkgs-test))
+pkgs.runCommand "mk-go-pkgs-tests" {
+  _ignored = [
+    # Schema-acceptance regression: both outputs must be real
+    # derivations so they pass `nix flake check` (cf. #38, #44).
+    (assert' "type: go-pkgs is a derivation" (isDerivation built.go-pkgs))
+    (assert' "type: go-pkgs-test is a derivation" (isDerivation built.go-pkgs-test))
 
-      # go-pkgs keeps the prod surface.
-      (assert' "prod: keeps go.mod" (builtins.elem "go.mod" prodTopFiles))
-      (assert' "prod: keeps go.sum" (builtins.elem "go.sum" prodTopFiles))
-      (assert' "prod: keeps go.work" (builtins.elem "go.work" prodTopFiles))
-      (assert' "prod: keeps go.work.sum" (builtins.elem "go.work.sum" prodTopFiles))
-      (assert' "prod: keeps gomod2nix.toml" (builtins.elem "gomod2nix.toml" prodTopFiles))
-      (assert' "prod: keeps cmd/example/main.go" prodHasNested)
+    # go-pkgs keeps the prod surface.
+    (assert' "prod: keeps go.mod" (builtins.elem "go.mod" prodTopFiles))
+    (assert' "prod: keeps go.sum" (builtins.elem "go.sum" prodTopFiles))
+    (assert' "prod: keeps go.work" (builtins.elem "go.work" prodTopFiles))
+    (assert' "prod: keeps go.work.sum" (builtins.elem "go.work.sum" prodTopFiles))
+    (assert' "prod: keeps gomod2nix.toml" (builtins.elem "gomod2nix.toml" prodTopFiles))
+    (assert' "prod: keeps cmd/example/main.go" prodHasNested)
 
-      # #47: sub-module workspace files must be kept.
-      (assert' "prod: keeps libs/dewey/go.mod (#47)" prodHasSubModuleGoMod)
-      (assert' "prod: keeps libs/dewey/go.sum (#47)" prodHasSubModuleGoSum)
-      (assert' "prod: keeps libs/dewey/dewey.go" prodHasSubModuleGo)
+    # #47: sub-module workspace files must be kept.
+    (assert' "prod: keeps libs/dewey/go.mod (#47)" prodHasSubModuleGoMod)
+    (assert' "prod: keeps libs/dewey/go.sum (#47)" prodHasSubModuleGoSum)
+    (assert' "prod: keeps libs/dewey/dewey.go" prodHasSubModuleGo)
 
-      # go-pkgs drops the test surface (file contents — directories
-      # may persist empty as a goSourceFilter-shared leakthrough).
-      (assert' "prod: drops cmd/example/main_test.go" (! prodHasMainTest))
-      (assert' "prod: drops testdata/golden.txt" (! prodHasRootTestdataFile))
-      (assert' "prod: drops testdata/cases.json" (! prodHasNestedTestdataFile))
-      # #47 negative: testdata-resident go.mod must NOT be promoted.
-      (assert' "prod: drops testdata/fixturemod/go.mod (#47 negative)"
-        (! prodHasTestdataGoMod))
-      (assert' "prod: drops README.md (no extras)"
-        (! (builtins.elem "README.md" prodTopFiles)))
+    # go-pkgs drops the test surface (file contents — directories
+    # may persist empty as a goSourceFilter-shared leakthrough).
+    (assert' "prod: drops cmd/example/main_test.go" (!prodHasMainTest))
+    (assert' "prod: drops testdata/golden.txt" (!prodHasRootTestdataFile))
+    (assert' "prod: drops testdata/cases.json" (!prodHasNestedTestdataFile))
+    # #47 negative: testdata-resident go.mod must NOT be promoted.
+    (assert' "prod: drops testdata/fixturemod/go.mod (#47 negative)" (!prodHasTestdataGoMod))
+    (assert' "prod: drops README.md (no extras)" (!(builtins.elem "README.md" prodTopFiles)))
 
-      # #31: version.env kept in both outputs (so a self-consuming
-      # producer's buildGoApplication auto-read finds the package-local
-      # file), but a testdata fixture's version.env must not reach prod.
-      (assert' "#31: prod keeps root version.env" prodHasRootVersionEnv)
-      (assert' "#31: prod keeps libs/dewey/version.env" prodHasSubVersionEnv)
-      (assert' "#31: prod drops testdata/version.env" (! prodHasTestdataVersionEnv))
-      (assert' "#31: test keeps root version.env" testHasRootVersionEnv)
-      (assert' "#31: test keeps libs/dewey/version.env" testHasSubVersionEnv)
+    # #31: version.env kept in both outputs (so a self-consuming
+    # producer's buildGoApplication auto-read finds the package-local
+    # file), but a testdata fixture's version.env must not reach prod.
+    (assert' "#31: prod keeps root version.env" prodHasRootVersionEnv)
+    (assert' "#31: prod keeps libs/dewey/version.env" prodHasSubVersionEnv)
+    (assert' "#31: prod drops testdata/version.env" (!prodHasTestdataVersionEnv))
+    (assert' "#31: test keeps root version.env" testHasRootVersionEnv)
+    (assert' "#31: test keeps libs/dewey/version.env" testHasSubVersionEnv)
 
-      # go-pkgs-test is a superset.
-      (assert' "test: keeps cmd/example/main_test.go" testHasMainTest)
-      (assert' "test: keeps nested testdata/cases.json" testHasNestedTestdata)
-      (assert' "test: keeps root testdata/golden.txt" testHasRootTestdata)
-      (assert' "test: still keeps go.mod" (builtins.elem "go.mod" testTopFiles))
-      (assert' "test: drops README.md (no extras)"
-        (! (builtins.elem "README.md" testTopFiles)))
+    # go-pkgs-test is a superset.
+    (assert' "test: keeps cmd/example/main_test.go" testHasMainTest)
+    (assert' "test: keeps nested testdata/cases.json" testHasNestedTestdata)
+    (assert' "test: keeps root testdata/golden.txt" testHasRootTestdata)
+    (assert' "test: still keeps go.mod" (builtins.elem "go.mod" testTopFiles))
+    (assert' "test: drops README.md (no extras)" (!(builtins.elem "README.md" testTopFiles)))
 
-      # extras applies to BOTH outputs.
-      (assert' "extras: prod gets README.md when in extras" extrasProdHasReadme)
-      (assert' "extras: test gets README.md when in extras" extrasTestHasReadme)
+    # extras applies to BOTH outputs.
+    (assert' "extras: prod gets README.md when in extras" extrasProdHasReadme)
+    (assert' "extras: test gets README.md when in extras" extrasTestHasReadme)
 
-      # #60: default mkGoPkgs drops //go:embed assets just like any
-      # other non-Go file — adopters MUST supply extras explicitly
-      # until go2nix-style AST scanning can derive them.
-      (assert' "#60: prod drops //go:embed asset without extras"
-        (! defaultProdHasEmbedTmpl))
-      (assert' "#60: test drops //go:embed asset without testExtras"
-        (! defaultTestHasEmbedJson))
+    # #60: default mkGoPkgs drops //go:embed assets just like any
+    # other non-Go file — adopters MUST supply extras explicitly
+    # until go2nix-style AST scanning can derive them.
+    (assert' "#60: prod drops //go:embed asset without extras" (!defaultProdHasEmbedTmpl))
+    (assert' "#60: test drops //go:embed asset without testExtras" (!defaultTestHasEmbedJson))
 
-      # #60: manual extras pattern — prod embeds route through `extras`
-      # (kept in both outputs); test-only embeds route through
-      # `testExtras` (kept only in go-pkgs-test).
-      (assert' "#60: extras keep prod //go:embed asset in go-pkgs"
-        embedExtrasProdHasTmpl)
-      (assert' "#60: testExtras do NOT leak test embed asset into go-pkgs"
-        (! embedExtrasProdHasTestJson))
-      (assert' "#60: extras keep prod //go:embed asset in go-pkgs-test (superset)"
-        embedExtrasTestHasTmpl)
-      (assert' "#60: testExtras keep test //go:embed asset in go-pkgs-test"
-        embedExtrasTestHasJson)
+    # #60: manual extras pattern — prod embeds route through `extras`
+    # (kept in both outputs); test-only embeds route through
+    # `testExtras` (kept only in go-pkgs-test).
+    (assert' "#60: extras keep prod //go:embed asset in go-pkgs" embedExtrasProdHasTmpl)
+    (assert' "#60: testExtras do NOT leak test embed asset into go-pkgs" (!embedExtrasProdHasTestJson))
+    (assert' "#60: extras keep prod //go:embed asset in go-pkgs-test (superset)" embedExtrasTestHasTmpl)
+    (assert' "#60: testExtras keep test //go:embed asset in go-pkgs-test" embedExtrasTestHasJson)
 
-      # #36: producer-side passthru attachment. The bridge reads this
-      # at depth-1 on each direct producer; covered end-to-end in
-      # internals-merge-test.nix.
-      (assert' "#36: go-pkgs carries passthru.goFlakeInputs"
-        (builtWithPassthru.go-pkgs.passthru.goFlakeInputs == passthruInputs))
-      (assert' "#36: go-pkgs-test carries same passthru.goFlakeInputs"
-        (builtWithPassthru.go-pkgs-test.passthru.goFlakeInputs == passthruInputs))
-      (assert' "#36: omitting goFlakeInputs leaves passthru without the attr"
-        (! builtNoPassthru.go-pkgs.passthru ? goFlakeInputs))
+    # #36: producer-side passthru attachment. The bridge reads this
+    # at depth-1 on each direct producer; covered end-to-end in
+    # internals-merge-test.nix.
+    (assert' "#36: go-pkgs carries passthru.goFlakeInputs" (
+      builtWithPassthru.go-pkgs.passthru.goFlakeInputs == passthruInputs
+    ))
+    (assert' "#36: go-pkgs-test carries same passthru.goFlakeInputs" (
+      builtWithPassthru.go-pkgs-test.passthru.goFlakeInputs == passthruInputs
+    ))
+    (assert' "#36: omitting goFlakeInputs leaves passthru without the attr" (
+      !builtNoPassthru.go-pkgs.passthru ? goFlakeInputs
+    ))
 
-      # #49: name override + go.mod inference + src.name fallthrough.
-      # Precedence: explicit `name` → `src.name` → go.mod inferred → "source".
-      #
-      # With derivation src (has .name = "mk-go-pkgs-fixture"):
-      #   src.name path wins.
-      (assert' "name: src.name wins when present (#49)"
-        (built.go-pkgs.name == "mk-go-pkgs-fixture-go-pkgs"))
-      # With explicit override:
-      (assert' "name: explicit override wins over inference (#49)"
-        (builtWithExplicitName.go-pkgs.name == "madder-go-pkgs"))
-      (assert' "name: explicit override applies to test variant too (#49)"
-        (builtWithExplicitName.go-pkgs-test.name == "madder-go-pkgs-test"))
-      # With string src (no .name attr), go.mod inference kicks in.
-      # Fixture's go.mod declares `module example.com/x`; last path
-      # element is "x".
-      (assert' "name: go.mod inference yields last module-path element (#49)"
-        (builtFromString.go-pkgs.name == "x-go-pkgs"))
-      (assert' "name: go.mod inference on test variant (#49)"
-        (builtFromString.go-pkgs-test.name == "x-go-pkgs-test"))
-    ];
-  }
-  "touch $out"
+    # #49: name override + go.mod inference + src.name fallthrough.
+    # Precedence: explicit `name` → `src.name` → go.mod inferred → "source".
+    #
+    # With derivation src (has .name = "mk-go-pkgs-fixture"):
+    #   src.name path wins.
+    (assert' "name: src.name wins when present (#49)" (
+      built.go-pkgs.name == "mk-go-pkgs-fixture-go-pkgs"
+    ))
+    # With explicit override:
+    (assert' "name: explicit override wins over inference (#49)" (
+      builtWithExplicitName.go-pkgs.name == "madder-go-pkgs"
+    ))
+    (assert' "name: explicit override applies to test variant too (#49)" (
+      builtWithExplicitName.go-pkgs-test.name == "madder-go-pkgs-test"
+    ))
+    # With string src (no .name attr), go.mod inference kicks in.
+    # Fixture's go.mod declares `module example.com/x`; last path
+    # element is "x".
+    (assert' "name: go.mod inference yields last module-path element (#49)" (
+      builtFromString.go-pkgs.name == "x-go-pkgs"
+    ))
+    (assert' "name: go.mod inference on test variant (#49)" (
+      builtFromString.go-pkgs-test.name == "x-go-pkgs-test"
+    ))
+  ];
+} "touch $out"

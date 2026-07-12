@@ -19,7 +19,9 @@
 # flows purely via inheritance onto mkMergedGoMod's synthetic-sentinel
 # path. This test reproduces exactly that at the internals layer and runs
 # the real `go mod edit` pipeline the original failure hit.
-{ pkgs ? import ../../.. { } }:
+{
+  pkgs ? import ../../.. { },
+}:
 let
   inherit (pkgs.callPackage ./internals.nix { }) mkMergedView;
   inherit (import ./parser.nix) parseGoMod;
@@ -36,23 +38,24 @@ let
   # passthru.goFlakeInputs bridges a /v2 transitive. mkGoPkgs attaches
   # exactly this shape (see mk-go-pkgs.nix); synthesized directly here to
   # keep the test at the internals layer without a full mkGoPkgs build.
-  cuttingGardenGoPkgs = pkgs.runCommand "cutting-garden-go-pkgs"
-    {
-      passthru.goFlakeInputs = {
-        ${crapV2} = {
-          src = crapV2Src;
-          subPath = "go-crap";
+  cuttingGardenGoPkgs =
+    pkgs.runCommand "cutting-garden-go-pkgs"
+      {
+        passthru.goFlakeInputs = {
+          ${crapV2} = {
+            src = crapV2Src;
+            subPath = "go-crap";
+          };
         };
-      };
-    }
-    ''
-      mkdir -p $out
-      cat > $out/go.mod <<'EOF'
-      module github.com/amarbel-llc/cutting-garden
+      }
+      ''
+        mkdir -p $out
+        cat > $out/go.mod <<'EOF'
+        module github.com/amarbel-llc/cutting-garden
 
-      go 1.26
-      EOF
-    '';
+        go 1.26
+        EOF
+      '';
 
   # Consumer mirroring chrest: bridges cutting-garden, requires it
   # organically, and NEVER mentions crap/go-crap/v2 in its own go.mod.
@@ -89,17 +92,20 @@ pkgs.runCommand "inherited-v2-sentinel-test"
       # producer's passthru — the consumer never declared it. (hasAttr,
       # not `?`: the module path is a variable, and `?`'s RHS is a
       # literal attrpath, not an expression.)
-      (assert' "igloo#54: inherited /v2 module reaches the effective bridge map"
-        (builtins.hasAttr crapV2 merged.normalizedFlakeInputs))
+      (assert' "igloo#54: inherited /v2 module reaches the effective bridge map" (
+        builtins.hasAttr crapV2 merged.normalizedFlakeInputs
+      ))
       # ...and the consumer does NOT organically require it, so it takes
       # the synthetic-sentinel path (not the conditional-require path).
-      (assert' "igloo#54: consumer does not organically require the inherited /v2 module"
-        (! builtins.hasAttr crapV2 consumerRequires))
+      (assert' "igloo#54: consumer does not organically require the inherited /v2 module" (
+        !builtins.hasAttr crapV2 consumerRequires
+      ))
       # The bridged producer itself IS organically required — it rides the
       # conditional-require (sentinel-free) path, exercising both branches
       # of mkMergedGoMod in the same merge, exactly as chrest does.
-      (assert' "igloo#54: consumer organically requires the bridged producer"
-        (builtins.hasAttr cgModule consumerRequires))
+      (assert' "igloo#54: consumer organically requires the bridged producer" (
+        builtins.hasAttr cgModule consumerRequires
+      ))
     ];
     mergedGoMod = merged.mergedGoModFile;
   }

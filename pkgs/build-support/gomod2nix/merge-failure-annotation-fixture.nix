@@ -10,7 +10,9 @@
 # organic version and emits only the `-replace`; `go mod edit -replace`
 # re-validates the whole modfile and rejects the invalid require
 # ("should be v2, not v0"), driving the annotated bridge failure handler.
-{ pkgs ? import ../../.. { } }:
+{
+  pkgs ? import ../../.. { },
+}:
 let
   inherit (pkgs.callPackage ./internals.nix { }) mkMergedGoMod;
 

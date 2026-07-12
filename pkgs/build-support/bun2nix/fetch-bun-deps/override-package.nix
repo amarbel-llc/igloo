@@ -3,7 +3,11 @@
 #
 # API Type: Takes a struct of overrides where attributes have the type:
 #   String => Package => Package
-{ pkgs, lib, extractPackage }:
+{
+  pkgs,
+  lib,
+  extractPackage,
+}:
 
 {
   overrides ? { },

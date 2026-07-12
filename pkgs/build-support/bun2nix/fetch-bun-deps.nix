@@ -47,7 +47,13 @@
 
   :::
 */
-{ pkgs, lib, buildPackage, overridePackage, patchedDependenciesToOverrides }:
+{
+  pkgs,
+  lib,
+  buildPackage,
+  overridePackage,
+  patchedDependenciesToOverrides,
+}:
 
 let
   invalidBunNixErr = ''

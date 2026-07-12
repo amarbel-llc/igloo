@@ -9,7 +9,9 @@
 # symbol throws at eval time unless `overwriteLdflagsX = true` is passed.
 #
 # These are eval-time assertions on `drv.ldflags`; no Go toolchain runs.
-{ pkgs ? import ../../.. { } }:
+{
+  pkgs ? import ../../.. { },
+}:
 let
   inherit (pkgs) lib;
 
@@ -83,41 +85,40 @@ let
 
   assert' = label: cond: if cond then null else throw "${label}: assertion failed";
 in
-pkgs.runCommand "ldflags-x-tests"
-  {
-    _ignored = [
-      # ldflagsX renders one `-X k=v` per entry...
-      (assert' "renders main.buildDate" (hasLdflag rendersDrv "-X main.buildDate=2026-05-28"))
-      (assert' "renders main.channel" (hasLdflag rendersDrv "-X main.channel=stable"))
-      # ...and is appended after the auto-injected version/commit flags.
-      (assert' "ldflagsX appended last" (
-        rendersDrv.ldflags == versionLdflags ++ [
-          "-X main.buildDate=2026-05-28"
-          "-X main.channel=stable"
-        ]
-      ))
+pkgs.runCommand "ldflags-x-tests" {
+  _ignored = [
+    # ldflagsX renders one `-X k=v` per entry...
+    (assert' "renders main.buildDate" (hasLdflag rendersDrv "-X main.buildDate=2026-05-28"))
+    (assert' "renders main.channel" (hasLdflag rendersDrv "-X main.channel=stable"))
+    # ...and is appended after the auto-injected version/commit flags.
+    (assert' "ldflagsX appended last" (
+      rendersDrv.ldflags == versionLdflags
+      ++ [
+        "-X main.buildDate=2026-05-28"
+        "-X main.channel=stable"
+      ]
+    ))
 
-      # Empty/absent ldflagsX is a no-op: ldflags == versionLdflags.
-      (assert' "empty ldflagsX is a no-op" (noopDrv.ldflags == versionLdflags))
+    # Empty/absent ldflagsX is a no-op: ldflags == versionLdflags.
+    (assert' "empty ldflagsX is a no-op" (noopDrv.ldflags == versionLdflags))
 
-      # Raw `ldflags` and `ldflagsX` compose; non-`-X` raw flags don't collide.
-      (assert' "raw + ldflagsX compose" (
-        rawAndXDrv.ldflags == versionLdflags ++ [ "-s" ] ++ [ "-X main.channel=stable" ]
-      ))
+    # Raw `ldflags` and `ldflagsX` compose; non-`-X` raw flags don't collide.
+    (assert' "raw + ldflagsX compose" (
+      rawAndXDrv.ldflags == versionLdflags ++ [ "-s" ] ++ [ "-X main.channel=stable" ]
+    ))
 
-      # Collision with the auto-injected main.version → throws without opt-in.
-      (assert' "collision with auto version throws" (throwsOnLdflags collisionDrv))
+    # Collision with the auto-injected main.version → throws without opt-in.
+    (assert' "collision with auto version throws" (throwsOnLdflags collisionDrv))
 
-      # Collision with a raw `ldflags` `-X` → throws without opt-in.
-      (assert' "collision with raw ldflags throws" (throwsOnLdflags rawCollisionDrv))
+    # Collision with a raw `ldflags` `-X` → throws without opt-in.
+    (assert' "collision with raw ldflags throws" (throwsOnLdflags rawCollisionDrv))
 
-      # overwriteLdflagsX = true allows the override; ldflagsX wins by position
-      # (appended last, so it's the final `-X main.version=` the linker sees).
-      (assert' "overwrite opt-in does not throw" (!(throwsOnLdflags overwriteDrv)))
-      (assert' "overwrite value present" (hasLdflag overwriteDrv "-X main.version=override"))
-      (assert' "overwrite value wins (last)" (
-        lib.last overwriteDrv.ldflags == "-X main.version=override"
-      ))
-    ];
-  }
-  "touch $out"
+    # overwriteLdflagsX = true allows the override; ldflagsX wins by position
+    # (appended last, so it's the final `-X main.version=` the linker sees).
+    (assert' "overwrite opt-in does not throw" (!(throwsOnLdflags overwriteDrv)))
+    (assert' "overwrite value present" (hasLdflag overwriteDrv "-X main.version=override"))
+    (assert' "overwrite value wins (last)" (
+      lib.last overwriteDrv.ldflags == "-X main.version=override"
+    ))
+  ];
+} "touch $out"

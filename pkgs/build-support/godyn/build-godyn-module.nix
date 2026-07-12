@@ -109,22 +109,34 @@ let
   versionEnvPath = "${toString effectivePwd}/version.env";
   versionFromEnv =
     if builtins.pathExists versionEnvPath then
-      let m = builtins.match ".*_VERSION=([^[:space:]]+).*" (builtins.readFile versionEnvPath); in
+      let
+        m = builtins.match ".*_VERSION=([^[:space:]]+).*" (builtins.readFile versionEnvPath);
+      in
       if m != null then builtins.elemAt m 0 else null
     else
       null;
   effectiveVersion =
-    if version != null then version
-    else if versionFromEnv != null then versionFromEnv
-    else "dev";
+    if version != null then
+      version
+    else if versionFromEnv != null then
+      versionFromEnv
+    else
+      "dev";
   versionLdflags = [
     "-X main.version=${effectiveVersion}"
     "-X main.commit=${commit}"
   ];
   # Symbol (importpath.name) from a single `-X SYM=VAL` entry; null for non-X flags.
-  ldflagXSymbol = entry: let m = builtins.match "-X[ =]([^=]+)=.*" entry; in if m != null then builtins.elemAt m 0 else null;
+  ldflagXSymbol =
+    entry:
+    let
+      m = builtins.match "-X[ =]([^=]+)=.*" entry;
+    in
+    if m != null then builtins.elemAt m 0 else null;
   claimedXSymbols = builtins.filter (s: s != null) (map ldflagXSymbol (versionLdflags ++ ldflags));
-  ldflagsXCollisions = builtins.filter (k: builtins.elem k claimedXSymbols) (builtins.attrNames ldflagsX);
+  ldflagsXCollisions = builtins.filter (k: builtins.elem k claimedXSymbols) (
+    builtins.attrNames ldflagsX
+  );
   ldflagsXFlags =
     if ldflagsXCollisions != [ ] && !overwriteLdflagsX then
       throw ''
@@ -145,7 +157,10 @@ let
     if perSystem != null then
       (perSystem.${system} or (throw ''
         buildGodynModule(${pname}): ${what} has no graph for ${system} (have: ${lib.concatStringsSep ", " (builtins.attrNames perSystem)}).
-        Generate it from any host: CGO_ENABLED=0 GOOS=<os> GOARCH=<arch> godyn-gen ${lib.optionalString (what == "testGraphFiles") "-tests "}. <out>.json''))
+        Generate it from any host: CGO_ENABLED=0 GOOS=<os> GOARCH=<arch> godyn-gen ${
+          lib.optionalString (what == "testGraphFiles") "-tests "
+        }. <out>.json'')
+      )
     else
       single;
 
@@ -176,35 +191,55 @@ let
     fi
     rm -f "$out/.godyn-writable"
   '';
-  importsOf = importPath: let i = byImport.${importPath}.imports; in if i == null then [ ] else i;
+  importsOf =
+    importPath:
+    let
+      i = byImport.${importPath}.imports;
+    in
+    if i == null then [ ] else i;
   sanitize = s: lib.replaceStrings [ "/" "." "_" ] [ "-" "-" "-" ] s;
   nl = xs: if xs == null then [ ] else xs; # go marshals empty slices as null
 
   # GOOS/GOARCH for the asm -D defines.
   sysParts = lib.splitString "-" system;
   goarch =
-    let m = { x86_64 = "amd64"; aarch64 = "arm64"; i686 = "386"; }; in
+    let
+      m = {
+        x86_64 = "amd64";
+        aarch64 = "arm64";
+        i686 = "386";
+      };
+    in
     m.${builtins.elemAt sysParts 0} or (builtins.elemAt sysParts 0);
   goos = builtins.elemAt sysParts 1;
   goamd64 = lib.optionalString (goarch == "amd64") " -D GOAMD64_v1";
 
   # A module is bridged iff it is in `bridges`; its packages source from the
   # go-pkgs store path. (Import paths under <mod> map to <bridge>/<rest>.)
-  bridgeOf = importPath:
-    lib.findFirst (m: m == importPath || lib.hasPrefix "${m}/" importPath) null (builtins.attrNames bridges);
+  bridgeOf =
+    importPath:
+    lib.findFirst (m: m == importPath || lib.hasPrefix "${m}/" importPath) null (
+      builtins.attrNames bridges
+    );
 
   # A package is archive-bridged iff its module is in `archiveBridges`: it is not
   # compiled here, and dependents link its archive at <go-pkgs>/<importpath>/pkg.a.
-  archiveBridgeOf = importPath:
-    lib.findFirst (m: m == importPath || lib.hasPrefix "${m}/" importPath) null (builtins.attrNames archiveBridges);
+  archiveBridgeOf =
+    importPath:
+    lib.findFirst (m: m == importPath || lib.hasPrefix "${m}/" importPath) null (
+      builtins.attrNames archiveBridges
+    );
   archivePathOf = importPath: "${archiveBridges.${archiveBridgeOf importPath}}/${importPath}/pkg.a";
 
   # Transitive non-stdlib import closure of a package (go tool compile's importcfg
   # must carry every package whose export data is reachable). Go has no import
   # cycles, so the recursion terminates.
-  transitiveDeps = importPath:
-    let direct = importsOf importPath;
-    in lib.unique (direct ++ lib.concatMap transitiveDeps direct);
+  transitiveDeps =
+    importPath:
+    let
+      direct = importsOf importPath;
+    in
+    lib.unique (direct ++ lib.concatMap transitiveDeps direct);
 
   # go:embed -embedcfg JSON for a package's embed files against a source dir: a
   # literal pattern (init.toml) is itself a file; a simple suffix glob (dir/*)
@@ -230,12 +265,15 @@ let
   # transitive dep contributes one `packagefile <imp>=<archive>`. A compiled dep
   # interpolates `${pkgDrvs.${dep}}` (making dep an inputDrv → the merkle-delta); an
   # archive-bridged dep points at its pre-built archive (approach 1).
-  cfgFor = importPath: cfgFile:
-    lib.concatMapStringsSep "\n"
-      (dep:
-        let archive = if archiveBridgeOf dep != null then archivePathOf dep else "${pkgDrvs.${dep}}/pkg.a";
-        in "echo 'packagefile ${dep}=${archive}' >> ${cfgFile}")
-      (transitiveDeps importPath);
+  cfgFor =
+    importPath: cfgFile:
+    lib.concatMapStringsSep "\n" (
+      dep:
+      let
+        archive = if archiveBridgeOf dep != null then archivePathOf dep else "${pkgDrvs.${dep}}/pkg.a";
+      in
+      "echo 'packagefile ${dep}=${archive}' >> ${cfgFile}"
+    ) (transitiveDeps importPath);
 
   # A local package's source root. dir "." MUST resolve to src itself: with a
   # string-typed src (what flake inputs provide), `src + "/."` keeps the "/."
@@ -264,7 +302,8 @@ let
   # Compile a node per package, EXCEPT archive-bridged ones (those are linked from a
   # pre-built archive, never compiled here). transitiveDeps still sees them (they stay
   # in the graph) so dependents' importcfgs can reference their archives.
-  pkgDrvs = lib.mapAttrs (importPath: p:
+  pkgDrvs = lib.mapAttrs (
+    importPath: p:
     let
       brMod = bridgeOf importPath;
       # Everything the compile consumes, package-dir-relative (embedFiles may live in
@@ -287,18 +326,19 @@ let
       # Third-party: the vendor tree by import path.
       srcDir =
         if p.local then
-          (if lazySrc then
-            pkgRoot
-          else
-            builtins.path {
-              path = pkgRoot;
-              name = "godyn-src-${sanitize importPath}";
-              filter =
-                path: type:
-                type == "directory" || builtins.hasAttr (relToRoot pkgRoot path) srcFileSet;
-            })
+          (
+            if lazySrc then
+              pkgRoot
+            else
+              builtins.path {
+                path = pkgRoot;
+                name = "godyn-src-${sanitize importPath}";
+                filter = path: type: type == "directory" || builtins.hasAttr (relToRoot pkgRoot path) srcFileSet;
+              }
+          )
         else if brMod != null then
-          "${bridges.${brMod}}" + lib.optionalString (importPath != brMod) "/${lib.removePrefix "${brMod}/" importPath}"
+          "${bridges.${brMod}}"
+          + lib.optionalString (importPath != brMod) "/${lib.removePrefix "${brMod}/" importPath}"
         else
           "${resolvedVendorEnv}/${importPath}";
 
@@ -328,7 +368,9 @@ let
 
       # A cgo main links externally: -extld cc + cc on PATH when any package in the
       # (incl. self) closure is cgo. Libraries (no main) never link.
-      mainCgo = p.isMain && lib.any (d: nl byImport.${d}.cgoFiles != [ ]) (transitiveDeps importPath ++ [ importPath ]);
+      mainCgo =
+        p.isMain
+        && lib.any (d: nl byImport.${d}.cgoFiles != [ ]) (transitiveDeps importPath ++ [ importPath ]);
 
       pureScript = ''
         export GOROOT=${go}/share/go
@@ -415,7 +457,13 @@ let
         if [ -e "$work/_cgo_flags" ]; then go tool pack r "$out/pkg.a" "$work/_cgo_flags"; fi
       '';
 
-      compile = if isCgo then cgoScript else if isAsm then asmScript else pureScript;
+      compile =
+        if isCgo then
+          cgoScript
+        else if isAsm then
+          asmScript
+        else
+          pureScript;
 
       link = lib.optionalString p.isMain ''
         mkdir -p "$out/bin"
@@ -428,16 +476,14 @@ let
           -o "$out/bin/${pname}" "$out/pkg.a"
       '';
     in
-    runCommandLocal "godyn-compile-${sanitize importPath}"
-      {
-        nativeBuildInputs = [ go ] ++ lib.optional (isCgo || mainCgo) cc;
-        # Content-addressed: a byte-identical pkg.a after an edit keeps its store
-        # hash, so dependents stay cached (early cutoff) — the merkle-delta.
-        __contentAddressed = true;
-        outputHashMode = "recursive";
-        outputHashAlgo = "sha256";
-      }
-      (compile + link)
+    runCommandLocal "godyn-compile-${sanitize importPath}" {
+      nativeBuildInputs = [ go ] ++ lib.optional (isCgo || mainCgo) cc;
+      # Content-addressed: a byte-identical pkg.a after an edit keeps its store
+      # hash, so dependents stay cached (early cutoff) — the merkle-delta.
+      __contentAddressed = true;
+      outputHashMode = "recursive";
+      outputHashAlgo = "sha256";
+    } (compile + link)
   ) (lib.filterAttrs (importPath: _: archiveBridgeOf importPath == null) byImport);
 
   mainPkg = lib.findFirst (p: p.isMain) null graph;
@@ -450,18 +496,19 @@ let
   # graph) and lists the import paths.
   manifest = runCommandLocal "godyn-${pname}-manifest" { } (
     ": > $out\n"
-    + lib.concatMapStringsSep "\n"
-      (p: "test -s ${pkgDrvs.${p.importPath}}/pkg.a && echo '${p.importPath}' >> $out")
-      ownPkgs
+    + lib.concatMapStringsSep "\n" (
+      p: "test -s ${pkgDrvs.${p.importPath}}/pkg.a && echo '${p.importPath}' >> $out"
+    ) ownPkgs
   );
 
   # This module's per-package compiled archives, laid out as <importpath>/pkg.a, so a
   # downstream module can link them via archiveBridges (approach 1). Symlinks into the
   # per-package CA derivations, so it stays incremental.
   archiveGoPkgs = runCommandLocal "godyn-${pname}-archives" { } (
-    lib.concatMapStringsSep "\n"
-      (p: ''mkdir -p "$out/${p.importPath}"; ln -s ${pkgDrvs.${p.importPath}}/pkg.a "$out/${p.importPath}/pkg.a"'')
-      ownPkgs
+    lib.concatMapStringsSep "\n" (
+      p:
+      ''mkdir -p "$out/${p.importPath}"; ln -s ${pkgDrvs.${p.importPath}}/pkg.a "$out/${p.importPath}/pkg.a"''
+    ) ownPkgs
   );
 
   # ---- per-package go test (igloo#32) ----
@@ -474,7 +521,10 @@ let
   # "ok <ip>" to $out/result; a failing test fails the build. The bin/run boundary
   # caches the binary across re-runs and exposes it for manual -run/-v invocation.
   testGraph =
-    if resolvedTestGraphFile != null then builtins.fromJSON (builtins.readFile resolvedTestGraphFile) else [ ];
+    if resolvedTestGraphFile != null then
+      builtins.fromJSON (builtins.readFile resolvedTestGraphFile)
+    else
+      [ ];
 
   testDrvsFor =
     t:
@@ -509,7 +559,9 @@ let
         name = "godyn-testcwd-${sanitize importPath}";
         filter =
           path: type:
-          type == "directory" || builtins.hasAttr (relTo path) compileFileSet || lib.hasPrefix "testdata/" (relTo path);
+          type == "directory"
+          || builtins.hasAttr (relTo path) compileFileSet
+          || lib.hasPrefix "testdata/" (relTo path);
       };
 
       # Dep closure for the variant/external/link importcfgs. Direct deps come from
@@ -537,7 +589,9 @@ let
       files = fs: lib.concatMapStringsSep " " (f: "${compileSrc}/${f}") fs;
       testmainSrc = builtins.toFile "godyn-testmain-${sanitize importPath}.go" t.testmain;
 
-      variantEmbedSetup = lib.optionalString hasEmbed "printf '%s' ${lib.escapeShellArg (embedCfgJSON compileSrc embedFiles embedPats)} > \"$W/embedcfg.json\"\n";
+      variantEmbedSetup = lib.optionalString hasEmbed "printf '%s' ${
+        lib.escapeShellArg (embedCfgJSON compileSrc embedFiles embedPats)
+      } > \"$W/embedcfg.json\"\n";
       variantEmbedFlag = lib.optionalString hasEmbed ''-embedcfg "$W/embedcfg.json" '';
 
       bin =
@@ -613,7 +667,9 @@ let
             fi
           '';
     in
-    { inherit bin run; };
+    {
+      inherit bin run;
+    };
 
   testPairs = lib.listToAttrs (map (t: lib.nameValuePair t.importPath (testDrvsFor t)) testGraph);
   testBins = lib.mapAttrs (_: v: v.bin) testPairs;

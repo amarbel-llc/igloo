@@ -15,7 +15,9 @@
 # have resolved + vendored through `go work vendor`. Leaf producer (no
 # external deps) keeps it offline; external-dep + version-skew reconciliation
 # is exercised by the madder tracer (igloo#39).
-{ pkgs ? import ../../.. { } }:
+{
+  pkgs ? import ../../.. { },
+}:
 let
   prodV2 = pkgs.runCommand "gowork-test-prod-v2" { } ''
     mkdir -p $out

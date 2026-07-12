@@ -5,8 +5,7 @@
 # version and 1.0.0 keeps the same asset naming, so bumping version+hash
 # is sufficient. aarch64-darwin only. Remove this pin once nixpkgs-master
 # carries >= 1.0.0.
-final: prev:
-{
+final: prev: {
   container = prev.container.overrideAttrs (_: {
     version = "1.0.0";
     src = final.fetchurl {

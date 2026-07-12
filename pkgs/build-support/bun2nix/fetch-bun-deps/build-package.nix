@@ -6,7 +6,13 @@
 # If patchShebangs is enabled, patch all scripts to use bun as their executor.
 #
 # Then, produce a bun cache compatible symlink in $out/share/bun-cache.
-{ pkgs, lib, bun, extractPackage, cacheEntryCreator }:
+{
+  pkgs,
+  lib,
+  bun,
+  extractPackage,
+  cacheEntryCreator,
+}:
 
 let
   # Extract scope from package name (e.g., "@scope/pkg@1.0.0" -> "@scope")

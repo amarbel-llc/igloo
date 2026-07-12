@@ -34,8 +34,7 @@ final: prev: {
   # `devShells.<system>.bun-dev` in flake.nix calls it with no extras.
   mkBunDevShell = import ../pkgs/build-support/bun-dev-shell { pkgs = final; };
 
-  inherit
-    (final.callPackage ../pkgs/build-support/gomod2nix { })
+  inherit (final.callPackage ../pkgs/build-support/gomod2nix { })
     buildGoApplication
     buildGoRace
     buildGoCover
@@ -51,8 +50,7 @@ final: prev: {
   # godyn — per-package Go builder (one CA derivation per package; nix schedules
   # the merkle-delta on edits). buildGodynModule consumes a committed graph.json
   # (produced by godyn-gen) + a gomod2nix.toml/vendorEnv for third-party deps.
-  inherit
-    (final.callPackage ../pkgs/build-support/godyn { })
+  inherit (final.callPackage ../pkgs/build-support/godyn { })
     buildGodynModule
     buildGoAuto
     godyn-gen

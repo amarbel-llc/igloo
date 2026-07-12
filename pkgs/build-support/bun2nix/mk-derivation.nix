@@ -66,7 +66,11 @@
 
   :::
 */
-{ pkgs, lib, hook }:
+{
+  pkgs,
+  lib,
+  hook,
+}:
 
 lib.extendMkDerivation {
   constructDrv = pkgs.stdenv.mkDerivation;

@@ -8,7 +8,9 @@
 # ensureGoMod synthesizes a minimal `module <path>` go.mod over a symlink
 # farm of the source so `go work vendor` accepts it. This bridges a producer
 # whose source deliberately has NO go.mod and asserts the build succeeds.
-{ pkgs ? import ../../.. { } }:
+{
+  pkgs ? import ../../.. { },
+}:
 let
   # Producer source with a package but NO go.mod (simulates a pre-modules
   # dependency as fetched into the store).

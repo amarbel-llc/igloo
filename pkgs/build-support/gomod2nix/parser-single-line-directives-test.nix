@@ -8,7 +8,9 @@
 #   - go.mod mixing single-line + block `tool` or `retract` crashed the
 #     same way (single-line first) or silently lost the block set
 #     (block first).
-{ pkgs ? import ../../.. { } }:
+{
+  pkgs ? import ../../.. { },
+}:
 let
   inherit (import ./parser.nix) parseGoMod parseGoWork;
 
@@ -110,41 +112,53 @@ pkgs.runCommand "parser-single-line-directives-tests"
   {
     _ignored = [
       # #50 use: parseGoWork returns a LIST of paths in every form.
-      (assert' "#50 use: one single-line use parses (go work init shape)"
-        (workSingleUse.use == [ "./moduleA" ]))
-      (assert' "#50 use: repeated single-line uses accumulate"
-        (workTwoSingleUses.use == [ "./moduleA" "./moduleB" ]))
-      (assert' "#50 use: single-line + block merge"
-        (workMixedUse.use == [ "./moduleA" "./moduleB" ]))
+      (assert' "#50 use: one single-line use parses (go work init shape)" (
+        workSingleUse.use == [ "./moduleA" ]
+      ))
+      (assert' "#50 use: repeated single-line uses accumulate" (
+        workTwoSingleUses.use == [
+          "./moduleA"
+          "./moduleB"
+        ]
+      ))
+      (assert' "#50 use: single-line + block merge" (
+        workMixedUse.use == [
+          "./moduleA"
+          "./moduleB"
+        ]
+      ))
 
       # #50 tool: both forms land in one set, either order.
-      (assert' "#50 tool: single-then-block keeps both"
-        (toolSingleThenBlock.tool ? "example.com/single/cmd/one"
-          && toolSingleThenBlock.tool ? "example.com/block/cmd/two"))
-      (assert' "#50 tool: block-then-single keeps both"
-        (toolBlockThenSingle.tool ? "example.com/single/cmd/one"
-          && toolBlockThenSingle.tool ? "example.com/block/cmd/two"))
+      (assert' "#50 tool: single-then-block keeps both" (
+        toolSingleThenBlock.tool ? "example.com/single/cmd/one"
+        && toolSingleThenBlock.tool ? "example.com/block/cmd/two"
+      ))
+      (assert' "#50 tool: block-then-single keeps both" (
+        toolBlockThenSingle.tool ? "example.com/single/cmd/one"
+        && toolBlockThenSingle.tool ? "example.com/block/cmd/two"
+      ))
 
       # #50 retract: both forms land in one set.
-      (assert' "#50 retract: single-line + block merge"
-        (retractMixed.retract ? "v1.0.5"
-          && retractMixed.retract ? "v1.0.0"
-          && retractMixed.retract ? "v1.0.1"))
+      (assert' "#50 retract: single-line + block merge" (
+        retractMixed.retract ? "v1.0.5"
+        && retractMixed.retract ? "v1.0.0"
+        && retractMixed.retract ? "v1.0.1"
+      ))
 
       # #52 godebug: both forms land in one set, either order (entries
       # are key=value tokens, so they key whole-token with empty value —
       # the same shape block entries already produce).
-      (assert' "#52 godebug: single-then-block keeps both"
-        (godebugSingleThenBlock.godebug ? "default=go1.21"
-          && godebugSingleThenBlock.godebug ? "panicnil=1"))
-      (assert' "#52 godebug: block-then-single keeps both"
-        (godebugBlockThenSingle.godebug ? "default=go1.21"
-          && godebugBlockThenSingle.godebug ? "panicnil=1"))
+      (assert' "#52 godebug: single-then-block keeps both" (
+        godebugSingleThenBlock.godebug ? "default=go1.21" && godebugSingleThenBlock.godebug ? "panicnil=1"
+      ))
+      (assert' "#52 godebug: block-then-single keeps both" (
+        godebugBlockThenSingle.godebug ? "default=go1.21" && godebugBlockThenSingle.godebug ? "panicnil=1"
+      ))
 
       # Scalars unaffected.
-      (assert' "#50 scalars: module and go stay strings"
-        (toolSingleThenBlock.module == "example.com/consumer"
-          && toolSingleThenBlock.go == "1.26"))
+      (assert' "#50 scalars: module and go stay strings" (
+        toolSingleThenBlock.module == "example.com/consumer" && toolSingleThenBlock.go == "1.26"
+      ))
     ];
   }
   ''

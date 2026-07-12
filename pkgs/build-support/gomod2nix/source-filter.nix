@@ -80,12 +80,14 @@ let
           type == "directory" || lib.any (re: builtins.match re relPath != null) regexes;
       };
     in
-    runCommand name {
-      preferLocalBuild = true;
-      allowSubstitutes = false;
-    } ''
-      cp -r ${filteredPath} $out
-    '';
+    runCommand name
+      {
+        preferLocalBuild = true;
+        allowSubstitutes = false;
+      }
+      ''
+        cp -r ${filteredPath} $out
+      '';
 
   goSourceFilterMiddleware = src: goSourceFilter { inherit src; };
 in

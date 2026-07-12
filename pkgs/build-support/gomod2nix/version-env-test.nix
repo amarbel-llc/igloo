@@ -14,7 +14,9 @@
 # Precedence pinned here: explicit `version` > version.env > "dev".
 # These are eval-time assertions on `drv.version` / `drv.ldflags`; no Go
 # toolchain runs.
-{ pkgs ? import ../../.. { } }:
+{
+  pkgs ? import ../../.. { },
+}:
 let
   # Minimal single-module fixture, optionally carrying a version.env.
   mkFixture =
@@ -64,34 +66,30 @@ let
 
   assert' = label: cond: if cond then null else throw "${label}: assertion failed";
 in
-pkgs.runCommand "version-env-tests"
-  {
-    _ignored = [
-      # version.env with `export` prefix → drives version attr + ldflag.
-      (assert' "export form: derivation version attr from version.env" (exportDrv.version == "1.2.3"))
-      (assert' "export form: -X main.version ldflag from version.env" (
-        hasLdflag exportDrv "-X main.version=1.2.3"
-      ))
+pkgs.runCommand "version-env-tests" {
+  _ignored = [
+    # version.env with `export` prefix → drives version attr + ldflag.
+    (assert' "export form: derivation version attr from version.env" (exportDrv.version == "1.2.3"))
+    (assert' "export form: -X main.version ldflag from version.env" (
+      hasLdflag exportDrv "-X main.version=1.2.3"
+    ))
 
-      # version.env without `export` (bare) → parsed identically.
-      (assert' "bare form: derivation version attr from version.env" (bareDrv.version == "9.9.9"))
-      (assert' "bare form: -X main.version ldflag from version.env" (
-        hasLdflag bareDrv "-X main.version=9.9.9"
-      ))
+    # version.env without `export` (bare) → parsed identically.
+    (assert' "bare form: derivation version attr from version.env" (bareDrv.version == "9.9.9"))
+    (assert' "bare form: -X main.version ldflag from version.env" (
+      hasLdflag bareDrv "-X main.version=9.9.9"
+    ))
 
-      # Explicit `version` wins over version.env (backward compatible).
-      (assert' "explicit version wins (attr)" (explicitWinsDrv.version == "0.0.0-explicit"))
-      (assert' "explicit version wins (ldflag)" (
-        hasLdflag explicitWinsDrv "-X main.version=0.0.0-explicit"
-      ))
+    # Explicit `version` wins over version.env (backward compatible).
+    (assert' "explicit version wins (attr)" (explicitWinsDrv.version == "0.0.0-explicit"))
+    (assert' "explicit version wins (ldflag)" (
+      hasLdflag explicitWinsDrv "-X main.version=0.0.0-explicit"
+    ))
 
-      # version.env present but no `*_VERSION=` line → graceful fallback.
-      (assert' "no _VERSION line falls back to dev ldflag" (
-        hasLdflag noLineDrv "-X main.version=dev"
-      ))
+    # version.env present but no `*_VERSION=` line → graceful fallback.
+    (assert' "no _VERSION line falls back to dev ldflag" (hasLdflag noLineDrv "-X main.version=dev"))
 
-      # No version.env → unchanged fallback behavior.
-      (assert' "no version.env falls back to dev ldflag" (hasLdflag noEnvDrv "-X main.version=dev"))
-    ];
-  }
-  "touch $out"
+    # No version.env → unchanged fallback behavior.
+    (assert' "no version.env falls back to dev ldflag" (hasLdflag noEnvDrv "-X main.version=dev"))
+  ];
+} "touch $out"

@@ -8,7 +8,11 @@
 #
 # LD_LIBRARY_PATH is unset so devshell library leaks don't bleed into
 # the script's runtime environment. See amarbel-llc/bun#4.
-{ pkgs, lib, bun }:
+{
+  pkgs,
+  lib,
+  bun,
+}:
 
 {
   name,
@@ -36,6 +40,8 @@ wrapper
 // {
   passthru =
     (wrapper.passthru or { })
-    // { inherit bundle; }
+    // {
+      inherit bundle;
+    }
     // lib.optionalAttrs (lint != null) { inherit lint; };
 }

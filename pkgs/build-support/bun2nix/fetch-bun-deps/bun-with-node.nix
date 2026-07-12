@@ -1,6 +1,10 @@
 # Copy of nixpkgs's bun package containing an extra binary `node` which
 # aliases to the `bun` binary output of the original package.
-{ pkgs, lib, bun }:
+{
+  pkgs,
+  lib,
+  bun,
+}:
 
 {
   useFakeNode ? true,

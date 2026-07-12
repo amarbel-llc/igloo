@@ -35,18 +35,34 @@
   bgaArgs ? { },
 }:
 let
-  common =
-    { inherit pname src ldflags ldflagsX; }
-    // lib.optionalAttrs (version != null) { inherit version; }
-    // lib.optionalAttrs (modules != null) { inherit modules; };
+  common = {
+    inherit
+      pname
+      src
+      ldflags
+      ldflagsX
+      ;
+  }
+  // lib.optionalAttrs (version != null) { inherit version; }
+  // lib.optionalAttrs (modules != null) { inherit modules; };
 
   native = buildGodynModule (common // { inherit graphFile graphFiles; } // nativeArgs);
   bga = buildGoApplication (common // bgaArgs);
 
   backend =
-    if lib.elem strategy [ "native" "dev" ] then
+    if
+      lib.elem strategy [
+        "native"
+        "dev"
+      ]
+    then
       "native"
-    else if lib.elem strategy [ "bga" "ci" ] then
+    else if
+      lib.elem strategy [
+        "bga"
+        "ci"
+      ]
+    then
       "bga"
     else
       throw "buildGoAuto: unknown strategy '${strategy}' (one of: native, dev, bga, ci)";
@@ -55,6 +71,11 @@ let
 in
 chosen.overrideAttrs (old: {
   passthru = (old.passthru or { }) // {
-    inherit native bga strategy backend;
+    inherit
+      native
+      bga
+      strategy
+      backend
+      ;
   };
 })

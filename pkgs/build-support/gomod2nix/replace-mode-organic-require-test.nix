@@ -8,7 +8,9 @@
 # merged go.mod keeps that real version (NO sentinel) and only adds the
 # replace. Uses the proven replace-mode vendor (no go work vendor). Builds +
 # runs the binary, and asserts passthru.mergedGoMod is sentinel-free.
-{ pkgs ? import ../../.. { } }:
+{
+  pkgs ? import ../../.. { },
+}:
 let
   prodV2 = pkgs.runCommand "rmo-prod-v2" { } ''
     mkdir -p $out
