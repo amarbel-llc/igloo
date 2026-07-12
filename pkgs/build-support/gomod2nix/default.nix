@@ -83,6 +83,7 @@ let
   internals = import ./internals.nix { };
   inherit (internals)
     mkMergedView
+    bridgeCapabilities
     ;
 
   sourceFilter = import ./source-filter.nix { inherit lib runCommand; };
@@ -636,6 +637,8 @@ let
         mergedGoModFile
         workspaceBridge
         normalizedFlakeInputs
+        hasFlakeInputs
+        bridgeReport
         ;
 
       # Workspace-bridge mode (Design A, igloo#39): go.work + vendor/ are
@@ -757,6 +760,11 @@ let
             # Workspace mode (igloo#39): consumers materialize this as go.work
             # in their tree (shellHook `cp`) so gopls/go resolve the bridge.
             mergedGoWork = bridgeVendorEnv.passthru.goWorkFile;
+          }
+          // optionalAttrs hasFlakeInputs {
+            # Eval-time bridge introspection (igloo#56/#57): capability
+            # signal + per-module report. `nix eval .#pkg.passthru.bridge`.
+            bridge = bridgeReport;
           };
       }
     );
@@ -843,6 +851,8 @@ let
         mergedGoModFile
         workspaceBridge
         normalizedFlakeInputs
+        hasFlakeInputs
+        bridgeReport
         ;
 
       # Design A (igloo#39): in workspace-bridge mode go.work + vendor/ are
@@ -1138,6 +1148,11 @@ let
             '';
 
         }
+        // optionalAttrs hasFlakeInputs {
+          # Eval-time bridge introspection (igloo#56/#57): capability
+          # signal + per-module report. `nix eval .#pkg.passthru.bridge`.
+          bridge = bridgeReport;
+        }
         // passthru;
 
         inherit meta;
@@ -1256,5 +1271,6 @@ in
     goSourceFilterMiddleware
     mkGoPkgs
     hooks
+    bridgeCapabilities
     ;
 }

@@ -69,6 +69,22 @@ automatically, and `gomod2nix.toml` only tracks the *organic* surface.
 
 See [RFC 0001 § Consumer interface](../rfcs/0001-flake-input-go_mod.md#consumer-interface-goflakeinputs).
 
+### Introspection surface (igloo#56 / #57)
+
+`buildGoApplication` and `mkGoEnv` expose `passthru.bridge` — a pure-eval attrset
+(`nix eval .#<pkg>.passthru.bridge --json`, no build) carrying a capability
+`version` + `features` tags, the `mode`, a per-module report (`provenance`,
+`subPath`, `organicRequire`, `sentinel`), and `coverageGaps`. The capability
+signal is also surfaced overlay-wide as `pkgs.bridgeCapabilities` for
+pre-adoption querying. Together they answer "is fix X present at my pin?" (grep
+`features`) and "what is my bridge doing?" (read `modules`) without walking
+igloo's git history — the ergonomic gap that made adopting the bridge expensive
+(igloo#54). See `gomod2nix(7) § Bridge introspection`.
+
+**Maintenance rule:** `bridgeCapabilities` (in `internals.nix`) is the single
+source of truth. When the bridge gains an observable behavior, add a `features`
+tag keyed to its issue AND bump `version`.
+
 ## Examples
 
 A downstream consumer that depends on a sibling Go module would

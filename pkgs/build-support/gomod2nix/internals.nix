@@ -2,6 +2,29 @@
 let
   sentinelPseudoVersion = "v0.0.0-00010101000000-000000000000";
 
+  # Eval-time capability signal for the goFlakeInputs bridge
+  # (amarbel-llc/igloo#56): a monotonic `version` plus greppable `features`
+  # tags so a consumer can answer "is fix X present at my igloo pin?" by
+  # eval alone — via the overlay-level `bridgeCapabilities` or a build's
+  # `passthru.bridge` — instead of walking this file's git history.
+  #
+  # MAINTENANCE: when the bridge gains an observable behavior, add a
+  # `features` tag AND bump `version`. Tags are stable identifiers keyed to
+  # the issue that introduced the behavior.
+  bridgeCapabilities = {
+    version = 1;
+    features = [
+      "per-vn-sentinel" # #38 — major-aware require sentinel
+      "conditional-require" # #39/82f3d8e — organic require kept, sentinel-free
+      "depth1-passthru-inheritance" # #36 — inherit a producer's goFlakeInputs at depth 1
+      "gomod2nix-toml-union" # #50 — union + bridged-key strip
+      "workspace-root-toml-fallback" # #49 — subPath producer falls back to root toml
+      "coverage-warning" # #45 — advisory uncovered-require trace
+      "workspace-mode" # #39 — experimental go.work overlay
+      "failure-annotation" # #55 — annotated go mod edit failures
+    ];
+  };
+
   # Pick the synthetic require sentinel for a module path. Go rejects
   # `go mod edit -require=<path>@<version>` when <path> ends in a
   # major-version suffix (/v2, /v3, …) whose major differs from
@@ -405,6 +428,36 @@ let
         ) coverageGaps
       );
 
+      # Eval-time bridge introspection (amarbel-llc/igloo#56/#57): the
+      # capability signal plus a per-module report — provenance, the
+      # sentinel-vs-organic decision, and subPath — and the coverage gaps.
+      # Pure eval (no IFD), so a consumer runs `nix eval
+      # .#<pkg>.passthru.bridge --json` without a build. The per-module
+      # sentinel/organic decision mirrors mkMergedGoMod's (sentinelFor + the
+      # consumerRequires check) so the report matches the merged go.mod.
+      bridgeReport =
+        let
+          declaredKeys = builtins.attrNames goFlakeInputs;
+          consumerRequires = builtins.attrNames (consumerGoMod.require or { });
+        in
+        {
+          inherit (bridgeCapabilities) version features;
+          mode = goFlakeInputsMode;
+          modules = builtins.mapAttrs (
+            modPath: v: {
+              provenance = if builtins.elem modPath declaredKeys then "declared" else "inherited";
+              inherit (v) subPath;
+              organicRequire = builtins.elem modPath consumerRequires;
+              sentinel =
+                if goFlakeInputsMode != "replace" || builtins.elem modPath consumerRequires then
+                  null
+                else
+                  sentinelFor modPath;
+            }
+          ) normalizedFlakeInputs;
+          inherit coverageGaps;
+        };
+
       result = {
         inherit
           consumerGoMod
@@ -415,6 +468,7 @@ let
           hasFlakeInputs
           normalizedFlakeInputs
           coverageGaps
+          bridgeReport
           ;
       };
     in
@@ -438,5 +492,6 @@ in
     mkMergedGoMod
     mergeGomod2nixTomls
     mkMergedView
+    bridgeCapabilities
     ;
 }

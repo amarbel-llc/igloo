@@ -388,6 +388,40 @@ whole *go.mod* on every edit, so an invalid organic *require* the consumer wrote
 by hand surfaces while editing an unrelated bridged module. See
 amarbel-llc/igloo#55.
 
+## Bridge introspection
+
+Both *buildGoApplication* and *mkGoEnv* expose *passthru.bridge* — a pure-eval
+attrset (no build required) describing what the bridge did and which behaviors
+this igloo pin has. Query it with *nix eval*:
+
+```
+nix eval .#<pkg>.passthru.bridge --json | jq
+```
+
+Fields:
+
+- *version* — a monotonic integer bumped on any observable bridge-behavior
+  change — and *features* — stable tags, one per behavior. To answer "is fix X
+  present at my igloo pin?" without reading igloo's git history, grep *features*:
+
+```
+nix eval .#<pkg>.passthru.bridge.features --json | jq -e 'index("per-vn-sentinel")'
+```
+
+- *mode* — *"replace"* (default) or *"workspace"*.
+- *modules* — a per-bridged-module report keyed by module path, each with
+  *provenance* (*"declared"* by the consumer vs *"inherited"* from a producer's
+  *passthru.goFlakeInputs* at depth 1), *subPath*, *organicRequire* (whether the
+  consumer's *go.mod* already requires it), and *sentinel* (the synthesized
+  pseudo-version, or *null* when the organic require is kept, or in workspace
+  mode).
+- *coverageGaps* — the same advisory data as the *Coverage warning* trace above.
+
+The capability signal is also exposed at the overlay level as
+*pkgs.bridgeCapabilities* (*{ version; features; }*) wherever the igloo overlay
+is applied, so a consumer can inspect an igloo pin's bridge behaviors *before*
+adopting the bridge — no consumer build needed.
+
 ## Example
 
 *madder* consumes *tap*, whose Go module lives in the *go/* subdirectory of

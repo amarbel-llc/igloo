@@ -45,6 +45,7 @@ final: prev: {
     goSourceFilter
     goSourceFilterMiddleware
     mkGoPkgs
+    bridgeCapabilities
     ;
 
   # godyn — per-package Go builder (one CA derivation per package; nix schedules
