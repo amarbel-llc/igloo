@@ -2,3 +2,12 @@
 
 [hooks]
 pre-merge = "just"
+
+# Per-commit repair (conformist#39/#40): format the index-staged content at
+# authoring time so every commit is conformant in history. `--exit-zero-on-fix`
+# maps the restage's exit-3 signal to 0, so a successful repair lets the commit
+# proceed; partial-stage files are formatted in isolation rather than refused.
+# Invoked via `nix run` (not a bare PATH name) because igloo has no
+# `devShells.default` — `.envrc`'s `use flake` has nothing to put
+# conformist-pre-commit on PATH with.
+pre-commit = "nix run '.#conformist-pre-commit' --"

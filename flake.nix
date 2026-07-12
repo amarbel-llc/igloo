@@ -26,15 +26,82 @@
   };
 
   outputs =
-    { self, nixpkgs-master, bun2nix, ... }:
+    {
+      self,
+      nixpkgs-master,
+      bun2nix,
+      # Formally named so flake-outputs linter passes; not consumed by
+      # igloo's outputs — declared only for downstream follows collapse.
+      flake-parts,
+      systems,
+      treefmt-nix,
+    }:
     let
-      systems = [
+      supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
         "x86_64-darwin"
         "aarch64-darwin"
       ];
-      forAllSystems = nixpkgs-master.lib.genAttrs systems;
+      forAllSystems = nixpkgs-master.lib.genAttrs supportedSystems;
+
+      # Fixed-output source fetch for conformist. igloo is strictly upstream of
+      # conformist (conformist.inputs.igloo), so a flake input here would close a
+      # cycle. This FOD leaf pins conformist by commit + hash and pulls no flake
+      # graph — the same pattern conformist itself uses for purse-first's dewey
+      # plugin to avoid an analogous cycle (see conformist's AGENTS.md §"flake
+      # outputs" and its golangciLintDeweySrc FOD).
+      #
+      # To bump: re-prefetch with the new commit SHA, update rev + hash:
+      #   nix-prefetch-git --url https://code.linenisgreat.com/conformist.git --rev <new-sha>
+      # or use a deliberate wrong-hash nix build to get the correct SRI hash
+      # from the error output.
+      mkConformist =
+        pkgs:
+        let
+          conformistSrc = pkgs.fetchgit {
+            url = "https://code.linenisgreat.com/conformist.git";
+            rev = "275968632782fd978b9db60926990fc38f3715bb";
+            hash = "sha256-aK0LVzftd/E7LR8tgjTsnEkLSyZecMqjtqyq4VDeHEc=";
+          };
+          # conformist's Nix module library — a pure Nix file with no flake
+          # dependency; import directly from the FOD store path.
+          conformistLib = import "${conformistSrc}/nix";
+          conformistBin = pkgs.buildGoApplication {
+            pname = "conformist";
+            version = "0.1.17";
+            src = conformistSrc;
+            pwd = conformistSrc;
+            modules = "${conformistSrc}/gomod2nix.toml";
+            subPackages = [ "." ];
+            go = pkgs.go;
+            GOTOOLCHAIN = "local";
+            doCheck = false;
+          };
+          conformistEval = conformistLib.evalModule pkgs {
+            imports = [
+              conformistLib.presets.eng
+              ./conformist.nix
+            ];
+            package = conformistBin;
+          };
+          conformistImpureEval = conformistLib.evalModule pkgs {
+            imports = [
+              conformistLib.presets.eng-impure
+              ./conformist-impure.nix
+            ];
+            package = conformistBin;
+          };
+        in
+        {
+          inherit
+            conformistSrc
+            conformistLib
+            conformistBin
+            conformistEval
+            conformistImpureEval
+            ;
+        };
     in
     {
       lib = nixpkgs-master.lib;
@@ -53,10 +120,20 @@
         }
       );
 
+      formatter = forAllSystems (
+        system:
+        let
+          pkgs = self.legacyPackages.${system};
+          c = mkConformist pkgs;
+        in
+        c.conformistEval.config.build.wrapper
+      );
+
       packages = forAllSystems (
         system:
         let
           pkgs = self.legacyPackages.${system};
+          c = mkConformist pkgs;
         in
         {
           inherit (pkgs)
@@ -67,6 +144,11 @@
             ;
           nix-man = pkgs.nix.man;
           default = pkgs.claude-code;
+
+          conformist = c.conformistBin;
+          conformist-impure-config = c.conformistImpureEval.config.build.configFile;
+          conformist-pre-commit = c.conformistEval.config.build.preCommit;
+          conformist-repair = c.conformistEval.config.build.repair;
 
           # -- godyn build-test fixtures --
           # Exercise buildGodynModule's two productionization features end to end:
@@ -247,8 +329,11 @@
         let
           pkgs = self.legacyPackages.${system};
           bun2nixCli = bun2nix.packages.${system}.bun2nix;
+          c = mkConformist pkgs;
         in
         {
+          formatting = c.conformistEval.config.build.check self;
+
           claude-code = pkgs.claude-code;
           gomod2nix = pkgs.gomod2nix;
           gomod2nix-man = pkgs.gomod2nix-man;
