@@ -1,6 +1,6 @@
 # vim: ft=just
 
-default: check-changed test-gomod2nix
+default: check-changed test-gomod2nix test-gomod2nix-merge-annotation
 
 # Eval-check changed packages (fast — catches nix errors without building)
 check-changed:
@@ -148,6 +148,32 @@ test-gomod2nix:
         exit 1
     fi
     gum log --level info "all gomod2nix eval-tests passed"
+
+# [test] Negative test for the goFlakeInputs bridge failure annotation
+# (igloo#55): build a fixture whose merged-go.mod IFD is EXPECTED to fail,
+# and assert the annotated context (offending module + provenance + the
+# passthru.mergedGoMod pointer) reached stderr instead of a bare `go mod
+# edit` error. Kept out of the success-only test-gomod2nix glob because its
+# build must fail; wired into `default` alongside it.
+[group: 'test']
+test-gomod2nix-merge-annotation:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    fixture=pkgs/build-support/gomod2nix/merge-failure-annotation-fixture.nix
+    err=$(mktemp)
+    trap 'rm -f "$err"' EXIT
+    if NIXPKGS_ALLOW_UNFREE=1 nix-build --no-out-link "$fixture" 2>"$err"; then
+        gum log --level error "expected the merged-go.mod build to FAIL, but it succeeded"
+        exit 1
+    fi
+    if grep -q "gomod2nix goFlakeInputs bridge: 'go mod edit" "$err" \
+        && grep -q "inspect the merged go.mod:" "$err"; then
+        gum log --level info "bridge failure annotation present"
+    else
+        gum log --level error "bridge failure annotation missing from failure output:"
+        cat "$err"
+        exit 1
+    fi
 
 # [test] Regenerate the godyn gotest fixture's committed graphs (build + test)
 # with the IN-TREE godyn-gen (built from source, so the working tree's gen is

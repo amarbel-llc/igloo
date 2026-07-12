@@ -57,6 +57,11 @@ let
       goFlakeInputs,
       runCommand,
       consumerRequires ? [ ],
+      # Consumer-declared module paths (vs depth-1-inherited ones), used
+      # only to label provenance in the annotated failure message. Defaults
+      # to every key so direct callers passing a flat map read as
+      # all-declared. See amarbel-llc/igloo#55.
+      declaredKeys ? builtins.attrNames goFlakeInputs,
     }:
     runCommand "merged-go.mod"
       {
@@ -65,27 +70,67 @@ let
       (
         let
           normalized = builtins.mapAttrs (_: normalizeFlakeInput) goFlakeInputs;
+          provenanceOf =
+            modPath:
+            if builtins.elem modPath declaredKeys then
+              "consumer-declared"
+            else
+              "inherited (depth-1 from a bridged producer passthru.goFlakeInputs)";
           editCommands = builtins.concatStringsSep "\n" (
             builtins.attrValues (
               builtins.mapAttrs (
                 modPath: v:
                 let
                   target = "${v.src}${if v.subPath == "" then "" else "/${v.subPath}"}";
-                  requireCmd =
+                  provenance = provenanceOf modPath;
+                  sentinel = sentinelFor modPath;
+                  # The synthetic require is injected only for modules the
+                  # consumer does not organically require (its real version
+                  # otherwise stands). See amarbel-llc/igloo#39.
+                  requireBlock =
                     if builtins.elem modPath consumerRequires then
                       "" # consumer already requires it — keep the real version, no sentinel
                     else
-                      "go mod edit -require=${modPath}@${sentinelFor modPath}";
+                      ''
+                        if ! go mod edit -require=${modPath}@${sentinel}; then
+                          gomod2nix_bridge_fail '${modPath}' '${provenance}' 'require' '${sentinel}'
+                        fi
+                      '';
                 in
                 ''
-                  ${requireCmd}
-                  go mod edit -replace=${modPath}=${target}
+                  # ${modPath} (${provenance})
+                  ${requireBlock}
+                  if ! go mod edit -replace=${modPath}=${target}; then
+                    gomod2nix_bridge_fail '${modPath}' '${provenance}' 'replace' '${target}'
+                  fi
                 ''
               ) normalized
             )
           );
         in
         ''
+          # Annotate any `go mod edit` failure inside the bridge with the
+          # offending bridged module, its provenance, the synthesized
+          # sentinel, and where to inspect the merged go.mod — instead of the
+          # bare `go mod edit` stderr through the IFD. See amarbel-llc/igloo#55.
+          gomod2nix_bridge_fail() {
+            local mod="$1" provenance="$2" op="$3" detail="$4"
+            {
+              echo "gomod2nix goFlakeInputs bridge: 'go mod edit -$op' failed for bridged module '$mod'."
+              echo "  provenance: $provenance"
+              if [ "$op" = require ]; then
+                echo "  synthetic require sentinel: $detail (injected because the consumer does not organically require this module)"
+                echo "  a 'should be vN, not vM' error here means the module's /vN major and the sentinel major disagree (see amarbel-llc/igloo#38)."
+              else
+                echo "  replace target: $detail"
+              fi
+              echo "  NOTE: if the failing module differs from one you bridged, your own go.mod may carry an"
+              echo "        invalid organic require that 'go mod edit' re-validates while editing this one."
+              echo "  inspect the merged go.mod:  nix build .#<pkg>.passthru.mergedGoMod && cat result"
+            } >&2
+            exit 1
+          }
+
           # Go 1.24+ refuses to run `go mod edit` when go.mod lives directly in
           # /build (the sandbox temp root). A subdirectory satisfies the check.
           mkdir -p work
@@ -278,6 +323,9 @@ let
             inherit go runCommand;
             goFlakeInputs = effectiveGoFlakeInputs;
             consumerRequires = builtins.attrNames (consumerGoMod.require or { });
+            # Consumer's pre-inheritance keys, so mkMergedGoMod's failure
+            # annotation labels depth-1-inherited entries correctly (#55).
+            declaredKeys = builtins.attrNames goFlakeInputs;
           }
         else
           null;
