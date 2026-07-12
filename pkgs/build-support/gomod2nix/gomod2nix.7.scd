@@ -311,12 +311,27 @@ Consumers SHOULD remove their own *gomod2nix.toml* lines for bridged
 modules — it keeps the file tidy — but leaving them in is functionally
 harmless. See amarbel-llc/nixpkgs#50.
 
+## Transitive inheritance and rev conflicts
+
+The effective map is resolved *transitively* (amarbel-llc/igloo#58): each
+bridged producer's *passthru.goFlakeInputs* is walked recursively, so a
+private module bridged any number of producers deep is inherited without
+the consumer re-declaring it. Resolution is cycle-safe, and:
+
+- a consumer's own *goFlakeInputs* entry (depth 0) wins over any inherited
+  entry for the same module — the consumer is authoritative;
+- if two producers bridge the same module at *different* revs and the
+  consumer declares no entry to pick one, the build **fails at eval** with a
+  conflict error. Resolve it by aligning the producers with a Nix flake
+  *follows* (`inputs.<producer>.inputs.<shared>.follows = "<shared>"`), or by
+  declaring the module explicitly in *goFlakeInputs*.
+
 ## Coverage warning
 
 At eval time the bridge inspects each bridged producer's *go.mod* and emits
 an advisory trace warning when a require that looks private (its host/org
 prefix matches a bridged module's) is covered by neither the effective
-*goFlakeInputs* map (declared or depth-1 inherited) nor the merged
+*goFlakeInputs* map (declared or transitively inherited) nor the merged
 *gomod2nix.toml*:
 
 ```
@@ -325,10 +340,12 @@ amarbel-llc/igloo#45): bridged producer <module> requires private
 module(s) not covered by the effective goFlakeInputs: <modules>. ...
 ```
 
-This surfaces a missing bridge (typically a module first appearing two
-producers deep, which depth-1 inheritance cannot reach) before the vendor
-step fails on it. Advisory only — the build proceeds; fix it by declaring
-the named module in *goFlakeInputs* or pinning it in *gomod2nix.toml*.
+Since transitive inheritance now resolves any module a producer *bridges*,
+a residual gap is a private module bridged by *no* producer in the closure
+(an organic require covered by a producer's own pin, or a plain-module
+mid-chain with no passthru). Advisory only — the build proceeds; fix it by
+declaring the named module in *goFlakeInputs* or pinning it in
+*gomod2nix.toml*.
 
 ## mkGoEnv parity
 

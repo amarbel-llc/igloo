@@ -100,8 +100,8 @@ let
       # module dependencies (same shape as consumer-side
       # `goFlakeInputs`). When non-empty, attached as
       # `passthru.goFlakeInputs` on BOTH outputs so downstream
-      # consumers' bridge can union them at depth-1 per RFC 0001
-      # § Multi-producer closures (amarbel-llc/nixpkgs#36).
+      # consumers' bridge can union them transitively (depth-N) per
+      # RFC 0001 § Multi-producer closures (amarbel-llc/igloo#58).
       goFlakeInputs ? { },
     }:
     let

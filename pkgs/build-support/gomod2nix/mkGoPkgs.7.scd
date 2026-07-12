@@ -51,7 +51,7 @@ all fail).
   cross-flake Go module dependencies (same shape as the consumer-side
   *goFlakeInputs* argument to *buildGoApplication*/*mkGoEnv*). When
   non-empty, attached as *passthru.goFlakeInputs* on BOTH outputs so
-  downstream consumers' bridge can union them at depth-1 per
+  downstream consumers' bridge can union them transitively (depth-N) per
   RFC 0001 § *Multi-producer closures*. Omit (or pass an empty
   attrset) when the producer has no cross-flake deps; in that case
   the attribute is left off entirely so consumer code can probe

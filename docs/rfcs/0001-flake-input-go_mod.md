@@ -397,10 +397,12 @@ warning self-silences for deps the producer has already paid for
 ([amarbel-llc/igloo#49](https://github.com/amarbel-llc/igloo/issues/49)).
 The direction is deliberate: coverage gaps closable from the
 producer's own lockfile are the machinery's to close, not each
-consumer's to re-declare. Full transitive resolution (bridged
-privates chaining with no pins at all) remains the nixpkgs#36
-FOD-regen path; once that lands, the coverage warning can harden to
-an error for genuinely unresolvable closures.
+consumer's to re-declare. Bridged privates chaining through producer
+passthru now resolve automatically (§ *Depth-N inheritance with a
+conflict-guardrail*, amarbel-llc/igloo#58); the residual — *organic*
+transitive privates with no bridge or pin at all — remains the
+nixpkgs#36 FOD-regen path, and the coverage warning stays advisory for
+those (an opt-in strict mode can harden it) until that lands.
 
 ### `mkGoPkgs` helper
 
@@ -472,7 +474,7 @@ caller passes a non-empty `goFlakeInputs` argument. The attribute is
 omitted entirely when the producer has no cross-flake deps so
 consumers can probe `passthru ? goFlakeInputs` unambiguously. See
 § *Multi-producer closures: `follows` + passthru inheritance* for how
-the consumer-side bridge unions these declarations at depth-1.
+the consumer-side bridge unions these declarations transitively.
 
 ### Producers without middleware
 
@@ -938,8 +940,8 @@ Four reasons motivate the `gomod.nix` colocation pattern:
 
 When a consumer depends on multiple flake inputs that themselves share
 a transitive Go dependency, two mechanisms keep the resulting closure
-coherent: Nix flake `follows` for input alignment, and depth-1
-`passthru.goFlakeInputs` inheritance for declaration reuse.
+coherent: Nix flake `follows` for input alignment, and transitive
+(depth-N) `passthru.goFlakeInputs` inheritance for declaration reuse.
 
 ### Shared transitive deps: align with `follows`
 
@@ -984,12 +986,14 @@ inheriting through either output see the same declarations.
 > trace warning
 > ([amarbel-llc/igloo#45](https://github.com/amarbel-llc/igloo/issues/45)).
 
-Implementations of the bridge MUST read each direct flake-input's
-`passthru.goFlakeInputs` and union the entries into the consumer's
-merged map at depth-1. Consumer-declared entries MUST win on conflict:
-when a Go module path appears both in the consumer's own
-`goFlakeInputs` and in an inherited passthru, the consumer's entry
-takes priority.
+Implementations of the bridge MUST read each flake-input's
+`passthru.goFlakeInputs` transitively (recursing into inherited entries'
+own passthru) and union the entries into the consumer's merged map.
+Consumer-declared entries MUST win on conflict: when a Go module path
+appears both in the consumer's own `goFlakeInputs` and in an inherited
+passthru, the consumer's entry takes priority. A same-module multi-rev
+conflict among inherited entries with no consumer declaration MUST fail
+per § *Depth-N inheritance with a conflict-guardrail*.
 
 When combined with `follows` alignment above, inherited entries
 naturally resolve to the same flake inputs the consumer already has,
@@ -1014,17 +1018,34 @@ goFlakeInputs = {
 };
 ```
 
-### Depth-1 is the normative limit
+### Depth-N inheritance with a conflict-guardrail
 
-The protocol fixes depth-1 as the normative inheritance limit.
-Implementations MUST NOT chase `passthru.goFlakeInputs` recursively
-through inherited entries. Deeper-than-one transitive resolution is
-deferred to the FOD-regen path tracked at
-[amarbel-llc/nixpkgs#36](https://github.com/amarbel-llc/nixpkgs/issues/36);
-until that path lands, deeply nested closures resolve by the consumer
-declaring each direct producer's flake input and aligning shared deps
-via `follows`. The depth-1 floor is sufficient for every closure shape
-the fork has surfaced so far.
+> **Amended (amarbel-llc/igloo#58).** This section previously fixed
+> depth-1 as the normative limit and forbade recursion. Recursion is now
+> required, made safe by the conflict-guardrail below.
+
+The protocol resolves `passthru.goFlakeInputs` **transitively** — an
+implementation MUST walk each bridged producer's passthru recursively, so
+a private module bridged any number of producers deep is inherited without
+the consumer re-declaring it. Resolution is cycle-safe (a producer cycle
+terminates) and obeys two rules:
+
+1. **Shallower wins.** A consumer-declared entry (depth 0) is authoritative
+   for its module path and overrides any inherited entry.
+2. **Conflict-guardrail.** If a module is bridged at two *different* srcs by
+   inherited producers, with no consumer declaration to pick one, the
+   implementation MUST fail at eval with an actionable error naming the
+   module and directing the consumer to align the producers with `follows`
+   (or declare the module explicitly). It MUST NOT silently pick one — that
+   is the mixed-rev closure this guardrail exists to prevent.
+
+Recursion was previously rejected precisely to avoid mixed-rev closures; the
+guardrail makes it safe by turning such a closure into a hard error the
+consumer resolves with a single `follows`. Full FOD-regen of the merged
+module set — resolving *organic* transitive privates with no bridge or pin
+at all — remains the separate
+[amarbel-llc/nixpkgs#36](https://github.com/amarbel-llc/nixpkgs/issues/36)
+path.
 
 ### Chains deeper than one level
 
@@ -1038,13 +1059,13 @@ it, resolves chains of arbitrary depth:
   that bridges siblings but omits this argument publishes outputs
   downstream consumers cannot inherit from (the gap madder itself
   shipped with initially — see igloo#39).
-- **(C) Consumer duty.** A consumer's *effective* map (own
-  declarations ∪ depth-1 inherited) must cover **every private
-  (proxy-unreachable) module in its build's transitive import
-  graph.** Inheritance reaches only the union of the consumer's
-  direct producers' own directs; any private module that first
-  appears two producers away MUST be declared by the consumer
-  directly.
+- **(C) Consumer duty.** A consumer's *effective* map (own declarations ∪
+  transitively-inherited producer passthru) must cover **every private
+  (proxy-unreachable) module in its build's transitive import graph.**
+  Transitive inheritance reaches every module any producer in the closure
+  *bridges*; a private module bridged by **no** producer (an organic
+  require a producer covers via its own pin, or a plain-module mid-chain
+  with no passthru) MUST still be declared by the consumer directly.
 
 Worked example — the fleet's deepest live chain,
 `dodder → madder → piggy → dewey`:
@@ -1064,24 +1085,21 @@ Worked example — the fleet's deepest live chain,
   changes when a producer moves a dep between the bridge and the pin,
   or drops it — a change in the *middle* of the chain surfacing at
   the *end*. A consumer's own direct declaration immunizes it.
-- Rev alignment: an inherited entry's derivation was evaluated
-  against the **producer's** `flake.lock`, not the consumer's. A
-  consumer that also holds the same flake input directly SHOULD add
-  `follows` (`inputs.madder.inputs.piggy.follows = "piggy"`, etc.)
-  so exactly one rev of each shared producer exists in the closure.
-  Without `follows`, consumer-wins conflict resolution can yield a
-  mixed-rev closure (consumer's rev for modules it declares,
-  producer's locked revs for inherited ones) — buildable, but two
-  sources of truth.
+- Rev alignment: an inherited entry's derivation was evaluated against the
+  **producer's** `flake.lock`, not the consumer's. When two producers bridge
+  the same module at different revs, the conflict-guardrail fails the build
+  at eval — add `follows` (`inputs.madder.inputs.piggy.follows = "piggy"`,
+  etc.) so exactly one rev of each shared producer exists in the closure, or
+  declare the module explicitly (a depth-0 declaration wins). A consumer's
+  own declaration is thus both the override and the escape hatch.
 
-Consequently, for multi-level closures the RECOMMENDED steady state
-is: **declare every private module in your transitive import graph
-explicitly, with `follows` alignment; treat depth-1 inheritance as
-the transition-time safety net** (it keeps you green while a producer
-inserts a new dependency underneath you), not as the load-bearing
-wiring. Producers keeping duty P is what makes the safety net exist;
-consumers keeping duty C is what makes chains robust to producer
-refactors. An eval-time coverage warning (producer `go.mod` requires
+Consequently, for multi-level closures the RECOMMENDED steady state is:
+**let transitive inheritance carry the bridged closure, add `follows` to
+align any shared producer, and declare explicitly only the privates no
+producer bridges.** Producers keeping duty P is what makes inheritance
+reach; the conflict-guardrail is what keeps a multi-rev closure from
+forming silently; consumers keeping duty C covers the residual privates no
+producer bridges. An eval-time coverage warning (producer `go.mod` requires
 vs. the consumer's merged map) is the advisory check that surfaces
 duty-C gaps before any building starts; see § *Producer-side passthru
 inheritance* for its implementation status

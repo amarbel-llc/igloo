@@ -135,6 +135,16 @@ version) with a sentinel pseudo-version. Bumping dodder is now a
 
 See [RFC 0001 § Multi-producer closures](../rfcs/0001-flake-input-go_mod.md#multi-producer-closures-follows--passthru-inheritance).
 
+**Depth-N (amarbel-llc/igloo#58).** Inheritance is transitive: a producer's
+`passthru.goFlakeInputs` is walked recursively, so a private module bridged any
+depth away is inherited without re-declaration. The former depth-1 limit — chosen
+to avoid mixed-rev closures — is replaced by a *conflict-guardrail*: two producers
+bridging one module at different revs is a hard eval error directing the consumer
+to `follows`-align or declare it. This keeps the single-rev predictability the
+depth-1 limit protected while removing the manual-declaration burden. Full
+FOD-regen of *organic* (unbridged) transitive privates remains the separate
+nixpkgs#36 path.
+
 ## POC findings (commit f99a3ff43278, `zz-pocs/goflake-poc/`)
 
 A three-phase probe of the bridge pattern's foundation:

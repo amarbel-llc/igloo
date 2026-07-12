@@ -12,11 +12,12 @@ let
   # `features` tag AND bump `version`. Tags are stable identifiers keyed to
   # the issue that introduced the behavior.
   bridgeCapabilities = {
-    version = 1;
+    version = 2;
     features = [
       "per-vn-sentinel" # #38 — major-aware require sentinel
       "conditional-require" # #39/82f3d8e — organic require kept, sentinel-free
-      "depth1-passthru-inheritance" # #36 — inherit a producer's goFlakeInputs at depth 1
+      "transitive-passthru-inheritance" # #58 — depth-N passthru inheritance (was depth-1, #36)
+      "inheritance-conflict-guardrail" # #58 — hard error on unaligned multi-rev inheritance
       "gomod2nix-toml-union" # #50 — union + bridged-key strip
       "workspace-root-toml-fallback" # #49 — subPath producer falls back to root toml
       "coverage-warning" # #45 — advisory uncovered-require trace
@@ -98,7 +99,7 @@ let
             if builtins.elem modPath declaredKeys then
               "consumer-declared"
             else
-              "inherited (depth-1 from a bridged producer passthru.goFlakeInputs)";
+              "inherited (via a bridged producer passthru.goFlakeInputs)";
           editCommands = builtins.concatStringsSep "\n" (
             builtins.attrValues (
               builtins.mapAttrs (
@@ -165,35 +166,93 @@ let
         ''
       );
 
-  # Read `passthru.goFlakeInputs` from each direct producer in a
-  # consumer's `goFlakeInputs` map and union the inherited entries.
-  # Depth-1 only — the helper MUST NOT recurse into inherited entries'
-  # own passthru. Multi-level transitivity is deferred to the FOD-regen
-  # path tracked at amarbel-llc/nixpkgs#36; until that lands, deep
-  # closures resolve by the consumer declaring each direct producer's
-  # flake input and aligning shared deps via Nix flake `follows` (see
-  # RFC 0001 § Multi-producer closures).
+  # Resolve a consumer's `goFlakeInputs` into the COMPLETE effective map by
+  # walking each producer's `passthru.goFlakeInputs` transitively (depth-N),
+  # returning normalized `{ <modPath> = { src; subPath; }; }` entries — or
+  # throwing on an unaligned multi-rev conflict. This amends the former
+  # depth-1 limit (RFC 0001 § Depth-N with conflict-guardrail,
+  # amarbel-llc/igloo#58).
   #
-  # Both entry shapes from § Consumer interface are supported:
-  #   - bare derivation → look at `.passthru.goFlakeInputs`
-  #   - { src; subPath; } record → look at `.src.passthru.goFlakeInputs`
-  # Producers without a `passthru.goFlakeInputs` attribute contribute
-  # the empty map, never throw.
+  # Resolution rule (order-independent — does NOT rely on traversal order):
+  #   - A consumer-declared entry (depth 0, unique per module path) is
+  #     authoritative and wins over any inherited entry for the same module.
+  #   - Otherwise every inherited src for a module MUST agree. Two distinct
+  #     srcs for one module with no consumer declaration is a mixed-rev
+  #     closure — throw with a `follows` directive instead of silently
+  #     picking one (this is exactly the hazard the depth-1 limit avoided;
+  #     the guardrail lets recursion be safe).
   #
-  # The returned map is the *inherited* layer only; the caller layers
-  # consumer-declared entries on top via `inherited // consumer` so
-  # consumer wins on conflict per RFC 0001 § Producer-side passthru
-  # inheritance.
-  inheritedGoFlakeInputs =
-    goFlakeInputs:
-    builtins.foldl' (
-      acc: entry:
-      let
-        src = if entry ? src then entry.src else entry;
-        inherited = src.passthru.goFlakeInputs or { };
-      in
-      acc // inherited
-    ) { } (builtins.attrValues goFlakeInputs);
+  # Cycle-safe via `builtins.genericClosure`: the closure dedups by
+  # (modPath, src), so a producer cycle (A bridges B, B bridges A) revisits
+  # an already-seen node and terminates.
+  #
+  # Both entry shapes (bare derivation, `{ src; subPath; }` record) are
+  # accepted at every level; a producer without `passthru.goFlakeInputs`
+  # contributes nothing and never throws.
+  resolveGoFlakeInputs =
+    consumerGoFlakeInputs:
+    let
+      toNode =
+        depth: modPath: value:
+        let
+          n = normalizeFlakeInput value;
+          # `\n` cannot appear in a module path, store path, or subPath, so it
+          # is a collision-free separator for the genericClosure dedup key.
+          srcId = "${toString n.src}\n${n.subPath}";
+        in
+        {
+          key = "${modPath}\n${srcId}";
+          inherit modPath depth;
+          inherit (n) src subPath;
+        };
+
+      startSet = builtins.attrValues (builtins.mapAttrs (toNode 0) consumerGoFlakeInputs);
+
+      closure =
+        if startSet == [ ] then
+          [ ]
+        else
+          builtins.genericClosure {
+            inherit startSet;
+            operator =
+              node:
+              builtins.attrValues (
+                builtins.mapAttrs (toNode (node.depth + 1)) (node.src.passthru.goFlakeInputs or { })
+              );
+          };
+
+      byModPath = builtins.foldl' (
+        acc: node: acc // { ${node.modPath} = (acc.${node.modPath} or [ ]) ++ [ node ]; }
+      ) { } closure;
+
+      resolveOne =
+        modPath: nodes:
+        let
+          consumerNodes = builtins.filter (n: n.depth == 0) nodes;
+        in
+        # Consumer declaration wins (unique per module path).
+        if consumerNodes != [ ] then
+          { inherit (builtins.head consumerNodes) src subPath; }
+        # genericClosure deduped by (modPath, src), so >1 node here means >1
+        # distinct src for this module — an unaligned mixed-rev conflict.
+        else if builtins.length nodes == 1 then
+          { inherit (builtins.head nodes) src subPath; }
+        else
+          throw (
+            "gomod2nix goFlakeInputs: module '${modPath}' is bridged at "
+            + "${toString (builtins.length nodes)} different revs via inherited "
+            + "passthru.goFlakeInputs, with no consumer declaration to pick one:\n"
+            + builtins.concatStringsSep "\n" (
+              map (n: "  - ${toString n.src}${if n.subPath == "" then "" else "/${n.subPath}"}") nodes
+            )
+            + "\nAlign the producers' shared view with a Nix flake `follows` "
+            + "(e.g. inputs.<producer>.inputs.<shared>.follows = \"<shared>\"), or "
+            + "declare '${modPath}' explicitly in goFlakeInputs — a direct "
+            + "declaration wins over any inherited one. See RFC 0001 § Depth-N "
+            + "with conflict-guardrail (amarbel-llc/igloo#58)."
+          );
+    in
+    builtins.mapAttrs resolveOne byModPath;
 
   # Advisory coverage check (amarbel-llc/igloo#45, RFC 0001 § Chains
   # deeper than one level, duty C): for each bridged producer whose
@@ -328,11 +387,12 @@ let
         else
           null;
 
-      # #36: union depth-1 passthru.goFlakeInputs from each direct
-      # producer, with consumer-declared entries winning on conflict.
-      # When no producers expose passthru, `inherited` is empty and
-      # the merge degenerates to the consumer's own goFlakeInputs.
-      effectiveGoFlakeInputs = inheritedGoFlakeInputs goFlakeInputs // goFlakeInputs;
+      # Resolve the consumer's goFlakeInputs transitively (depth-N) across each
+      # producer's passthru.goFlakeInputs — consumer-declared entries are
+      # authoritative and any unaligned multi-rev conflict throws. Degenerates
+      # to the consumer's own map when no producer exposes passthru. See
+      # resolveGoFlakeInputs (RFC 0001 § Depth-N with conflict-guardrail, #58).
+      effectiveGoFlakeInputs = resolveGoFlakeInputs goFlakeInputs;
       normalizedFlakeInputs = builtins.mapAttrs (_: normalizeFlakeInput) effectiveGoFlakeInputs;
       hasFlakeInputs = normalizedFlakeInputs != { };
 
@@ -487,7 +547,7 @@ in
     sentinelPseudoVersion
     sentinelFor
     normalizeFlakeInput
-    inheritedGoFlakeInputs
+    resolveGoFlakeInputs
     goFlakeInputsCoverageGaps
     mkMergedGoMod
     mergeGomod2nixTomls

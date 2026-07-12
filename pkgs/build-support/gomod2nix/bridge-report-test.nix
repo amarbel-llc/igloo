@@ -77,8 +77,8 @@ pkgs.runCommand "bridge-report-test"
   {
     _ignored = [
       # #56 capability signal.
-      (assert' "#56: report carries the capability version (== constant, == 1)"
-        (report.version == bridgeCapabilities.version && report.version == 1))
+      (assert' "#56: report carries the capability version (== constant, == 2)"
+        (report.version == bridgeCapabilities.version && report.version == 2))
       (assert' "#56: features advertise the #55 failure annotation"
         (builtins.elem "failure-annotation" report.features))
       (assert' "#56: features advertise the #38 per-vn sentinel"
@@ -88,8 +88,11 @@ pkgs.runCommand "bridge-report-test"
       # #56 overlay-level exposure: pkgs.bridgeCapabilities surfaces the same
       # constant (the pre-adoption query path — no build, no consumer bridge).
       (assert' "#56: overlay exposes pkgs.bridgeCapabilities"
-        (pkgs.bridgeCapabilities.version == 1
+        (pkgs.bridgeCapabilities.version == 2
           && builtins.elem "failure-annotation" pkgs.bridgeCapabilities.features))
+      (assert' "#58: features advertise transitive inheritance"
+        (builtins.elem "transitive-passthru-inheritance" report.features
+          && builtins.elem "inheritance-conflict-guardrail" report.features))
 
       # #57 inherited /v2, not organically required: inherited provenance,
       # synthetic v2 sentinel, subPath surfaced.
