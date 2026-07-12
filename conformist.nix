@@ -9,7 +9,17 @@
   # "formatter cannot format multiple files at once". Re-enable once fixed
   # upstream; flagged to eng for filing.
   linters.statix.enable = false;
-  linters.deadnix.enable = true;
+  # Disabled: deadnix's repair mode strips a formal function-pattern
+  # parameter it judges unused WITHIN that function's own body, without
+  # checking whether call sites elsewhere still pass it by name. Nix's
+  # strict (non-`...`) function patterns then reject the call outright —
+  # confirmed break in pkgs/build-support/gomod2nix/default.nix's
+  # mkGoCacheEnv (goMod stripped from the signature; call site at L962
+  # still passes it) and in flake.nix's outputs (flake-parts/systems/
+  # treefmt-nix stripped, but Nix's call-flake always passes every input by
+  # name). Re-enable once this is resolved upstream or a safer scope is
+  # found; flagged to eng.
+  linters.deadnix.enable = false;
   # igloo has neither go.mod nor Cargo.toml at the tree root, so
   # eng-versioning(7) can't derive the key; pin it explicitly (eng-versioning.nix).
   linters.eng-versioning.key = "IGLOO_VERSION";
