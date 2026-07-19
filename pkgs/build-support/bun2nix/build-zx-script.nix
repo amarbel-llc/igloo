@@ -279,8 +279,7 @@ let
           else
             # Programmatic bunNix: ignore injected fetchurl, return
             # pre-fetched tarballs directly.
-            { ... }:
-            allDeps;
+            _: allDeps;
         inherit bunfigPath npmrcPath overrides;
       };
 
@@ -389,7 +388,7 @@ let
           name = dep.key;
           value = pkgs.fetchurl {
             url = mkTarballUrl dep.key;
-            hash = dep.hash;
+            inherit (dep) hash;
           };
         }) deps
       );

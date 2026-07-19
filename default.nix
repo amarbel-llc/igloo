@@ -20,9 +20,9 @@ let
   nixpkgsLock = flakeLock.nodes."nixpkgs-master".locked;
   nixpkgsSrc = builtins.fetchTree {
     type = "github";
-    owner = nixpkgsLock.owner;
-    repo = nixpkgsLock.repo;
-    rev = nixpkgsLock.rev;
+    inherit (nixpkgsLock) owner;
+    inherit (nixpkgsLock) repo;
+    inherit (nixpkgsLock) rev;
     inherit (nixpkgsLock) narHash;
   };
   lib = import "${nixpkgsSrc}/lib";

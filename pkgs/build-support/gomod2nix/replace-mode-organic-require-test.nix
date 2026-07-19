@@ -63,7 +63,7 @@ let
 in
 pkgs.runCommand "replace-mode-organic-require-test"
   {
-    mergedGoMod = app.passthru.mergedGoMod;
+    inherit (app.passthru) mergedGoMod;
   }
   ''
     echo "=== merged go.mod (replace mode, organic require) ==="

@@ -13,7 +13,6 @@ let
     typeOf
     hasAttr
     length
-    readFile
     ;
 
   # Strip lines with comments & other junk
@@ -53,7 +52,7 @@ let
 
         in
         {
-          data = (
+          data =
             acc.data
             // (
               # If a we're in a directive and it's closing, no-op
@@ -145,8 +144,7 @@ let
                 {
                   ${directive} = rest;
                 }
-            )
-          );
+            );
           inherit inDirective;
         }
       )

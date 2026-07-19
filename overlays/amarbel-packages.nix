@@ -1,6 +1,6 @@
 # Packages added by amarbel-llc/igloo that don't exist in upstream.
 # Lives here (not all-packages.nix) so upstream merges never conflict.
-final: prev: {
+final: _: {
   fetchGgufModel = final.callPackage ../pkgs/build-support/fetch-gguf-model { };
 
   # Zig binary from nix-community/bun2nix, needed by fetchBunDeps.

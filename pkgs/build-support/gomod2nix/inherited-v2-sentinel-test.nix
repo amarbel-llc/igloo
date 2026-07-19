@@ -28,7 +28,6 @@ let
 
   cgModule = "github.com/amarbel-llc/cutting-garden";
   crapV2 = "github.com/amarbel-llc/crap/go-crap/v2";
-  v2Sentinel = "v2.0.0-00010101000000-000000000000";
 
   # `go mod edit -replace` does not require the target to exist on disk,
   # so an empty tree with the subPath dir is enough to assert formatting.
@@ -76,8 +75,8 @@ let
     goFlakeInputs = {
       ${cgModule} = cuttingGardenGoPkgs;
     };
-    go = pkgs.go;
-    runCommand = pkgs.runCommand;
+    inherit (pkgs) go;
+    inherit (pkgs) runCommand;
     inherit parseGoMod;
   };
 

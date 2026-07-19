@@ -38,12 +38,12 @@ let
 
   # (c) No consumer declaration + two inherited srcs for X -> throw. tryEval
   # forcing the conflicting entry to WHNF triggers resolveOne's throw.
-  conflict = builtins.tryEval (
-    (resolveGoFlakeInputs {
-      "example.com/p" = prodP;
-      "example.com/q" = prodQ;
-    })."example.com/x"
-  );
+  conflict =
+    builtins.tryEval
+      (resolveGoFlakeInputs {
+        "example.com/p" = prodP;
+        "example.com/q" = prodQ;
+      })."example.com/x";
 
   # (d) Cycle: A bridges B, B bridges A. passthru is metadata (not a build
   # input), so the mutual reference is fine; genericClosure dedups by
@@ -83,9 +83,7 @@ pkgs.runCommand "transitive-inheritance-test"
       ))
 
       # (c) unaligned multi-rev conflict throws.
-      (assert' "#58 conflict: two srcs for one module with no consumer decl throws" (
-        conflict.success == false
-      ))
+      (assert' "#58 conflict: two srcs for one module with no consumer decl throws" (!conflict.success))
 
       # (d) cycle terminates and yields both modules.
       (assert' "#58 cycle: terminates with both modules" (

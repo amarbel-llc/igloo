@@ -100,8 +100,8 @@ let
   # sentinel.
   mergedV2GoMod = mkMergedGoMod {
     consumerGoMod = consumerGoModFixture;
-    go = pkgs.go;
-    runCommand = pkgs.runCommand;
+    inherit (pkgs) go;
+    inherit (pkgs) runCommand;
     goFlakeInputs = {
       "github.com/amarbel-llc/crap/go-crap/v2" = {
         src = dummyV2Src;
@@ -123,8 +123,8 @@ let
   '';
   mergedOrganicGoMod = mkMergedGoMod {
     consumerGoMod = consumerWithRequire;
-    go = pkgs.go;
-    runCommand = pkgs.runCommand;
+    inherit (pkgs) go;
+    inherit (pkgs) runCommand;
     goFlakeInputs = {
       "github.com/amarbel-llc/crap/go-crap/v2" = {
         src = dummyV2Src;
@@ -199,8 +199,8 @@ let
     pwd = coverageConsumer;
     modules = null;
     goFlakeInputs = coverageEffective;
-    go = pkgs.go;
-    runCommand = pkgs.runCommand;
+    inherit (pkgs) go;
+    inherit (pkgs) runCommand;
     inherit parseGoMod;
   };
 
@@ -249,8 +249,8 @@ let
         subPath = "libs/dewey";
       };
     };
-    go = pkgs.go;
-    runCommand = pkgs.runCommand;
+    inherit (pkgs) go;
+    inherit (pkgs) runCommand;
     inherit parseGoMod;
   };
 
@@ -290,8 +290,8 @@ let
         subPath = "go";
       };
     };
-    go = pkgs.go;
-    runCommand = pkgs.runCommand;
+    inherit (pkgs) go;
+    inherit (pkgs) runCommand;
     inherit parseGoMod;
   };
 

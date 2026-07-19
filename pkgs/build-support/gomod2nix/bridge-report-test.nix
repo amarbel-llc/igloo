@@ -66,8 +66,8 @@ let
       ${cgModule} = cuttingGardenGoPkgs;
       ${extra} = extraSrc;
     };
-    go = pkgs.go;
-    runCommand = pkgs.runCommand;
+    inherit (pkgs) go;
+    inherit (pkgs) runCommand;
     inherit parseGoMod;
   };
 
@@ -105,13 +105,13 @@ pkgs.runCommand "bridge-report-test"
       # #57 inherited /v2, not organically required: inherited provenance,
       # synthetic v2 sentinel, subPath surfaced.
       (assert' "#57: inherited /v2 provenance" (mods.${crapV2}.provenance == "inherited"))
-      (assert' "#57: inherited /v2 not organically required" (mods.${crapV2}.organicRequire == false))
+      (assert' "#57: inherited /v2 not organically required" (!mods.${crapV2}.organicRequire))
       (assert' "#57: inherited /v2 gets the v2 sentinel" (mods.${crapV2}.sentinel == v2Sentinel))
       (assert' "#57: inherited /v2 subPath reported" (mods.${crapV2}.subPath == "go-crap"))
 
       # #57 consumer-declared producer, organically required: no sentinel.
       (assert' "#57: declared+organic provenance" (mods.${cgModule}.provenance == "declared"))
-      (assert' "#57: declared+organic is organically required" (mods.${cgModule}.organicRequire == true))
+      (assert' "#57: declared+organic is organically required" mods.${cgModule}.organicRequire)
       (assert' "#57: declared+organic keeps its version (no sentinel)" (
         mods.${cgModule}.sentinel == null
       ))

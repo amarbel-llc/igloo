@@ -29,8 +29,8 @@ let
 in
 mkMergedGoMod {
   inherit consumerGoMod;
-  go = pkgs.go;
-  runCommand = pkgs.runCommand;
+  inherit (pkgs) go;
+  inherit (pkgs) runCommand;
   goFlakeInputs = {
     "example.com/foo/v2" = fooV2Src;
   };

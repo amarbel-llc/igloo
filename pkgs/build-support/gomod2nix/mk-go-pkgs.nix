@@ -50,7 +50,7 @@ let
       passthru ? { },
     }:
     let
-      origSrc = if src ? origSrc then src.origSrc else src;
+      origSrc = src.origSrc or src;
       filteredPath = builtins.path {
         inherit name;
         path = origSrc;
@@ -120,13 +120,7 @@ let
           in
           if match == null then "source" else lib.last (lib.splitString "/" (lib.head match));
 
-      baseName =
-        if name != null then
-          name
-        else if src ? name then
-          src.name
-        else
-          inferredName;
+      baseName = if name != null then name else src.name or inferredName;
 
       isExtra = relPath: lib.any (re: builtins.match re relPath != null) extras;
       isTestExtra = relPath: lib.any (re: builtins.match re relPath != null) testExtras;

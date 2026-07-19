@@ -41,10 +41,6 @@ let
 
   extractPackage = import ./fetch-bun-deps/extract-package.nix { inherit pkgs lib; };
 
-  cacheEntryCreatorExe = import ./fetch-bun-deps/cache-entry-creator.nix {
-    inherit cacheEntryCreator;
-  };
-
   # -- mid-level components --
 
   overridePackage = import ./fetch-bun-deps/override-package.nix { inherit pkgs lib extractPackage; };

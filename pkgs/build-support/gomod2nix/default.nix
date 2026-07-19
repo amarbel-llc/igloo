@@ -265,18 +265,16 @@ let
     let
       localReplaceCommands =
         let
-          localReplaceAttrs = filterAttrs (n: v: hasAttr "path" v) goMod.replace;
-          commands = (
-            mapAttrsToList (name: value: (''
-              mkdir -p $(dirname vendor/${name})
-              ln -s ${
-                if lib.hasPrefix "/" value.path then
-                  value.path # absolute /nix/store path (from goFlakeInputs)
-                else
-                  toString (pwd + "/${value.path}") # organic relative path; legacy behavior
-              } vendor/${name}
-            '')) localReplaceAttrs
-          );
+          localReplaceAttrs = filterAttrs (_: v: hasAttr "path" v) goMod.replace;
+          commands = mapAttrsToList (name: value: ''
+            mkdir -p $(dirname vendor/${name})
+            ln -s ${
+              if lib.hasPrefix "/" value.path then
+                value.path # absolute /nix/store path (from goFlakeInputs)
+              else
+                toString (pwd + "/${value.path}") # organic relative path; legacy behavior
+            } vendor/${name}
+          '') localReplaceAttrs;
         in
         # In workspace mode, workspace module symlinks are not needed in vendor/
         # (Go resolves them from the source tree)
@@ -315,7 +313,7 @@ let
           "sources"
         ];
       }
-      (''
+      ''
         mkdir vendor
 
         export GOCACHE=$TMPDIR/go-cache
@@ -326,7 +324,7 @@ let
         ${concatStringsSep "\n" workspaceVendorCommands}
 
         mv vendor $out
-      '');
+      '';
 
   # Design A robust workspace vendor (igloo#39). Build a go.work whose sole
   # `use .` member is the consumer, with every bridged producer AND every
@@ -565,12 +563,10 @@ let
             );
             goAttr = elemAt goAttrs 0;
           in
-          (
-            if goAttrs != [ ] then
-              buildPackages.${goAttr}
-            else
-              throw "go.mod specified Go version ${goVersion}, but no compatible Go attribute could be found."
-          )
+          if goAttrs != [ ] then
+            buildPackages.${goAttr}
+          else
+            throw "go.mod specified Go version ${goVersion}, but no compatible Go attribute could be found."
         )
     );
 
@@ -826,7 +822,7 @@ let
           consumerGoMod
         else if goWork != null then
           {
-            go = goWork.go;
+            inherit (goWork) go;
             module = "workspace";
           }
         else
@@ -938,7 +934,7 @@ let
             lib.cleanSourceWith {
               src = depFilesSrc;
               filter =
-                path: type:
+                path: _:
                 let
                   baseName = baseNameOf path;
                 in
@@ -995,14 +991,14 @@ let
       # compatible — explicit beats implicit), then version.env, then the
       # gomod2nix.toml module version, then "dev".
       effectiveVersion =
-        if attrs ? version then
-          attrs.version
-        else if versionFromEnv != null then
-          versionFromEnv
-        else if defaultPackage != "" then
-          stripVersion (modulesStruct.mod.${defaultPackage}).version
-        else
-          "dev";
+        attrs.version or (
+          if versionFromEnv != null then
+            versionFromEnv
+          else if defaultPackage != "" then
+            stripVersion modulesStruct.mod.${defaultPackage}.version
+          else
+            "dev"
+        );
 
       versionLdflags = [
         "-X main.version=${effectiveVersion}"
@@ -1049,11 +1045,11 @@ let
     stdenv.mkDerivation (
       optionalAttrs (defaultPackage != "") {
         inherit pname;
-        version = stripVersion (modulesStruct.mod.${defaultPackage}).version;
+        version = stripVersion modulesStruct.mod.${defaultPackage}.version;
         src = vendorEnv.passthru.sources.${defaultPackage};
       }
       // optionalAttrs (hasAttr "subPackages" modulesStruct) {
-        subPackages = modulesStruct.subPackages;
+        inherit (modulesStruct) subPackages;
       }
       // (removeAttrs attrs [
         "goFlakeInputs"

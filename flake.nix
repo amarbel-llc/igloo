@@ -17,11 +17,15 @@
     # stack regen / drift-guard plumbing wraps. The Nix library
     # functions and the cacheEntryCreator Zig binary live under
     # pkgs/build-support/bun2nix/ in-tree.
-    bun2nix.url = "github:nix-community/bun2nix";
-    bun2nix.inputs.nixpkgs.follows = "nixpkgs-master";
-    bun2nix.inputs.flake-parts.follows = "flake-parts";
-    bun2nix.inputs.systems.follows = "systems";
-    bun2nix.inputs.treefmt-nix.follows = "treefmt-nix";
+    bun2nix = {
+      url = "github:nix-community/bun2nix";
+      inputs = {
+        nixpkgs.follows = "nixpkgs-master";
+        flake-parts.follows = "flake-parts";
+        systems.follows = "systems";
+        treefmt-nix.follows = "treefmt-nix";
+      };
+    };
 
   };
 
@@ -61,8 +65,8 @@
         let
           conformistSrc = pkgs.fetchgit {
             url = "https://code.linenisgreat.com/conformist.git";
-            rev = "275968632782fd978b9db60926990fc38f3715bb";
-            hash = "sha256-aK0LVzftd/E7LR8tgjTsnEkLSyZecMqjtqyq4VDeHEc=";
+            rev = "be54c5befacbbc6fe35f2cabc7bc418593b6238d";
+            hash = "sha256-bMJxK6VNTRhc9a2OYL49cG2+DH8NQ4YCN4+SrMjvj9g=";
           };
           # conformist's Nix module library — a pure Nix file with no flake
           # dependency; import directly from the FOD store path.
@@ -74,7 +78,7 @@
             pwd = conformistSrc;
             modules = "${conformistSrc}/gomod2nix.toml";
             subPackages = [ "." ];
-            go = pkgs.go;
+            inherit (pkgs) go;
             GOTOOLCHAIN = "local";
             doCheck = false;
           };
@@ -104,7 +108,7 @@
         };
     in
     {
-      lib = nixpkgs-master.lib;
+      inherit (nixpkgs-master) lib;
 
       overlays = {
         default = nixpkgs-master.lib.composeManyExtensions (import ./overlays nixpkgs-master.lib);
@@ -301,7 +305,7 @@
           bun2nixCli = bun2nix.packages.${system}.bun2nix;
           regenLintStack = import ./pkgs/build-support/bun2nix/lint/regen.nix {
             inherit pkgs;
-            bun = pkgs.bun;
+            inherit (pkgs) bun;
             bun2nix = bun2nixCli;
           };
           benchBunStartup = import ./pkgs/build-support/bun2nix/bench/bench-bun-startup.nix {
@@ -334,11 +338,11 @@
         {
           formatting = c.conformistEval.config.build.check self;
 
-          claude-code = pkgs.claude-code;
-          gomod2nix = pkgs.gomod2nix;
-          gomod2nix-man = pkgs.gomod2nix-man;
-          godyn-man = pkgs.godyn-man;
-          nixgc-man = pkgs.nixgc-man;
+          inherit (pkgs) claude-code;
+          inherit (pkgs) gomod2nix;
+          inherit (pkgs) gomod2nix-man;
+          inherit (pkgs) godyn-man;
+          inherit (pkgs) nixgc-man;
           nix-man = pkgs.nix.man;
 
           bun2nix-lint-stack-up-to-date = import ./pkgs/build-support/bun2nix/lint/check.nix {
@@ -413,7 +417,7 @@
           # and the path-literal siblings above already run the same binaries/tests
           # on what dedupes to identical store paths — so realising the build is
           # the whole assertion; no run-and-compare wrapper needed.
-          godyn-string-src-test = self.packages.${system}.godyn-string-src-test;
+          inherit (self.packages.${system}) godyn-string-src-test;
           godyn-string-src-gotest-test =
             self.packages.${system}.godyn-string-src-gotest-test.passthru.checkAll;
           # godyn→godyn composition: both consumption modes must produce a working
@@ -441,6 +445,6 @@
         }
       );
 
-      nixosModules = nixpkgs-master.nixosModules;
+      inherit (nixpkgs-master) nixosModules;
     };
 }

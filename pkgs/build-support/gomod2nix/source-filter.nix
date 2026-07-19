@@ -67,7 +67,7 @@ let
       regexes = defaultRegexes ++ extras;
       # Unwrap an already-filtered src so the relative-path computation
       # stays anchored at the original source root when composing.
-      origSrc = if src ? origSrc then src.origSrc else src;
+      origSrc = src.origSrc or src;
       name = src.name or "source";
       filteredPath = builtins.path {
         inherit name;

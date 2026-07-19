@@ -529,7 +529,7 @@ let
   testDrvsFor =
     t:
     let
-      importPath = t.importPath;
+      inherit (t) importPath;
       base =
         byImport.${importPath}
           or (throw "buildGodynModule(${pname}): test-graph entry ${importPath} is not in the build graph — regenerate both graphs with godyn-gen");
