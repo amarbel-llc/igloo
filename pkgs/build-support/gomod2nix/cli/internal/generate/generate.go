@@ -246,9 +246,25 @@ func GeneratePkgs(directory string, goMod2NixPath string, numWorkers int) ([]*sc
 			goPackagePath = dl.Path
 		}
 
+		// The committed gomod2nix.toml doubles as this incremental cache, so a
+		// cached entry may have been written by an older generator and be
+		// structurally incomplete (goVersion is omitempty). Reusing it
+		// wholesale froze that staleness permanently: the repo's own in-place
+		// regen could never repair the file it was the remedy for. Reuse only
+		// the expensive NAR hash; recompute every cheap field fresh so the
+		// output is always identical to a from-scratch generation (igloo#60).
 		cached, ok := cache[goPackagePath]
-		if ok && cached.Version == dl.Version {
-			addPkg(cached)
+		if ok && cached.Version == dl.Version && cached.Hash != "" {
+			pkg := &schema.Package{
+				GoPackagePath: goPackagePath,
+				Version:       dl.Version,
+				Hash:          cached.Hash,
+				GoVersion:     readGoVersionFromMod(dl.GoMod),
+			}
+			if hasReplace {
+				pkg.ReplacedPath = dl.Path
+			}
+			addPkg(pkg)
 			continue
 		}
 
