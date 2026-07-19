@@ -65,8 +65,8 @@
         let
           conformistSrc = pkgs.fetchgit {
             url = "https://code.linenisgreat.com/conformist.git";
-            rev = "be54c5befacbbc6fe35f2cabc7bc418593b6238d";
-            hash = "sha256-bMJxK6VNTRhc9a2OYL49cG2+DH8NQ4YCN4+SrMjvj9g=";
+            rev = "025c839dda59e4ff47249e56ea636d7cc262b604"; # v0.1.19
+            hash = "sha256-Ac2CID8/oe4WAsedvfTpjQMjoduKTglJaKraqoczTT0=";
           };
           # conformist's Nix module library — a pure Nix file with no flake
           # dependency; import directly from the FOD store path.
