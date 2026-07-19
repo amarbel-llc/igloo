@@ -71,9 +71,15 @@
           # conformist's Nix module library — a pure Nix file with no flake
           # dependency; import directly from the FOD store path.
           conformistLib = import "${conformistSrc}/nix";
+          # No explicit `version`: conformist carries a version.env at its
+          # source root, and buildGoApplication (gomod2nix default.nix,
+          # eng-versioning(7) § VERSION EMBEDDING) auto-reads it via `pwd`
+          # (== src here) as the single source of truth for both the
+          # derivation `version` attr and the `-X main.version` ldflag. A
+          # hardcoded version here previously drifted from conformist's
+          # actual version.env (0.1.17 vs 0.1.18) — this can't drift again.
           conformistBin = pkgs.buildGoApplication {
             pname = "conformist";
-            version = "0.1.17";
             src = conformistSrc;
             pwd = conformistSrc;
             modules = "${conformistSrc}/gomod2nix.toml";
