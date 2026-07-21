@@ -18,8 +18,18 @@
     in
     {
       packages.${system} = {
-        inherit (cross) greetArchive greetAlt appBridge appSource;
+        inherit (cross)
+          greetArchive
+          greetAlt
+          appBridge
+          appSource
+          ;
       };
-      devShells.${system}.default = pkgs.mkShell { packages = [ go pkgs.nix ]; };
+      devShells.${system}.default = pkgs.mkShell {
+        packages = [
+          go
+          pkgs.nix
+        ];
+      };
     };
 }

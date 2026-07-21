@@ -18,7 +18,12 @@
   };
 
   outputs =
-    { self, igloo, tommy-src, ... }:
+    {
+      self,
+      igloo,
+      tommy-src,
+      ...
+    }:
     let
       system = "x86_64-linux";
       pkgs = igloo.legacyPackages.${system};
@@ -91,10 +96,11 @@
 
       # D4: tommy's RFC 0001 `go-pkgs` output (the producer side), built from
       # tommy's source via igloo's mkGoPkgs.
-      tommyGoPkgs = (pkgs.mkGoPkgs {
-        src = tommy-src;
-        name = "tommy";
-      }).go-pkgs;
+      tommyGoPkgs =
+        (pkgs.mkGoPkgs {
+          src = tommy-src;
+          name = "tommy";
+        }).go-pkgs;
 
       # D4 system-under-test: a main importing github.com/amarbel-llc/tommy/pkg/cst,
       # sourced from tommyGoPkgs through the bridge (replace -> store path), not a

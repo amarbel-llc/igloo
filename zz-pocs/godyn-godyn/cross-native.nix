@@ -42,14 +42,16 @@ let
   # The per-package archive for dep/greet. Named by import path (godyn convention),
   # so it is THE SAME store object whether produced by dep's flake (approach 1) or
   # as a node in app's graph (approach 2) — given the same source + toolchain.
-  greetArchive = runCommandLocal "godyn-compile-example-com-dep-greet" ({ nativeBuildInputs = [ go ]; } // caAttrs) ''
-    export GOROOT=${go}/share/go
-    mkdir -p "$out"
-    cat ${stdlib}/importcfg > importcfg
-    go tool compile -importcfg importcfg -p 'example.com/dep/greet' -buildid "" \
-      -trimpath="${greetSrc}=>example.com/dep/greet;$NIX_BUILD_TOP=>" -nolocalimports -pack -lang=${goVersion} \
-      -o "$out/pkg.a" ${greetSrc}/greet.go
-  '';
+  greetArchive =
+    runCommandLocal "godyn-compile-example-com-dep-greet" ({ nativeBuildInputs = [ go ]; } // caAttrs)
+      ''
+        export GOROOT=${go}/share/go
+        mkdir -p "$out"
+        cat ${stdlib}/importcfg > importcfg
+        go tool compile -importcfg importcfg -p 'example.com/dep/greet' -buildid "" \
+          -trimpath="${greetSrc}=>example.com/dep/greet;$NIX_BUILD_TOP=>" -nolocalimports -pack -lang=${goVersion} \
+          -o "$out/pkg.a" ${greetSrc}/greet.go
+      '';
 
   # CONVERGENCE TEST — compile dep/greet AGAIN from a DIFFERENT source store path
   # (same content, different builtins.path name → models dep arriving via app's flake
@@ -61,20 +63,26 @@ let
     path = depSrc + "/greet";
     name = "gg-src-dep-greet-via-app-input";
   };
-  greetAlt = runCommandLocal "godyn-compile-example-com-dep-greet" ({ nativeBuildInputs = [ go ]; } // caAttrs) ''
-    export GOROOT=${go}/share/go
-    mkdir -p "$out"
-    cat ${stdlib}/importcfg > importcfg
-    go tool compile -importcfg importcfg -p 'example.com/dep/greet' -buildid "" \
-      -trimpath="${greetSrcAlt}=>example.com/dep/greet;$NIX_BUILD_TOP=>" -nolocalimports -pack -lang=${goVersion} \
-      -o "$out/pkg.a" ${greetSrcAlt}/greet.go
-  '';
+  greetAlt =
+    runCommandLocal "godyn-compile-example-com-dep-greet" ({ nativeBuildInputs = [ go ]; } // caAttrs)
+      ''
+        export GOROOT=${go}/share/go
+        mkdir -p "$out"
+        cat ${stdlib}/importcfg > importcfg
+        go tool compile -importcfg importcfg -p 'example.com/dep/greet' -buildid "" \
+          -trimpath="${greetSrcAlt}=>example.com/dep/greet;$NIX_BUILD_TOP=>" -nolocalimports -pack -lang=${goVersion} \
+          -o "$out/pkg.a" ${greetSrcAlt}/greet.go
+      '';
 
   # Compile + link app/main against dep/greet supplied as the archive at `greetA`,
   # then run it (asserting the cross-module call works). `inGraph` only changes the
   # label/comment — the realized build is identical either way (the convergence).
   mkApp =
-    { name, greetA, note }:
+    {
+      name,
+      greetA,
+      note,
+    }:
     runCommandLocal name ({ nativeBuildInputs = [ go ]; } // caAttrs) ''
       export GOROOT=${go}/share/go
       W="$NIX_BUILD_TOP"; mkdir -p "$out/bin"
@@ -113,5 +121,10 @@ let
   };
 in
 {
-  inherit greetArchive greetAlt appBridge appSource;
+  inherit
+    greetArchive
+    greetAlt
+    appBridge
+    appSource
+    ;
 }

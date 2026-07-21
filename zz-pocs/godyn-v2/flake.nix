@@ -40,11 +40,12 @@
         inherit go;
         cc = pkgs.stdenv.cc;
       };
-      recursive = (mkDynamic {
-        src = ./module;
-        pname = "godyntb";
-        inherit stdlib;
-      }).target;
+      recursive =
+        (mkDynamic {
+          src = ./module;
+          pname = "godyntb";
+          inherit stdlib;
+        }).target;
 
       # Baseline — buildGoApplication (the nix whole-module builder godyn would
       # replace). No deps, so an empty gomod2nix.toml.
@@ -64,11 +65,12 @@
         graphFile = ./tommy-graph.json;
         pname = "tommy";
       };
-      tommy-recursive = (mkDynamic {
-        src = ./tommy-lib;
-        pname = "tommy";
-        inherit stdlib;
-      }).target;
+      tommy-recursive =
+        (mkDynamic {
+          src = ./tommy-lib;
+          pname = "tommy";
+          inherit stdlib;
+        }).target;
       tommy-bga = pkgs.buildGoApplication {
         pname = "tommy";
         version = "0";

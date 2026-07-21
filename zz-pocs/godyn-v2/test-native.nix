@@ -27,11 +27,13 @@ let
   # archive's input (hence output) unchanged → dependents' tests stay cached. A test
   # edit in a foundational package then re-runs only THAT package's test, not every
   # dependent's. (native.nix sources the whole dir; here we filter for test-awareness.)
-  srcOf = dir: fs: builtins.path {
-    path = src + "/${dir}";
-    name = "gtp-src-${sanitize dir}";
-    filter = p: t: t == "directory" || lib.elem (baseNameOf p) fs;
-  };
+  srcOf =
+    dir: fs:
+    builtins.path {
+      path = src + "/${dir}";
+      name = "gtp-src-${sanitize dir}";
+      filter = p: t: t == "directory" || lib.elem (baseNameOf p) fs;
+    };
   # The captured, committed testmains (go-invisible _ dir). This is the "capture
   # route": go list -test already generated them; re-capture only when test funcs
   # change (same generate-commit contract as graph.json).
@@ -57,7 +59,8 @@ let
       goFiles,
       deps ? [ ],
     }:
-    let srcD = srcOf dir goFiles;
+    let
+      srcD = srcOf dir goFiles;
     in
     runCommandLocal "gtp-compile-${sanitize ip}" ({ nativeBuildInputs = [ go ]; } // caAttrs) ''
       export GOROOT=${go}/share/go
@@ -144,7 +147,12 @@ let
     ip = "${mod}/mid";
     dir = "mid";
     goFiles = [ "mid.go" ];
-    deps = [ { ip = "${mod}/leaf"; drv = leafNormal; } ];
+    deps = [
+      {
+        ip = "${mod}/leaf";
+        drv = leafNormal;
+      }
+    ];
   };
 
   leafTest = testRun {
@@ -161,7 +169,12 @@ let
     dir = "mid";
     goFiles = [ "mid.go" ];
     testGoFiles = [ "mid_test.go" ];
-    deps = [ { ip = "${mod}/leaf"; drv = leafNormal; } ];
+    deps = [
+      {
+        ip = "${mod}/leaf";
+        drv = leafNormal;
+      }
+    ];
   };
 
   # `go test ./...` equivalent: a manifest depending on every package's test run.

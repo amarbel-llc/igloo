@@ -2,7 +2,7 @@ schema = 3
 
 [mod]
 
-  [mod.'filippo.io/age']
+[mod.'filippo.io/age']
     version = 'v1.3.1'
     hash = 'sha256-Qs/q3zQYV0PukABBPf/aU5V1oOhw95NG6K301VYJk8A='
     goVersion = '1.24.0'
@@ -13,8 +13,7 @@ schema = 3
       'filippo.io/age/internal/stream'
     ]
 
-
-  [mod.'filippo.io/hpke']
+[mod.'filippo.io/hpke']
     version = 'v0.4.0'
     hash = 'sha256-xKPT2hMzz/i3xdDK3NKn6FOmfQPxIMgxCOmm8U1heY4='
     goVersion = '1.24.0'
@@ -25,9 +24,7 @@ schema = 3
       'filippo.io/hpke/internal/byteorder'
     ]
 
-
-
-  [mod.'github.com/DataDog/zstd']
+[mod.'github.com/DataDog/zstd']
     version = 'v1.5.7'
     hash = 'sha256-GlSZOyix7Ct7tOKmSKpGckDjMhTtiYPBTpoWdwGLx5M='
     goVersion = '1.14'
@@ -35,8 +32,7 @@ schema = 3
       'github.com/DataDog/zstd'
     ]
 
-
-  [mod.'github.com/amarbel-llc/tommy']
+[mod.'github.com/amarbel-llc/tommy']
     version = 'v0.0.0-20260405143331-87255e87bf37'
     hash = 'sha256-ElzACYuPmWpNk7bm4V8de18P+PqG+92X9aSxJg8gRUI='
     goVersion = '1.26'
@@ -47,11 +43,7 @@ schema = 3
       'github.com/amarbel-llc/tommy/pkg/document'
     ]
 
-
-
-
-
-  [mod.'github.com/brandondube/tai']
+[mod.'github.com/brandondube/tai']
     version = 'v0.1.0'
     hash = 'sha256-o32wvMW6waT/vJJkpjiCGxBNBUsqeAvnARhbsikRk50='
     goVersion = '1.16'
@@ -59,66 +51,7 @@ schema = 3
       'github.com/brandondube/tai'
     ]
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  [mod.'golang.org/x/crypto']
+[mod.'golang.org/x/crypto']
     version = 'v0.50.0'
     hash = 'sha256-vC1BJT7+3UBWLyEE5n3to0NKhMo6m2HGow2HiFgpQLo='
     goVersion = '1.25.0'
@@ -137,7 +70,7 @@ schema = 3
       'golang.org/x/crypto/ssh/internal/bcrypt_pbkdf'
     ]
 
-  [mod.'golang.org/x/exp']
+[mod.'golang.org/x/exp']
     version = 'v0.0.0-20260410095643-746e56fc9e2f'
     hash = 'sha256-JaDJGLIRoJjjvsg3dgfFuo7XApEJO2V4kUDmd58qTLI='
     goVersion = '1.25.0'
@@ -145,10 +78,7 @@ schema = 3
       'golang.org/x/exp/constraints'
     ]
 
-
-
-
-  [mod.'golang.org/x/sys']
+[mod.'golang.org/x/sys']
     version = 'v0.43.0'
     hash = 'sha256-aDQXqSTZES2l/132PBxhZN4ywldpPyfm7LByYCHzzwM='
     goVersion = '1.25.0'
@@ -157,8 +87,7 @@ schema = 3
       'golang.org/x/sys/unix'
     ]
 
-
-  [mod.'golang.org/x/term']
+[mod.'golang.org/x/term']
     version = 'v0.42.0'
     hash = 'sha256-FCiDvAfq7dgBGQuiDYDFJbj/JPawhrmPF2qdUEftQ1c='
     goVersion = '1.25.0'
@@ -166,7 +95,7 @@ schema = 3
       'golang.org/x/term'
     ]
 
-  [mod.'golang.org/x/text']
+[mod.'golang.org/x/text']
     version = 'v0.36.0'
     hash = 'sha256-/0t9C6Mc8kYjxweFB0us2lGKo8GovHhBiq5nlMOppC0='
     goVersion = '1.25.0'
@@ -176,10 +105,7 @@ schema = 3
       'golang.org/x/text/unicode/norm'
     ]
 
-
-
-
-  [mod.'golang.org/x/xerrors']
+[mod.'golang.org/x/xerrors']
     version = 'v0.0.0-20240903120638-7835f813f4da'
     hash = 'sha256-bE7CcrnAvryNvM26ieJGXqbAtuLwHaGcmtVMsVnksqo='
     goVersion = '1.18'
@@ -187,6 +113,3 @@ schema = 3
       'golang.org/x/xerrors',
       'golang.org/x/xerrors/internal'
     ]
-
-
-

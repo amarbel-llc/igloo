@@ -2,7 +2,8 @@
 { pkgs }:
 let
   inherit (pkgs.callPackage ../../pkgs/build-support/gomod2nix/internals.nix { })
-    normalizeFlakeInput;
+    normalizeFlakeInput
+    ;
 in
 {
   bareDrv = normalizeFlakeInput ./.;

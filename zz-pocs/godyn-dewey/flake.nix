@@ -51,10 +51,11 @@
       };
 
       # tommy's RFC 0001 go-pkgs output (producer side) for the bridge.
-      tommyGoPkgs = (pkgs.mkGoPkgs {
-        src = tommy-src;
-        name = "tommy";
-      }).go-pkgs;
+      tommyGoPkgs =
+        (pkgs.mkGoPkgs {
+          src = tommy-src;
+          name = "tommy";
+        }).go-pkgs;
 
       # godyn-v2 native eval-time graph (one CA derivation per package, scheduled
       # by nix — no recursive-nix), built over the SAME internal/delta closure as
@@ -65,12 +66,13 @@
       # vendorEnv = buildGoApplication's gomod2nix vendor tree (committed
       # dewey-gomod2nix.toml snapshot of purse-first's workspace-root toml); only
       # .passthru.vendorEnv is forced, so dewey's mains never build here.
-      deweyVendorEnv = (pkgs.buildGoApplication {
-        pname = "dewey";
-        version = "0";
-        src = dewey-src;
-        modules = ./dewey-gomod2nix.toml;
-      }).passthru.vendorEnv;
+      deweyVendorEnv =
+        (pkgs.buildGoApplication {
+          pname = "dewey";
+          version = "0";
+          src = dewey-src;
+          modules = ./dewey-gomod2nix.toml;
+        }).passthru.vendorEnv;
       # Consumes the EXTRACTED builder (pkgs.buildGodynModule, igloo overlay) — this
       # is the regression test that the productionized builder still builds dewey's
       # cgo+asm+vendored+local closure identically. (The toy/tommy/cgo/asm experiment

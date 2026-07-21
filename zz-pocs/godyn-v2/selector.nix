@@ -39,12 +39,29 @@ let
       pname
       ;
   };
-  bga = buildGoApplication { inherit pname version src modules; };
+  bga = buildGoApplication {
+    inherit
+      pname
+      version
+      src
+      modules
+      ;
+  };
 
   backend =
-    if lib.elem strategy [ "native" "dev" ] then
+    if
+      lib.elem strategy [
+        "native"
+        "dev"
+      ]
+    then
       "native"
-    else if lib.elem strategy [ "bga" "ci" ] then
+    else if
+      lib.elem strategy [
+        "bga"
+        "ci"
+      ]
+    then
       "bga"
     else
       throw "buildGoAuto: unknown strategy '${strategy}' (one of: native, dev, bga, ci)";
@@ -53,6 +70,11 @@ let
 in
 chosen.overrideAttrs (old: {
   passthru = (old.passthru or { }) // {
-    inherit native bga strategy backend;
+    inherit
+      native
+      bga
+      strategy
+      backend
+      ;
   };
 })

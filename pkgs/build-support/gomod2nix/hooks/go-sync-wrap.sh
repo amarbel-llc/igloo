@@ -12,10 +12,10 @@ if [ -z "${NIX_BUILD_TOP-}" ]; then
     local _exit=$?
     if [ $_exit -eq 0 ]; then
       case "${1:-} ${2:-}" in
-      "get "* | "mod tidy" | "mod init" | "mod edit" | "work sync")
-        echo "[gomod2nix] regenerating gomod2nix.toml..." >&2
-        command gomod2nix generate
-        ;;
+        "get "* | "mod tidy" | "mod init" | "mod edit" | "work sync")
+          echo "[gomod2nix] regenerating gomod2nix.toml..." >&2
+          command gomod2nix generate
+          ;;
       esac
     fi
     return $_exit

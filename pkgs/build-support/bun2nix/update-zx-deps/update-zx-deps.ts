@@ -36,7 +36,10 @@ function parseTarballUrl(key: string): string {
 
 async function computeSriHash(url: string): Promise<string> {
   const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`Failed to fetch ${url}: ${resp.status} ${resp.statusText}`);
+  if (!resp.ok)
+    throw new Error(
+      `Failed to fetch ${url}: ${resp.status} ${resp.statusText}`,
+    );
   const buf = await resp.arrayBuffer();
   const hashBuf = await crypto.subtle.digest("SHA-512", buf);
   return `sha512-${Buffer.from(hashBuf).toString("base64")}`;
@@ -119,7 +122,9 @@ Options:
   }
 
   if (values.check) {
-    console.log(`\n${changed} hash(es) need updating. Run without --check to fix.`);
+    console.log(
+      `\n${changed} hash(es) need updating. Run without --check to fix.`,
+    );
     process.exit(1);
   }
 

@@ -20,20 +20,22 @@ work=$(mktemp -d /tmp/godyn-sweep.XXXXXX)
 
 goStore=$(nix build --no-link --print-out-paths "$v2/../godyn-poc#go-toolchain^out" 2>/dev/null)
 gen=$work/godyn-gen
-( cd "$v2/gen" && PATH="$goStore/bin:$PATH" GOCACHE=$(mktemp -d) go build -o "$gen" . )
+(cd "$v2/gen" && PATH="$goStore/bin:$PATH" GOCACHE=$(mktemp -d) go build -o "$gen" .)
 
 gen_synth() { # N dir
   local N=$1 d=$2 i p imp="" sum="0"
-  rm -rf "$d"; mkdir -p "$d/internal"
-  printf 'module example.com/synth\n\ngo 1.26\n' > "$d/go.mod"
-  printf 'schema = 3\n\n[mod]\n' > "$d/gomod2nix.toml"
+  rm -rf "$d"
+  mkdir -p "$d/internal"
+  printf 'module example.com/synth\n\ngo 1.26\n' >"$d/go.mod"
+  printf 'schema = 3\n\n[mod]\n' >"$d/gomod2nix.toml"
   for ((i = 0; i < N - 1; i++)); do
-    p=$(printf 'p%05d' "$i"); mkdir -p "$d/internal/$p"
-    printf 'package %s\n\nfunc F() int { return %d }\n' "$p" "$i" > "$d/internal/$p/$p.go"
+    p=$(printf 'p%05d' "$i")
+    mkdir -p "$d/internal/$p"
+    printf 'package %s\n\nfunc F() int { return %d }\n' "$p" "$i" >"$d/internal/$p/$p.go"
     imp+=$'\t'"\"example.com/synth/internal/$p\""$'\n'
     sum+=" + $p.F()"
   done
-  printf 'package main\n\nimport (\n\t"fmt"\n%s)\n\nfunc main() { fmt.Println(%s) }\n' "$imp" "$sum" > "$d/main.go"
+  printf 'package main\n\nimport (\n\t"fmt"\n%s)\n\nfunc main() { fmt.Println(%s) }\n' "$imp" "$sum" >"$d/main.go"
 }
 
 native_expr() { # dir
@@ -56,18 +58,20 @@ points=()
 for N in $sizes; do
   d=$work/synth
   gen_synth "$N" "$d"
-  ( cd "$d" && PATH="$goStore/bin:$PATH" GOCACHE=$(mktemp -d) GOFLAGS=-mod=mod "$gen" "$d" "$d/graph.json" ) 2>/dev/null
+  (cd "$d" && PATH="$goStore/bin:$PATH" GOCACHE=$(mktemp -d) GOFLAGS=-mod=mod "$gen" "$d" "$d/graph.json") 2>/dev/null
   ne=() be=()
   # warm both once (cold-build the graph), then time `runs` distinct leaf edits.
   build "$(native_expr "$d")" >/dev/null
   build "$(bga_expr "$d")" >/dev/null
   for _ in $(seq "$runs"); do
-    printf '\nfunc gdProbe() int { return 1%s }\n' "$RANDOM" >> "$d/internal/p00000/p00000.go"
+    printf '\nfunc gdProbe() int { return 1%s }\n' "$RANDOM" >>"$d/internal/p00000/p00000.go"
     ne+=("$(build "$(native_expr "$d")")")
     be+=("$(build "$(bga_expr "$d")")")
-    sed -i '/gdProbe/d' "$d/internal/p00000/p00000.go"; sed -i '${/^$/d}' "$d/internal/p00000/p00000.go"
+    sed -i '/gdProbe/d' "$d/internal/p00000/p00000.go"
+    sed -i '${/^$/d}' "$d/internal/p00000/p00000.go"
   done
-  nm=$(median "${ne[@]}"); bm=$(median "${be[@]}")
+  nm=$(median "${ne[@]}")
+  bm=$(median "${be[@]}")
   win=$([ "$nm" -lt "$bm" ] && echo true || echo false)
   echo "  N=$N  native_edit=${nm}ms  bga_edit=${bm}ms  native_wins=$win" >&2
   points+=("{\"n\":$N,\"native_edit_ms\":$nm,\"bga_edit_ms\":$bm,\"native_wins\":$win}")
@@ -78,7 +82,13 @@ cross=null
 for pt in "${points[@]}"; do
   n=$(sed -E 's/.*"n":([0-9]+).*/\1/' <<<"$pt")
   w=$(grep -q '"native_wins":true' <<<"$pt" && echo 1 || echo 0)
-  [ "$w" = 1 ] && { cross=$n; break; }
+  [ "$w" = 1 ] && {
+    cross=$n
+    break
+  }
 done
-printf '{"runs":%s,"crossover_n":%s,"points":[%s]}\n' "$runs" "$cross" "$(IFS=,; echo "${points[*]}")"
+printf '{"runs":%s,"crossover_n":%s,"points":[%s]}\n' "$runs" "$cross" "$(
+  IFS=,
+  echo "${points[*]}"
+)"
 rm -rf "$work"

@@ -20,22 +20,29 @@ case "$module" in
     approaches=(native recursive bga)
     fbottom=module/internal/leaf/leaf.go
     fmid=module/internal/top/top.go
-    npkg=4 ;;
+    npkg=4
+    ;;
   tommy)
     approaches=(tommy-native tommy-recursive tommy-bga)
     fbottom=$(ls tommy-lib/internal/ringbuf/*.go | grep -v _test | head -1)
     fmid=$(ls tommy-lib/pkg/cst/*.go | grep -v _test | head -1)
-    npkg=7 ;;
+    npkg=7
+    ;;
   *)
-    echo "usage: bench.sh <toy|tommy> [runs]" >&2; exit 1 ;;
+    echo "usage: bench.sh <toy|tommy> [runs]" >&2
+    exit 1
+    ;;
 esac
 
 log=$(mktemp -d)
-pristine() { for f in "$fbottom" "$fmid"; do sed -i '/gdProbe/d; /godyn probe/d' "$f"; sed -i '${/^$/d}' "$f"; done; }
+pristine() { for f in "$fbottom" "$fmid"; do
+  sed -i '/gdProbe/d; /godyn probe/d' "$f"
+  sed -i '${/^$/d}' "$f"
+done; }
 applyedit() {
   case "$2" in
-    semantic) printf '\nfunc gdProbe() int { return 1%s }\n' "$RANDOM" >> "$1" ;;
-    comment)  echo "// godyn probe $RANDOM$RANDOM" >> "$1" ;;
+    semantic) printf '\nfunc gdProbe() int { return 1%s }\n' "$RANDOM" >>"$1" ;;
+    comment) echo "// godyn probe $RANDOM$RANDOM" >>"$1" ;;
   esac
 }
 onebuild() { # $1=target -> "<ms> <rebuilds>"
@@ -53,10 +60,12 @@ scenario() { # $1=approach $2=editfile("" for none) $3=editkind $4=scenario-name
     pristine
     [ -n "$ef" ] && applyedit "$ef" "$ek"
     read -r ms r < <(onebuild "$a")
-    times+=("$ms"); rb=$r
+    times+=("$ms")
+    rb=$r
   done
   pristine
-  local sorted; mapfile -t sorted < <(printf '%s\n' "${times[@]}" | sort -n)
+  local sorted
+  mapfile -t sorted < <(printf '%s\n' "${times[@]}" | sort -n)
   local n=${#sorted[@]}
   jq -nc --arg a "$a" --arg s "$name" \
     --argjson mn "${sorted[0]}" --argjson md "${sorted[$((n / 2))]}" --argjson rb "$rb" \
@@ -66,10 +75,10 @@ scenario() { # $1=approach $2=editfile("" for none) $3=editkind $4=scenario-name
 pristine
 {
   for a in "${approaches[@]}"; do
-    scenario "$a" "" ""        warm
+    scenario "$a" "" "" warm
     scenario "$a" "$fbottom" semantic edit-bottom
-    scenario "$a" "$fmid"    semantic edit-mid
-    scenario "$a" "$fbottom" comment  comment-bottom
+    scenario "$a" "$fmid" semantic edit-mid
+    scenario "$a" "$fbottom" comment comment-bottom
   done
 } | jq -s --arg m "$module" --argjson p "$npkg" --argjson r "$runs" \
   '{module:$m, packages:$p, runs:$r, results:.}'

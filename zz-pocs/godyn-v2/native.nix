@@ -36,54 +36,76 @@
 let
   graph = builtins.fromJSON (builtins.readFile graphFile);
   byImport = lib.listToAttrs (map (p: lib.nameValuePair p.importPath p) graph);
-  importsOf = importPath: let i = byImport.${importPath}.imports; in if i == null then [ ] else i;
+  importsOf =
+    importPath:
+    let
+      i = byImport.${importPath}.imports;
+    in
+    if i == null then [ ] else i;
   sanitize = s: lib.replaceStrings [ "/" "." "_" ] [ "-" "-" "-" ] s;
   nl = xs: if xs == null then [ ] else xs; # go marshals empty slices as null
 
   # GOOS/GOARCH for the asm -D defines (the resolver's goosArch).
   sysParts = lib.splitString "-" system;
   goarch =
-    let m = { x86_64 = "amd64"; aarch64 = "arm64"; i686 = "386"; }; in
+    let
+      m = {
+        x86_64 = "amd64";
+        aarch64 = "arm64";
+        i686 = "386";
+      };
+    in
     m.${builtins.elemAt sysParts 0} or (builtins.elemAt sysParts 0);
   goos = builtins.elemAt sysParts 1;
   goamd64 = lib.optionalString (goarch == "amd64") " -D GOAMD64_v1";
 
   # A module is bridged iff it is in `bridges`; its packages source from the
   # go-pkgs store path. (Import paths under <mod> map to <bridge>/<rest>.)
-  bridgeOf = importPath:
-    lib.findFirst (m: m == importPath || lib.hasPrefix "${m}/" importPath) null (builtins.attrNames bridges);
+  bridgeOf =
+    importPath:
+    lib.findFirst (m: m == importPath || lib.hasPrefix "${m}/" importPath) null (
+      builtins.attrNames bridges
+    );
 
   # Transitive non-stdlib import closure of a package (go tool compile's
   # importcfg must carry every package whose export data is reachable, not just
   # direct imports). Go has no import cycles, so the recursion terminates.
-  transitiveDeps = importPath:
-    let direct = importsOf importPath;
-    in lib.unique (direct ++ lib.concatMap transitiveDeps direct);
+  transitiveDeps =
+    importPath:
+    let
+      direct = importsOf importPath;
+    in
+    lib.unique (direct ++ lib.concatMap transitiveDeps direct);
 
   # importcfg lines for `cfgFile`: stdlib comes from the shared stdlib drv; each
   # non-stdlib transitive dep contributes one `packagefile <imp>=<drv>/pkg.a`.
   # Interpolating `${pkgDrvs.${dep}}` is what makes dep an inputDrv of this drv.
-  cfgFor = importPath: cfgFile:
-    lib.concatMapStringsSep "\n"
-      (dep: "echo 'packagefile ${dep}=${pkgDrvs.${dep}}/pkg.a' >> ${cfgFile}")
-      (transitiveDeps importPath);
+  cfgFor =
+    importPath: cfgFile:
+    lib.concatMapStringsSep "\n" (
+      dep: "echo 'packagefile ${dep}=${pkgDrvs.${dep}}/pkg.a' >> ${cfgFile}"
+    ) (transitiveDeps importPath);
 
-  pkgDrvs = lib.mapAttrs (importPath: p:
+  pkgDrvs = lib.mapAttrs (
+    importPath: p:
     let
       brMod = bridgeOf importPath;
       # Local: in-repo subdir (per-package builtins.path). Bridged: the go-pkgs
       # store path. Third-party: the vendor tree by import path.
       srcDir =
         if p.local then
-          (if lazySrc then
-            src + "/${p.dir}"
-          else
-            builtins.path {
-              path = src + "/${p.dir}";
-              name = "godyn-v2-src-${sanitize importPath}";
-            })
+          (
+            if lazySrc then
+              src + "/${p.dir}"
+            else
+              builtins.path {
+                path = src + "/${p.dir}";
+                name = "godyn-v2-src-${sanitize importPath}";
+              }
+          )
         else if brMod != null then
-          "${bridges.${brMod}}" + lib.optionalString (importPath != brMod) "/${lib.removePrefix "${brMod}/" importPath}"
+          "${bridges.${brMod}}"
+          + lib.optionalString (importPath != brMod) "/${lib.removePrefix "${brMod}/" importPath}"
         else
           "${vendorEnv}/${importPath}";
 
@@ -104,7 +126,9 @@ let
 
       # A cgo main links externally: -extld cc + cc on PATH when any package in
       # the (incl. self) closure is cgo. Libraries (no main) never link.
-      mainCgo = p.isMain && lib.any (d: nl byImport.${d}.cgoFiles != [ ]) (transitiveDeps importPath ++ [ importPath ]);
+      mainCgo =
+        p.isMain
+        && lib.any (d: nl byImport.${d}.cgoFiles != [ ]) (transitiveDeps importPath ++ [ importPath ]);
 
       pureScript = ''
         export GOROOT=${go}/share/go
@@ -188,7 +212,13 @@ let
         if [ -e "$work/_cgo_flags" ]; then go tool pack r "$out/pkg.a" "$work/_cgo_flags"; fi
       '';
 
-      compile = if isCgo then cgoScript else if isAsm then asmScript else pureScript;
+      compile =
+        if isCgo then
+          cgoScript
+        else if isAsm then
+          asmScript
+        else
+          pureScript;
 
       link = lib.optionalString p.isMain ''
         mkdir -p "$out/bin"
@@ -201,16 +231,14 @@ let
           -o "$out/bin/${pname}" "$out/pkg.a"
       '';
     in
-    runCommandLocal "godyn-v2-compile-${sanitize importPath}"
-      {
-        nativeBuildInputs = [ go ] ++ lib.optional (isCgo || mainCgo) cc;
-        # Content-addressed: a byte-identical pkg.a after an edit keeps its store
-        # hash, so dependents stay cached (early cutoff) — the merkle-delta.
-        __contentAddressed = true;
-        outputHashMode = "recursive";
-        outputHashAlgo = "sha256";
-      }
-      (compile + link)
+    runCommandLocal "godyn-v2-compile-${sanitize importPath}" {
+      nativeBuildInputs = [ go ] ++ lib.optional (isCgo || mainCgo) cc;
+      # Content-addressed: a byte-identical pkg.a after an edit keeps its store
+      # hash, so dependents stay cached (early cutoff) — the merkle-delta.
+      __contentAddressed = true;
+      outputHashMode = "recursive";
+      outputHashAlgo = "sha256";
+    } (compile + link)
   ) byImport;
 
   mainPkg = lib.findFirst (p: p.isMain) null graph;
@@ -220,9 +248,9 @@ let
   # and lists the import paths. Mirrors the resolver's buildManifestDrv.
   manifest = runCommandLocal "godyn-v2-${pname}-manifest" { } (
     ": > $out\n"
-    + lib.concatMapStringsSep "\n"
-      (p: "test -s ${pkgDrvs.${p.importPath}}/pkg.a && echo '${p.importPath}' >> $out")
-      graph
+    + lib.concatMapStringsSep "\n" (
+      p: "test -s ${pkgDrvs.${p.importPath}}/pkg.a && echo '${p.importPath}' >> $out"
+    ) graph
   );
 in
 if mainPkg != null then pkgDrvs.${mainPkg.importPath} else manifest

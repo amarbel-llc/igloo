@@ -88,7 +88,9 @@ let
         --pname ${pname} \
         --go-version ${goVersion} \
         --system ${system} \
-        --packages ${packages} ${lib.optionalString (tags != "") "--tags ${tags} "}${lib.concatStrings (lib.mapAttrsToList (m: p: "--bridge ${m}=${p} ") bridges)}${lib.optionalString (lockfile != null) "--lockfile ${lockfile} "}--out $out
+        --packages ${packages} ${lib.optionalString (tags != "") "--tags ${tags} "}${
+          lib.concatStrings (lib.mapAttrsToList (m: p: "--bridge ${m}=${p} ") bridges)
+        }${lib.optionalString (lockfile != null) "--lockfile ${lockfile} "}--out $out
       runHook postBuild
     '';
   };
