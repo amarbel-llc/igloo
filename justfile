@@ -4,7 +4,7 @@ default: build test lint
 
 build: build-eval
 
-# Eval-check changed packages (fast — catches nix errors without building)
+# eval-check changed packages (fast — catches nix errors without building)
 build-eval:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -128,14 +128,14 @@ test-gomod2nix-merge-annotation:
 
 lint: lint-fmt lint-worktree
 
-# Read-only formatting gate via checks.formatting (sandboxed).
+# read-only formatting gate via checks.formatting (sandboxed)
 lint-fmt:
     #!/usr/bin/env bash
     set -euo pipefail
     system=$(nix eval --raw --impure --expr 'builtins.currentSystem')
     nix build ".#checks.${system}.formatting" --no-link --print-build-logs
 
-# Impure git-state linters against the live working tree.
+# run the impure git-state linters against the live working tree
 lint-worktree:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -144,11 +144,11 @@ lint-worktree:
 
 codemod-fmt: codemod-fmt-nix
 
-# Format all nix files (write mode).
+# format all nix files (write mode)
 codemod-fmt-nix:
     nix fmt
 
-# [explore] Build changed packages (slow — full nix build)
+# build changed packages (slow — full nix build)
 [group: 'explore']
 explore-build-changed:
     #!/usr/bin/env bash
@@ -193,7 +193,7 @@ explore-build-changed:
 
     gum log --level info "all changed packages built successfully"
 
-# [explore] Build a specific package by attribute name.
+# build a specific package by attribute name
 [group: 'explore']
 explore-build pkg:
     NIXPKGS_ALLOW_UNFREE=1 nix build --impure --no-link --print-out-paths "path:.#{{ pkg }}"
