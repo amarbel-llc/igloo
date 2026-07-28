@@ -76,6 +76,8 @@ test: test-gomod2nix test-gomod2nix-merge-annotation
 # build-eval's eval pass does not exercise. Wired into `default` so a
 # regression fails the merge hook instead of waiting for someone to run
 # the per-file recipe by hand.
+#
+# build every gomod2nix build-support eval-test fixture
 [group: 'test']
 test-gomod2nix:
     #!/usr/bin/env bash
@@ -102,6 +104,8 @@ test-gomod2nix:
 # passthru.mergedGoMod pointer) reached stderr instead of a bare `go mod
 # edit` error. Kept out of the success-only test-gomod2nix glob because its
 # build must fail; wired into `default` alongside it.
+#
+# assert the goFlakeInputs bridge failure annotation reaches stderr
 [group: 'test']
 test-gomod2nix-merge-annotation:
     #!/usr/bin/env bash
@@ -199,6 +203,8 @@ explore-build pkg:
 #   just explore-nix-build pkgs/build-support/gomod2nix/mk-go-pkgs-test.nix
 #   just explore-nix-build pkgs/build-support/gomod2nix/pwd-validation-test.nix
 #   just explore-nix-build pkgs/build-support/gomod2nix/internals-merge-test.nix
+#
+# run an eval-time test fixture (nix-build a standalone .nix file)
 [group: 'explore']
 explore-nix-build path:
     NIXPKGS_ALLOW_UNFREE=1 nix-build --no-out-link "{{ path }}"
@@ -206,6 +212,8 @@ explore-nix-build path:
 # [explore] Prefetch a URL into the nix store and print its SRI hash.
 # Serves the overlay-pin dev loop: overlays/pins/*.nix src bumps need a
 # fetchurl hash, and sessions have no raw-shell path to nix-prefetch.
+#
+# prefetch a URL into the nix store and print its SRI hash
 [group: 'explore']
 explore-prefetch-url url:
     nix store prefetch-file --json "{{ url }}" | jq -r .hash
@@ -216,6 +224,8 @@ explore-prefetch-url url:
 # string-src filter regression (reported from eng). The pinned rev is the
 # verified repro: fails on unfixed igloo, must succeed on a fixed one.
 # Uses `.` (git+file) for the override, so commit/stage changes first.
+#
+# build a real godyn flake-input consumer against this tree's igloo
 [group: 'explore']
 explore-test-godyn rev="ccc91bed0accabf12f63abc00e583d78aa20183e":
     nix build --no-link --print-out-paths \
@@ -225,6 +235,8 @@ explore-test-godyn rev="ccc91bed0accabf12f63abc00e583d78aa20183e":
 # [explore] Test the overlay-flake migration against amarbel-llc/maneater
 # Clones into .tmp/maneater (or reuses), bumps the nixpkgs input, runs
 # nix flake check + nix build .#default.
+#
+# test the overlay-flake migration against amarbel-llc/maneater
 [group: 'explore']
 explore-test-maneater:
     #!/usr/bin/env bash
@@ -257,6 +269,8 @@ explore-test-maneater:
 # upstream lint stack. After lint is landed here, this is the paved path
 # for refreshing bun.lock/bun.nix when amarbel-llc/bun regenerates them.
 #   just explore-sync-bun-tree nix/bun2nix/lint pkgs/build-support/bun2nix/lint
+#
+# sync a directory tree from amarbel-llc/bun via the gh API
 [group: 'explore']
 explore-sync-bun-tree src dst ref="master":
     #!/usr/bin/env bash
@@ -280,6 +294,8 @@ explore-sync-bun-tree src dst ref="master":
 # (e.g. one ADR out of a docs/decisions tree, one script out of scripts/).
 # dst is a full file path, so renames are natural:
 #   just explore-sync-bun-file docs/decisions/0001-foo.md docs/decisions/0002-foo.md
+#
+# sync a single file from amarbel-llc/bun via the gh API
 [group: 'explore']
 explore-sync-bun-file src dst ref="master":
     #!/usr/bin/env bash
@@ -296,6 +312,8 @@ explore-sync-bun-file src dst ref="master":
 # what's exercised). Run after changing the fixture's import structure, file
 # sets, or test functions — NOT after content-only edits. Serves the igloo#32
 # dev loop; the godyn-gotest-test flake check consumes the committed output.
+#
+# regenerate the godyn gotest fixture's committed graphs with the in-tree gen
 [group: 'explore']
 explore-gen-godyn-fixture:
     #!/usr/bin/env bash
