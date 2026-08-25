@@ -347,41 +347,120 @@ mid-chain with no passthru). Advisory only — the build proceeds; fix it by
 declaring the named module in *goFlakeInputs* or pinning it in
 *gomod2nix.toml*.
 
-## mkGoEnv parity
+## mkGoEnv devshell scope
 
 *mkGoEnv* accepts the same *goFlakeInputs* and *goFlakeInputsMode* attributes
-and applies the same synthesis (replace or workspace — see *Bridging mode*).
-Devshells see the same merged module graph as *nix build*, so
-*go build ./...*, *gopls*, and editor tooling resolve cross-flake imports
-identically to the production build.
+and applies the same synthesis (replace or workspace — see *Bridging mode*) to
+build its *vendor/* environment. What that environment reaches — and what it
+does NOT — is the crux of using the bridge in a devshell:
+
+- The *go* and *gomod2nix* CLIs are placed on PATH, and a *vendor/* tree for
+  the consumer's ORGANIC (*gomod2nix.toml*) dependencies is assembled.
+- The wrapped *go* is the *go-sync-wrap* hook ONLY (it regenerates
+  *gomod2nix.toml* after *go get* / *go mod tidy*). It does NOT inject the
+  goFlakeInputs *replace* lines, a *-modfile*, or *GOFLAGS=-mod=vendor* into an
+  ambient *go* invocation. The bridge's *replace* directives are materialized
+  only inside a *nix build* sandbox (*postPatch* swaps in the merged *go.mod*);
+  nothing materializes them into the *nix develop* working tree automatically.
+
+The practical consequence: an ambient *go build ./...*, *gopls*, or
+*golangci-lint* resolves a bridged module ONLY when that module is ALSO
+reachable through *GOPROXY* at the version the consumer's *go.mod* organically
+requires. A forge-published producer whose required version already contains
+the imported packages resolves by that route and appears to "just work" — but
+that is *GOPROXY* coincidence, not the bridge. A bridge whose whole POINT is a
+NEWER producer rev — one that adds a package the required version lacks — does
+NOT resolve ambiently:
+
+```
+no required module provides package <producer>/<new-pkg>; to add it:
+	go get <producer>/<new-pkg>
+```
+
+To make ambient tooling (including *gopls* and *golangci-lint*) see the bridged
+graph, materialize the merged *go.mod* into the working tree — see
+*passthru.mergedGoMod* and *golangci-lint and the bridge* below. *nix build* is
+unaffected either way: its merged *go.mod* + *vendor/* are assembled in the
+sandbox. Making the ambient *go* apply the bridge without manual materialization
+is tracked in amarbel-llc/igloo#62.
 
 ## passthru.mergedGoMod
 
 Both *buildGoApplication* and *mkGoEnv* expose the synthesized *go.mod* as
-*passthru.mergedGoMod* — a derivation containing the *go.mod* (and, for
-*mkGoEnv*, *go.sum*) with the *replace* lines injected. This is the primary
-artifact for debugging a bridge: build it and read it to see exactly what the
-merged module graph became — which *replace* lines were emitted, and whether a
-bridged module carries a synthetic sentinel *require* or a real version:
+*passthru.mergedGoMod*. Its output is the merged *go.mod* FILE itself — a bare
+file, NOT a directory, carrying only *go.mod* content (no *go.sum*) with the
+*replace* lines injected. This is the primary artifact for debugging a bridge:
+build it and read it to see exactly what the merged module graph became — which
+*replace* lines were emitted, and whether a bridged module carries a synthetic
+sentinel *require* or a real version:
 
 ```
 nix build .#<pkg>.passthru.mergedGoMod && cat result
 ```
 
 Consumers who want the merged file materialized into their working tree (so
-editors and *gopls* read it directly) can wire *mkGoEnv*'s output into a
-*shellHook*:
+ambient *go*, *gopls*, and *golangci-lint* read the bridged *replace* lines
+directly) copy that FILE over *go.mod*. Note there is no */go.mod* suffix — the
+derivation output IS the go.mod file, so *${goEnv.passthru.mergedGoMod}/go.mod*
+fails with *"not a directory"*:
 
 ```
 let goEnv = pkgs.mkGoEnv { pwd = ./.; inherit goFlakeInputs; };
 in pkgs-master.mkShell {
   packages = [ goEnv ];
   shellHook = ''
-    cp -f ${goEnv.passthru.mergedGoMod}/go.mod ./go.mod
+    cp -f ${goEnv.passthru.mergedGoMod} ./go.mod
     chmod u+w ./go.mod
   '';
 }
 ```
+
+The merged *go.mod*'s *replace* targets are absolute */nix/store* paths, and a
+filesystem *replace* is not *go.sum*-checked, so the consumer's existing
+*go.sum* stays valid — no *go.sum* regeneration is needed.
+
+CAUTION: materializing over the tracked *go.mod* writes */nix/store* *replace*
+lines into a version-controlled file. A *shellHook* that does this on every
+*nix develop* entry risks an accidental *git commit* of those store paths, and
+fights *go-sync-wrap* (a later *go mod tidy* regenerates against the mutated
+file). For a one-shot lint/vet step, prefer materializing around the command
+and restoring afterward (see *golangci-lint and the bridge*) over a persistent
+*shellHook* mutation.
+
+## golangci-lint and the bridge
+
+*golangci-lint* loads packages through *go/packages*, which resolves imports
+from the *go.mod* in the working directory. Two facts shape how it sees a
+bridge:
+
+- A *GOFLAGS=-modfile=<merged.mod>* pointing at an out-of-tree merged *go.mod*
+  does NOT work. *go/packages* runs a *go list -f '{{context.ReleaseTags}}' --
+  unsafe* probe with *GO111MODULE=off*, and cmd/go rejects a *-modfile* under
+  *GO111MODULE=off* with *"build flag -modfile only valid when using modules"*.
+  Setting *GO111MODULE=on* in the outer environment does not help — the probe
+  overrides it. So *-modfile* is not a usable lever for *golangci-lint*, even
+  though plain *go build* / *go vet* / *go test* accept it.
+- Materializing the merged *go.mod* into the working tree DOES work.
+  *golangci-lint* then reads the *replace* lines as ordinary *go.mod*
+  directives (no *-modfile* involved) and resolves the bridged package from its
+  */nix/store* target — verified resolving offline (*GOPROXY=off*).
+
+A worktree lint recipe therefore materializes the merged *go.mod*, runs the
+linter, and restores the original:
+
+```
+merged=$(nix build --no-link --print-out-paths ".#packages.${system}.<pkg>.passthru.mergedGoMod")
+cp go.mod .go.mod.orig
+trap 'mv .go.mod.orig go.mod' EXIT
+cp "$merged" go.mod && chmod u+w go.mod
+golangci-lint run ./...
+```
+
+If the same worktree lane also runs a *gomod2nix.toml* drift check (e.g. the
+eng-convention *gomod2nix* linter), disable it there: under the materialized,
+bridged *go.mod* a *gomod2nix generate* strips the bridged keys and diverges
+from the committed lockfile. *nix build* (where the merge is live) is the
+authoritative *gomod2nix* consistency check.
 
 ## Debugging a failed bridge build
 
