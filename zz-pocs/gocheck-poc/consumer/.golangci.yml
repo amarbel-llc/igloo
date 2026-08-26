@@ -1,0 +1,10 @@
+# The POC proves package RESOLUTION — golangci-lint's go/packages loader
+# resolving the bridged-only producer/newpkg — not lint strictness. Enable a
+# single benign linter (govet) so golangci-lint actually runs a pass over the
+# fully-loaded graph and reports "0 issues" on success; a resolution failure
+# still surfaces as a load error regardless of which linters are enabled.
+version: "2"
+linters:
+  default: none
+  enable:
+    - govet

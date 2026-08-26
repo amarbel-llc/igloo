@@ -1253,12 +1253,86 @@ let
       '';
     });
 
+  # Hermetic check/lint variant of an existing buildGoApplication-derived
+  # derivation (FDR 0006, amarbel-llc/igloo#62). Runs a package-loading Go
+  # tool (golangci-lint, staticcheck, custom `go vet` analyzers) INSIDE the
+  # base's build sandbox — where postPatch has already materialized the merged
+  # go.mod and goConfigHook has set up the vendored bridge plus its env
+  # (-mod=vendor, GO_NO_VENDOR_CHECKS=1, GOPROXY=off, go on PATH). A
+  # goFlakeInputs-bridged module therefore resolves hermetically and offline,
+  # exactly as the base's `go test ./...` checkPhase already does. This is the
+  # pure answer to "ambient devshell tooling can't see the bridge": the tool
+  # runs where Nix owns the working tree, so no go.mod/go.work materialization
+  # against the live checkout is needed.
+  #
+  # Lint-only: it replaces the build phase and compiles/installs no binary
+  # (producing the binary stays the base derivation's job). `command` runs
+  # after the vendor tree + env are ready, with a writable HOME and Go caches;
+  # a non-zero exit fails the build. $out is an empty success marker.
+  buildGoCheck =
+    {
+      base,
+      command,
+      extraNativeBuildInputs ? [ ],
+      pnameSuffix ? "-check",
+    }:
+    base.overrideAttrs (old: {
+      pname = "${old.pname or "go"}${pnameSuffix}";
+      nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ extraNativeBuildInputs;
+
+      # Replace the build: run the tool instead of compiling the binary.
+      # goConfigHook (postPatchHooks) and the merged-go.mod postPatch have run
+      # by now, so the tool sees the bridged, vendored module graph. HOME and
+      # the golangci-lint cache must be writable — the sandbox's default
+      # HOME=/homeless-shelter is read-only.
+      buildPhase = ''
+        runHook preBuild
+        export HOME="$TMPDIR/home"
+        mkdir -p "$HOME"
+        export GOLANGCI_LINT_CACHE="$TMPDIR/golangci-lint-cache"
+        ${command}
+        runHook postBuild
+      '';
+
+      # Skip the base's `go test` checkPhase and binary install; this lane is
+      # lint-only. The empty marker keeps `go` out of $out's closure, so the
+      # base's disallowedReferences guard stays satisfied.
+      doCheck = false;
+      dontInstall = false;
+      installPhase = ''
+        runHook preInstall
+        touch $out
+        runHook postInstall
+      '';
+    });
+
+  # golangci-lint specialization of buildGoCheck (FDR 0006). Runs
+  # `golangci-lint run ./...` in the bridged sandbox. `golangci-lint` is a
+  # REQUIRED argument so the consumer pins the version explicitly (typically
+  # pkgs-master.golangci-lint), the same way it pins `go`. `config` optionally
+  # points at a .golangci.yml; omitted, golangci-lint's own walk-up finds the
+  # one in the source tree.
+  buildGoLint =
+    {
+      base,
+      golangci-lint,
+      config ? null,
+      pnameSuffix ? "-lint",
+    }:
+    buildGoCheck {
+      inherit base pnameSuffix;
+      extraNativeBuildInputs = [ golangci-lint ];
+      command = "golangci-lint run ${optionalString (config != null) "-c ${config} "}./...";
+    };
+
 in
 {
   inherit
     buildGoApplication
     buildGoRace
     buildGoCover
+    buildGoCheck
+    buildGoLint
     mkGoEnv
     mkVendorEnv
     mkGoCacheEnv

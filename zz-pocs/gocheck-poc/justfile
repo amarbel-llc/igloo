@@ -1,0 +1,27 @@
+# POC: hermetic buildGoLint resolves a goFlakeInputs-bridged-only package.
+# FDR 0006 / amarbel-llc/igloo#62. See README.md. Not wired into the main
+# test gate — these are explore-group recipes only.
+
+# [explore] Phase 2 — bridged lint lane. GREEN == golangci-lint resolved the
+# bridged-only producer/newpkg inside the sandbox, offline.
+[group('explore')]
+nix-build:
+    nix-build {{ justfile_directory() }} -A lint --no-out-link
+
+# [explore] Phase 3 — control. The unbridged base MUST fail its build with a
+# go/packages load error (cannot find module providing package .../newpkg),
+# proving the bridge is load-bearing. This recipe SUCCEEDS when that fails.
+[group('explore')]
+nix-build-control:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    if nix-build {{ justfile_directory() }} -A control --no-out-link 2>/dev/null; then
+      echo "FAIL: control built green — the bridge is NOT load-bearing?!"
+      exit 1
+    fi
+    echo "OK: control failed to resolve producer/newpkg (bridge is load-bearing)"
+
+# [explore] remove the build result symlink, if any
+[group('explore')]
+clean:
+    rm -f {{ justfile_directory() }}/result

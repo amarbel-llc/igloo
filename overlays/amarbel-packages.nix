@@ -38,6 +38,8 @@ final: _: {
     buildGoApplication
     buildGoRace
     buildGoCover
+    buildGoCheck
+    buildGoLint
     mkGoEnv
     mkVendorEnv
     mkGoCacheEnv
