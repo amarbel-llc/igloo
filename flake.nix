@@ -340,6 +340,7 @@
           pkgs = self.legacyPackages.${system};
           bun2nixCli = bun2nix.packages.${system}.bun2nix;
           c = mkConformist pkgs;
+          gocheck = import ./zz-pocs/gocheck-poc { inherit pkgs; };
         in
         {
           formatting = c.conformistEval.config.build.check self;
@@ -438,6 +439,19 @@
             [ "$got" = "hello from dep/greet" ] || { echo "archiveBridges (output) mismatch: [$got]" >&2; exit 1; }
             echo OK > $out
           '';
+
+          # gomod2nix hermetic lint lane (FDR 0006, igloo#62): buildGoLint must
+          # resolve a goFlakeInputs-bridged-ONLY package inside the sandbox,
+          # offline. `lint` (bridged) builds green; `control` (no bridge) MUST
+          # fail its package load — asserted via testBuildFailure' so a
+          # regression that lets the unbridged case pass fails this check.
+          gocheck-lint = gocheck.lint;
+          gocheck-control-rejects = pkgs.testers.testBuildFailure' {
+            drv = gocheck.control;
+            expectedBuilderLogEntries = [
+              "cannot find module providing package example.com/producer/newpkg"
+            ];
+          };
         }
       );
 
