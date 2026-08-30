@@ -68,7 +68,7 @@ build-eval:
 
     gum log --level info "all changed packages evaluated successfully"
 
-test: test-gomod2nix test-gomod2nix-merge-annotation
+test: test-gomod2nix test-gomod2nix-merge-annotation test-go-toolchain
 
 # [test] Build every gomod2nix build-support eval-test fixture. These pin
 # buildGoApplication / mkGoEnv / mkGoPkgs behavior (version resolution,
@@ -125,6 +125,17 @@ test-gomod2nix-merge-annotation:
         cat "$err"
         exit 1
     fi
+
+# [test] Eval-test the go-toolchain overlay (go-toolchain(7)): registry-driven
+# newest resolution, per-version coexistence, and the mkGoToolchain bundle —
+# WITHOUT compiling a Go toolchain (the compiler build is kept off the gate;
+# see go-toolchain(7) § CACHING). Wired into `default` so a regression in the
+# registry / alias wiring fails the merge hook.
+#
+# eval-test the go-toolchain overlay (registry + mkGoToolchain bundle)
+[group: 'test']
+test-go-toolchain:
+    NIXPKGS_ALLOW_UNFREE=1 nix-build --no-out-link pkgs/development/compilers/go-toolchain/go-toolchain-test.nix
 
 lint: lint-fmt lint-worktree
 
@@ -217,6 +228,38 @@ explore-nix-build path:
 [group: 'explore']
 explore-prefetch-url url:
     nix store prefetch-file --json "{{ url }}" | jq -r .hash
+
+# [maintenance] Refresh the go-toolchain registry with an explicit Go version
+# (go-toolchain(7)). Prefetches the go<version>.src.tar.gz SRI hash and appends
+# a registry entry, refusing to rewrite an existing one. Serves the "pick a Go
+# point release the day it ships" loop (circus#196): after `just update-go
+# 1.26.6`, `pkgs.go` = 1.26.6, `pkgs.go_1_26_6` is available, and older versions
+# still build.
+#
+# add an explicit Go version to the go-toolchain registry (single source of truth)
+[group: 'maintenance']
+update-go version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    reg="pkgs/development/compilers/go-toolchain/registry.nix"
+    ver="{{ version }}"
+    if grep -qF "version = \"$ver\";" "$reg"; then
+        gum log --level error "go $ver already in $reg — registry is append-only; not rewriting"
+        exit 1
+    fi
+    hash=$(nix store prefetch-file --json "https://go.dev/dl/go$ver.src.tar.gz" | jq -r .hash)
+    tmp=$(mktemp)
+    awk -v ver="$ver" -v hash="$hash" '
+        /@@GO_TOOLCHAIN_REGISTRY_END@@/ {
+            printf "  { version = \"%s\"; hash = \"%s\"; }\n", ver, hash
+        }
+        { print }
+    ' "$reg" > "$tmp"
+    mv "$tmp" "$reg"
+    # Normalize the inserted single-line entry to the repo's nix formatting so
+    # the tree stays clean (the formatting gate expects multi-line entries).
+    nix fmt "$reg" >/dev/null 2>&1 || gum log --level warn "nix fmt on $reg failed; run \`just codemod-fmt-nix\` before merging"
+    gum log --level info "added go $ver ($hash) to $reg"
 
 # [explore] Build a real godyn flake-input consumer against THIS tree's igloo.
 # conformist's main package sits at the module ROOT (dir ".") and its src

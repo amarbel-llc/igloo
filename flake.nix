@@ -348,6 +348,7 @@
           inherit (pkgs) claude-code;
           inherit (pkgs) gomod2nix;
           inherit (pkgs) gomod2nix-man;
+          inherit (pkgs) go-toolchain-man;
           inherit (pkgs) godyn-man;
           inherit (pkgs) nixgc-man;
           nix-man = pkgs.nix.man;

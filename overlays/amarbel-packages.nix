@@ -49,6 +49,14 @@ final: _: {
     bridgeCapabilities
     ;
 
+  # go-toolchain — version-parameterized Go toolchains (go-toolchain(7)).
+  # mkGoToolchain builds a Go compiler for a registry version and returns it
+  # with matching builders bound; the per-version `go` / `go_<x>_<y>_<z>` attrs
+  # are aliased over it in overlays/pins/go.nix.
+  inherit (final.callPackage ../pkgs/development/compilers/go-toolchain { })
+    mkGoToolchain
+    ;
+
   # godyn — per-package Go builder (one CA derivation per package; nix schedules
   # the merkle-delta on edits). buildGodynModule consumes a committed graph.json
   # (produced by godyn-gen) + a gomod2nix.toml/vendorEnv for third-party deps.
@@ -107,6 +115,24 @@ final: _: {
         [ -e "$f" ] || continue
         scdoc < "$f" > "$out/share/man/man5/$(basename "$f" .scd)"
       done
+      for f in $src/*.7.scd; do
+        [ -e "$f" ] || continue
+        scdoc < "$f" > "$out/share/man/man7/$(basename "$f" .scd)"
+      done
+    '';
+  };
+
+  # go-toolchain(7) man page (scdoc), validated as a flake check so syntax
+  # errors are caught by the pre-merge hook. Mirrors gomod2nix-man.
+  go-toolchain-man = final.stdenvNoCC.mkDerivation {
+    pname = "go-toolchain-man";
+    version = "0.0.0";
+    src = ../pkgs/development/compilers/go-toolchain;
+    nativeBuildInputs = [ final.scdoc ];
+    dontUnpack = true;
+    dontBuild = true;
+    installPhase = ''
+      mkdir -p $out/share/man/man7
       for f in $src/*.7.scd; do
         [ -e "$f" ] || continue
         scdoc < "$f" > "$out/share/man/man7/$(basename "$f" .scd)"
