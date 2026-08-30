@@ -377,12 +377,21 @@ no required module provides package <producer>/<new-pkg>; to add it:
 	go get <producer>/<new-pkg>
 ```
 
-To make ambient tooling (including *gopls* and *golangci-lint*) see the bridged
-graph, materialize the merged *go.mod* into the working tree — see
-*passthru.mergedGoMod* and *golangci-lint and the bridge* below. *nix build* is
-unaffected either way: its merged *go.mod* + *vendor/* are assembled in the
-sandbox. Making the ambient *go* apply the bridge without manual materialization
-is tracked in amarbel-llc/igloo#62.
+For authoritative, bridge-aware CHECKING (golangci-lint, staticcheck, custom
+*go vet* analyzers), the recommended answer is NOT to reach the ambient *go* at
+all — run the tool inside a *nix build* sandbox, where the bridge is already
+materialized purely. See *Hermetic check lanes* below. For the inner dev loop —
+iterating where the bridge is not load-bearing — the merged *go.mod* can be
+materialized into the working tree as a fallback (see *passthru.mergedGoMod* and
+*golangci-lint and the bridge* below). *nix build* is unaffected either way: its
+merged *go.mod* + *vendor/* are assembled in the sandbox.
+
+Making the ambient *go* / *gopls* apply the bridge WITHOUT any materialization
+was tracked as amarbel-llc/igloo#62. It has no pure solution — Go anchors module
+resolution on the runtime checkout path, which is unknowable at nix-eval time —
+so #62 is resolved instead by the hermetic check lanes, which run the tool where
+Nix owns the working tree. The devshell stays a *GOPROXY*-organic-version place
+for the inner loop.
 
 ## passthru.mergedGoMod
 
@@ -445,8 +454,13 @@ bridge:
   directives (no *-modfile* involved) and resolves the bridged package from its
   */nix/store* target — verified resolving offline (*GOPROXY=off*).
 
-A worktree lint recipe therefore materializes the merged *go.mod*, runs the
-linter, and restores the original:
+The recommended lane for a bridge-aware golangci-lint gate is hermetic — run it
+inside the *buildGoApplication* sandbox via *buildGoLint* (see *Hermetic check
+lanes* below), where the bridge is already materialized and no working-tree
+mutation is involved. The materialize-in-worktree recipe below is the inner-loop
+FALLBACK: convenient for a quick local run, but it writes */nix/store* paths into
+a tracked file (see the *CAUTION* under *passthru.mergedGoMod*). It materializes
+the merged *go.mod*, runs the linter, and restores the original:
 
 ```
 merged=$(nix build --no-link --print-out-paths ".#packages.${system}.<pkg>.passthru.mergedGoMod")
@@ -461,6 +475,71 @@ eng-convention *gomod2nix* linter), disable it there: under the materialized,
 bridged *go.mod* a *gomod2nix generate* strips the bridged keys and diverges
 from the committed lockfile. *nix build* (where the merge is live) is the
 authoritative *gomod2nix* consistency check.
+
+## Hermetic check lanes (buildGoLint / buildGoCheck)
+
+The pure, recommended way to run a package-loading tool against the bridged
+graph is to run it INSIDE a *buildGoApplication* sandbox, not against the
+ambient working tree. In the sandbox the merged *go.mod* (*postPatch*) and the
+vendored bridge (*goConfigHook*: *-mod=vendor*, *GO_NO_VENDOR_CHECKS=1*,
+*GOPROXY=off*, *go* on PATH) are already set up — so the tool resolves every
+bridged module hermetically and offline, exactly as the base's *go test ./...*
+checkPhase already does. This is the answer to "ambient devshell tooling can't
+see the bridge": the tool runs where Nix owns the working tree, so no *go.mod* /
+*go.work* materialization against the live checkout is needed.
+
+Two overlay helpers provide this, alongside *buildGoRace* / *buildGoCover* and
+built by *overrideAttrs* on a *buildGoApplication*-produced base:
+
+- *buildGoLint { base, golangci-lint, config ? null }* — runs
+  *golangci-lint run ./...* in the bridged sandbox. *golangci-lint* is a
+  REQUIRED argument, so the consumer pins the version explicitly (typically
+  *pkgs-master.golangci-lint*), the same way it pins *go*. *config* optionally
+  points at a *.golangci.yml*; omitted, golangci-lint's own walk-up finds the
+  one in the source tree.
+- *buildGoCheck { base, command, extraNativeBuildInputs ? [], pnameSuffix ?
+  "-check" }* — the general primitive that *buildGoLint* wraps, for any
+  package-loading tool (staticcheck, a custom *go vet* analyzer). It runs
+  *command* in the same bridged sandbox with a writable *HOME* and Go caches,
+  putting *extraNativeBuildInputs* on PATH. It is lint-only: it REPLACES the
+  build phase and compiles/installs no binary (producing the binary stays the
+  base derivation's job), and *$out* is an empty success marker; a non-zero
+  *command* fails the build.
+
+A consumer exposes the lane as a flake *check* and points its lint target at
+*nix build .#<pkg>-lint*, retiring any impure worktree golangci-lint run:
+
+```
+let
+  myapp = pkgs.buildGoApplication { pwd = ./.; src = self; inherit goFlakeInputs; };
+in {
+  packages.myapp-lint = pkgs.buildGoLint {
+    base = myapp;
+    golangci-lint = pkgs-master.golangci-lint;
+    # config = ./.golangci.yml;   # optional; auto-found in src otherwise
+  };
+  checks.myapp-lint = self.packages.${system}.myapp-lint;
+}
+```
+
+```
+# a different package-loading tool via the general primitive
+packages.myapp-staticcheck = pkgs.buildGoCheck {
+  base = myapp;
+  extraNativeBuildInputs = [ pkgs-master.go-tools ];   # staticcheck
+  command = "staticcheck ./...";
+  pnameSuffix = "-staticcheck";
+};
+```
+
+This is a CI / gate mechanism, not a devshell one: *gopls* and an ambient
+*go build* in *nix develop* still resolve bridged modules only via *GOPROXY* at
+the organic *require* version (see *mkGoEnv devshell scope*). Consumers keep a
+fast ambient *golangci-lint* / *go test* for iteration where the bridge is not
+load-bearing, and use the hermetic lane for the authoritative check. Design
+rationale and the alternatives considered (the *-modfile* and *go.work*
+dead-ends) are recorded in *docs/features/0006-hermetic-go-check-lanes.md*; the
+lane is the resolution of amarbel-llc/igloo#62.
 
 ## Debugging a failed bridge build
 
@@ -568,7 +647,8 @@ the *tap* flake:
 ## See also
 
 For design rationale and the alternatives considered, see
-*docs/features/0003-bridge-go-flake-inputs.md*.
+*docs/features/0003-bridge-go-flake-inputs.md* (the bridge) and
+*docs/features/0006-hermetic-go-check-lanes.md* (the hermetic check lanes).
 
 # VERSION AND COMMIT INJECTION
 
