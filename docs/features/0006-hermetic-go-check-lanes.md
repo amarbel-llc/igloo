@@ -74,8 +74,8 @@ they inherit its `src`, the merged-`go.mod` `postPatch`, and
   version (typically `pkgs-master.golangci-lint`). Also takes
   `extraArgs ? []` and `warmCache ? false` (below).
 
-- **`mkGoLintCacheEnv { base, golangci-lint, config ? null, depFiles ?
-  base.src }`** — *experimental warm cache* (spinclass#294). A
+- **`mkGoLintCacheEnv { base, golangci-lint, config ? null }`** —
+  *experimental warm cache* (spinclass#294). A
   deps-only derivation: the base's bridged sandbox over a `src` filtered
   to the module-root `go.mod`/`go.sum`/`gomod2nix.toml`/`.golangci.*`,
   linting a synthetic package that blank-imports every vendored package,

@@ -1280,64 +1280,92 @@ let
       cacheSeed ? null,
       passthru ? { },
     }:
-    base.overrideAttrs (old: {
-      pname = "${old.pname or "go"}${pnameSuffix}";
-      nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ extraNativeBuildInputs;
+    base.overrideAttrs (
+      old:
+      noInstallHooks
+      // {
+        pname = "${old.pname or "go"}${pnameSuffix}";
+        nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ extraNativeBuildInputs;
+        postUnpack = (old.postUnpack or "") + "\n" + moveToLintSourceDir;
+        # The seed already holds the base's go-cache-env; skip the hook's
+        # restore rather than unpack it twice.
+        goCacheDir = if cacheSeed != null then "" else old.goCacheDir or "";
 
-      # Replace the build: run the tool instead of compiling the binary.
-      # goConfigHook (postPatchHooks) and the merged-go.mod postPatch have run
-      # by now, so the tool sees the bridged, vendored module graph. HOME and
-      # the golangci-lint cache must be writable — the sandbox's default
-      # HOME=/homeless-shelter is read-only.
-      buildPhase = ''
-        runHook preBuild
-        export HOME="$TMPDIR/home"
-        mkdir -p "$HOME"
-        export GOLANGCI_LINT_CACHE="$TMPDIR/golangci-lint-cache"
-        ${optionalString (cacheSeed != null) ''
-          echo "buildGoCheck: seeding GOCACHE and GOLANGCI_LINT_CACHE from ${cacheSeed}"
-          mkdir -p "$GOCACHE" "$GOLANGCI_LINT_CACHE"
-          ${zstd}/bin/zstd -d -c ${cacheSeed}/gocache.tar.zst | ${gnutar}/bin/tar -xf - -C "$GOCACHE"
-          ${zstd}/bin/zstd -d -c ${cacheSeed}/golangci-lint-cache.tar.zst | ${gnutar}/bin/tar -xf - -C "$GOLANGCI_LINT_CACHE"
-          chmod -R u+w "$GOCACHE" "$GOLANGCI_LINT_CACHE"
-        ''}
-        ${command}
-        runHook postBuild
-      '';
+        # Replace the build: run the tool instead of compiling the binary.
+        # goConfigHook (postPatchHooks) and the merged-go.mod postPatch have run
+        # by now, so the tool sees the bridged, vendored module graph.
+        buildPhase = ''
+          runHook preBuild
+          ${lintScratchEnv}
+          ${optionalString (cacheSeed != null) ''
+            echo "buildGoCheck: seeding GOCACHE and GOLANGCI_LINT_CACHE from ${cacheSeed}"
+            ${unpackLintCache cacheSeed "GOCACHE" "gocache.tar.zst"}
+            ${unpackLintCache cacheSeed "GOLANGCI_LINT_CACHE" "golangci-lint-cache.tar.zst"}
+            chmod -R u+w "$GOCACHE" "$GOLANGCI_LINT_CACHE"
+          ''}
+          ${command}
+          runHook postBuild
+        '';
 
-      # Skip the base's `go test` checkPhase and binary install; this lane is
-      # lint-only. The empty marker keeps `go` out of $out's closure, so the
-      # base's disallowedReferences guard stays satisfied.
-      doCheck = false;
-      dontInstall = false;
-      installPhase = ''
-        runHook preInstall
-        touch $out
-        runHook postInstall
-      '';
-      # The base's install hooks act on its binary output; this lane has none.
-      preInstall = "";
-      postInstall = "";
+        # Skip the base's `go test` checkPhase and binary install; this lane is
+        # lint-only. The empty marker keeps `go` out of $out's closure, so the
+        # base's disallowedReferences guard stays satisfied.
+        doCheck = false;
+        dontInstall = false;
+        installPhase = ''
+          runHook preInstall
+          touch $out
+          runHook postInstall
+        '';
 
-      passthru = (old.passthru or { }) // { inherit cacheSeed; } // passthru;
-    });
+        passthru = (old.passthru or { }) // { inherit cacheSeed; } // passthru;
+      }
+    );
 
   golangciConfigFlag = config: optionalString (config != null) "-c ${config} ";
 
-  # The directory stdenv's unpackPhase gives `src` (its store name minus the
-  # hash). A path outside the store is copied under a fresh hash, so its
-  # basename is kept whole.
-  unpackedSourceName =
-    src:
-    if builtins.isAttrs src && src ? name then
-      src.name
-    else
-      let
-        path = toString src;
-        name = builtins.unsafeDiscardStringContext (baseNameOf path);
-        m = builtins.match "[0-9a-z]{32}-(.*)" name;
-      in
-      if m != null && lib.hasPrefix builtins.storeDir path then elemAt m 0 else name;
+  # HOME and the golangci-lint cache must be writable in both lint lanes — the
+  # sandbox's default HOME=/homeless-shelter is read-only.
+  lintScratchEnv = ''
+    export HOME="$TMPDIR/home"
+    mkdir -p "$HOME"
+    export GOLANGCI_LINT_CACHE="$TMPDIR/golangci-lint-cache"
+  '';
+
+  # golangci-lint keys dependency packages by absolute file path, so the lint
+  # and its warm-up unpack to one fixed directory to see identical paths.
+  moveToLintSourceDir = ''
+    mv "$sourceRoot" go-lint-src
+    sourceRoot=go-lint-src
+  '';
+
+  # The base's install hooks, install checks, and extra outputs all assume its
+  # binary; the lint lanes produce only a marker or cache tarballs in $out.
+  noInstallHooks = {
+    preInstall = "";
+    postInstall = "";
+    doInstallCheck = false;
+    outputs = [ "out" ];
+  };
+
+  packLintCache = var: file: ''
+    ${gnutar}/bin/tar -cf - -C "${"$" + var}" . | ${zstd}/bin/zstd -T$NIX_BUILD_CORES -o "$out/${file}"
+  '';
+
+  unpackLintCache = seed: var: file: ''
+    mkdir -p "${"$" + var}"
+    ${zstd}/bin/zstd -d -c ${seed}/${file} | ${gnutar}/bin/tar -xf - -C "${"$" + var}"
+  '';
+
+  lintDepFileNames = [
+    "go.mod"
+    "go.sum"
+    "gomod2nix.toml"
+    ".golangci.yml"
+    ".golangci.yaml"
+    ".golangci.toml"
+    ".golangci.json"
+  ];
 
   # Deps-only warm cache for buildGoLint (FDR 0006, spinclass#294). Re-runs
   # the base's bridged sandbox over a src filtered to the module-root dep and
@@ -1346,86 +1374,79 @@ let
   # GOCACHE (dep export data) and GOLANGCI_LINT_CACHE (dep analyzer facts).
   # It never lints first-party code, so a restored snapshot holds no
   # first-party issue entries that could replay against a vanished tree.
-  #
-  # The src keeps the base's unpack directory name: golangci-lint keys
-  # dependency packages by absolute file path, so the warm-up must see the
-  # same /build/<name>/vendor/... paths the lint build will.
   mkGoLintCacheEnv =
     {
       base,
       golangci-lint,
       config ? null,
-      depFiles ? base.src,
     }:
-    let
-      depFileNames = [
-        "go.mod"
-        "go.sum"
-        "gomod2nix.toml"
-        ".golangci.yml"
-        ".golangci.yaml"
-        ".golangci.toml"
-        ".golangci.json"
-      ];
-    in
-    base.overrideAttrs (old: {
-      pname = "${old.pname or "go"}-lint-cache";
-      version = "deps";
-      src = lib.cleanSourceWith {
-        src = depFiles;
-        name = unpackedSourceName base.src;
-        filter = path: type: type != "directory" && builtins.elem (baseNameOf path) depFileNames;
-      };
-      # pwd is a first-party source path; commit and ldflags (-X main.commit)
-      # change per commit. Any of them would re-key this on every commit.
-      pwd = null;
-      commit = null;
-      ldflags = [ ];
-      nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ golangci-lint ];
-      postPatch = optionalString (base.passthru ? mergedGoMod) ''
-        cp --no-preserve=mode ${base.passthru.mergedGoMod} go.mod
-      '';
-      doCheck = false;
-      buildPhase = ''
-        runHook preBuild
-        export HOME="$TMPDIR/home"
-        mkdir -p "$HOME"
-        export GOLANGCI_LINT_CACHE="$TMPDIR/golangci-lint-cache"
-        # The vendor env writes no modules.txt (GO_NO_VENDOR_CHECKS), so walk
-        # its (possibly symlinked) package dirs. Other modules' internal/ trees
-        # and main packages can't be imported.
-        vendored=$(find -L vendor -name '*.go' ! -name '*_test.go' -printf '%h\n' 2>/dev/null \
-          | sed 's|^vendor/||' | sort -u | grep -Ev '(^|/)(internal|testdata)(/|$)' || true)
-        mkdir zz_lint_cache_warm
-        {
-          echo 'package zz_lint_cache_warm'
-          echo 'import ('
-          if [ -n "$vendored" ]; then
-            go list -e -f '{{if and (ne .Name "main") (not .Error)}}_ "{{.ImportPath}}"{{end}}' $vendored
-          fi
-          echo ')'
-        } > zz_lint_cache_warm/warm.go
-        echo "mkGoLintCacheEnv: warming over $(grep -c '^_ ' zz_lint_cache_warm/warm.go || true) vendored packages"
-        # Findings on the synthetic package (e.g. SA1019 on a deprecated dep)
-        # are irrelevant; only a runner failure should fail the warm-up.
-        golangci-lint run --issues-exit-code=0 ${golangciConfigFlag config}./zz_lint_cache_warm/...
-        runHook postBuild
-      '';
-      installPhase = ''
-        runHook preInstall
-        mkdir -p "$out"
-        ${gnutar}/bin/tar -cf - -C "$GOCACHE" . | ${zstd}/bin/zstd -T$NIX_BUILD_CORES -o "$out/gocache.tar.zst"
-        ${gnutar}/bin/tar -cf - -C "$GOLANGCI_LINT_CACHE" . | ${zstd}/bin/zstd -T$NIX_BUILD_CORES -o "$out/golangci-lint-cache.tar.zst"
-        runHook postInstall
-      '';
-      # The base's hooks target first-party source and its binary; neither
-      # exists in this deps-only build.
-      preBuild = "";
-      postBuild = "";
-      preInstall = "";
-      postInstall = "";
-      dontFixup = true;
-    });
+    base.overrideAttrs (
+      old:
+      noInstallHooks
+      // {
+        pname = "${old.pname or "go"}-lint-cache";
+        version = "deps";
+        src = lib.cleanSourceWith {
+          inherit (base) src;
+          name = "go-lint-deps";
+          filter = path: type: type != "directory" && builtins.elem (baseNameOf path) lintDepFileNames;
+        };
+        postUnpack = moveToLintSourceDir;
+        # pwd is a first-party source path; commit and ldflags (-X main.commit)
+        # change per commit. Any of them would re-key this on every commit.
+        pwd = null;
+        commit = null;
+        ldflags = [ ];
+        nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ golangci-lint ];
+        postPatch = optionalString (base.passthru ? mergedGoMod) ''
+          cp --no-preserve=mode ${base.passthru.mergedGoMod} go.mod
+        '';
+        doCheck = false;
+        # The base's build hooks target first-party source, absent here.
+        preBuild = "";
+        postBuild = "";
+        buildPhase = ''
+          runHook preBuild
+          ${lintScratchEnv}
+          # The vendor env writes no modules.txt (GO_NO_VENDOR_CHECKS), so walk
+          # its (possibly symlinked) package dirs. Other modules' internal/ trees
+          # and main packages can't be imported.
+          vendored=$(find -L vendor -name '*.go' ! -name '*_test.go' -printf '%h\n' 2>/dev/null \
+            | sed 's|^vendor/||' | sort -u | grep -Ev '(^|/)(internal|testdata)(/|$)' || true)
+          # A library package, not cachegen's `package main`: a main package
+          # pulls runtime build output into the seed (150 KiB -> 17 MiB for a
+          # one-dependency module).
+          mkdir zz_lint_cache_warm
+          {
+            echo 'package zz_lint_cache_warm'
+            echo 'import ('
+            if [ -n "$vendored" ]; then
+              go list -e -f '{{if and (ne .Name "main") (not .Incomplete)}}_ "{{.ImportPath}}"{{end}}' $vendored
+            fi
+            echo ')'
+          } > zz_lint_cache_warm/warm.go
+          echo "mkGoLintCacheEnv: warming over $(grep -c '^_ ' zz_lint_cache_warm/warm.go || true) vendored packages"
+          # Findings on the synthetic package (e.g. SA1019 on a deprecated dep)
+          # are irrelevant; only a runner failure should fail the warm-up.
+          golangci-lint run --issues-exit-code=0 ${golangciConfigFlag config}./zz_lint_cache_warm/...
+          runHook postBuild
+        '';
+        # GOCACHE entries embed the Go toolchain's store path, and whether the
+        # reference scanner spots it inside the zstd stream is down to how the
+        # bytes compress. Record it explicitly instead, so the seed always
+        # references the go it is valid for.
+        disallowedReferences = [ ];
+        installPhase = ''
+          runHook preInstall
+          mkdir -p "$out"
+          echo ${base.passthru.go} > "$out/go"
+          ${packLintCache "GOCACHE" "gocache.tar.zst"}
+          ${packLintCache "GOLANGCI_LINT_CACHE" "golangci-lint-cache.tar.zst"}
+          runHook postInstall
+        '';
+        dontFixup = true;
+      }
+    );
 
   # golangci-lint specialization of buildGoCheck (FDR 0006). Runs
   # `golangci-lint run ./...` in the bridged sandbox. `golangci-lint` is a
@@ -1440,9 +1461,10 @@ let
       config ? null,
       pnameSuffix ? "-lint",
       # Seed the caches from mkGoLintCacheEnv's deps-only snapshot. Opt-in
-      # while the warm cache is experimental. Linux builders only: the seed's
-      # dependency facts are keyed by absolute sandbox path, stable only
-      # where NIX_BUILD_TOP is /build; elsewhere this degrades to cold.
+      # while the warm cache is experimental. The seed's dependency facts are
+      # keyed by absolute path, so they only hit where the build directory is
+      # identical across builds (/build in the Linux sandbox; a Linux build
+      # without the sandbox misses too). Off Linux the seed is dropped.
       warmCache ? false,
       extraArgs ? [ ],
     }:

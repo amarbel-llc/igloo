@@ -488,7 +488,7 @@ checkPhase already does. This is the answer to "ambient devshell tooling can't
 see the bridge": the tool runs where Nix owns the working tree, so no *go.mod* /
 *go.work* materialization against the live checkout is needed.
 
-Two overlay helpers provide this, alongside *buildGoRace* / *buildGoCover* and
+These overlay helpers provide this, alongside *buildGoRace* / *buildGoCover* and
 built by *overrideAttrs* on a *buildGoApplication*-produced base:
 
 - *buildGoLint { base, golangci-lint, config ? null, extraArgs ? [],
@@ -509,8 +509,8 @@ built by *overrideAttrs* on a *buildGoApplication*-produced base:
   empty success marker; a non-zero *command* fails the build. *cacheSeed*, a
   *mkGoLintCacheEnv* output, is restored into the per-build *GOCACHE* and
   *GOLANGCI_LINT_CACHE* before *command* runs.
-- *mkGoLintCacheEnv { base, golangci-lint, config ? null, depFiles ?
-  base.src }* — experimental deps-only warm cache. It lints a synthetic
+- *mkGoLintCacheEnv { base, golangci-lint, config ? null }* — experimental
+  deps-only warm cache. It lints a synthetic
   package that blank-imports every vendored package, in the base's sandbox
   over a *src* filtered to the module-root *go.mod*, *go.sum*,
   *gomod2nix.toml* and *.golangci.\** files, and snapshots both caches.

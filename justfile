@@ -222,9 +222,10 @@ explore-nix-build path:
 
 # [explore] Warm-cache POC for the buildGoLint lane (spinclass#294, FDR 0006).
 # git-archives two salted copies of a spinclass checkout's HEAD into .tmp,
-# shows mkGoLintCacheEnv's drvPath is identical for both, builds it once, then
-# times golangci-lint cold vs. warm-seeded. Full logs: .tmp/warm-cache-poc/.
-# nix-build rather than nix build: getFlake of the sibling checkout is impure.
+# shows mkGoLintCacheEnv's drvPath is identical for both, prebuilds the seeds,
+# then times golangci-lint cold vs. warm-seeded inside the sandbox. Full logs:
+# .tmp/warm-cache-poc/. nix-build rather than nix build: getFlake of the
+# sibling checkout is impure.
 #
 # time cold vs warm-seeded golangci-lint against a real bridged module
 [group: 'explore']
@@ -233,31 +234,29 @@ explore-lint-warm-cache spinclass=(env_var('HOME') + "/eng/repos/spinclass"):
     set -euo pipefail
     fixture=zz-pocs/gocheck-poc/warm-cache.nix
     work="$PWD/.tmp/warm-cache-poc"
-    mkdir -p "$work"
     run=$(date +%s)
+    nb() {
+        local log="$work/$run-$1-$2.log"
+        gum log --level info "building $2 (salt $1)"
+        nix-build --no-out-link --show-trace "$fixture" --argstr spinclass "{{ spinclass }}" \
+            --argstr tree "$work/spinclass-$run-$1" -A "$2" 2>"$log" >/dev/null \
+            || { tail -n 60 "$log"; gum log --level error "nix-build $2 (salt $1) failed; full log: $log"; exit 1; }
+        grep -E 'mkGoLintCacheEnv:|warm-cache-poc|buildGoCheck: seeding|Execution took|packages loading' "$log" || true
+    }
+    gum log --level info "lintCacheEnv drvPath per salt (must match: first-party edits must not re-key it)"
     for salt in a b; do
         tree="$work/spinclass-$run-$salt"
         mkdir -p "$tree"
         git -C "{{ spinclass }}" archive HEAD | tar -x -C "$tree"
         echo "// warm-cache-poc salt $run-$salt" >> "$tree/cmd/spinclass/main.go"
+        nix-instantiate "$fixture" --argstr spinclass "{{ spinclass }}" --argstr tree "$tree" -A lintCacheEnv
     done
-    args() { echo "$fixture --argstr spinclass {{ spinclass }} --argstr tree $work/spinclass-$run-$1 -A $2"; }
-    nb() {
-        local log="$work/$run-$1-$2.log"
-        nix-build --no-out-link --show-trace $(args "$1" "$2") 2>"$log" >/dev/null \
-            || { tail -n 60 "$log"; gum log --level error "nix-build $2 (salt $1) failed; full log: $log"; exit 1; }
-    }
-    gum log --level info "lintCacheEnv drvPath per salt (must match: first-party edits must not re-key it)"
-    for salt in a b; do nix-instantiate $(args "$salt" lintCacheEnv) 2>/dev/null; done
-    gum log --level info "building the deps-only lint cache (once per dep set, then a store hit)"
-    time nb a lintCacheEnv
-    grep -E 'mkGoLintCacheEnv' "$work/$run-a-lintCacheEnv.log" || true
-    for step in "a cold" "a warm" "b warm" "a real-warm"; do
-        set -- $step
-        gum log --level info "lint lane $2, salt $1"
-        time nb "$1" "$2"
-        grep -E 'warm-cache-poc|buildGoCheck: seeding|Execution took|packages loading|analyzers took|issues' "$work/$run-$1-$2.log" || true
-    done
+    nb a lintCacheEnv
+    nb a realLintCacheEnv
+    nb a cold
+    nb a warm
+    nb b warm
+    nb a real-warm
 
 # [explore] Prefetch a URL into the nix store and print its SRI hash.
 # Serves the overlay-pin dev loop: overlays/pins/*.nix src bumps need a

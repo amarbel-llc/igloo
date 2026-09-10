@@ -66,10 +66,14 @@ let
       golangci-lint = pkgs.golangci-lint;
       extraArgs = [ "-v" ];
     };
+
+  warm = timed "warm" (lintOf base true);
+  realWarm = timed "real-warm" (lintOf spinFlake.packages.${system}.default true);
 in
 {
+  inherit warm;
   cold = timed "cold" (lintOf base false);
-  warm = timed "warm" (lintOf base true);
-  inherit (lintOf base true) lintCacheEnv;
-  real-warm = timed "real-warm" (lintOf spinFlake.packages.${system}.default true);
+  inherit (warm) lintCacheEnv;
+  real-warm = realWarm;
+  realLintCacheEnv = realWarm.lintCacheEnv;
 }
