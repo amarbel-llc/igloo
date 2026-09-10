@@ -252,7 +252,7 @@ explore-lint-warm-cache spinclass=(env_var('HOME') + "/eng/repos/spinclass"):
     gum log --level info "building the deps-only lint cache (once per dep set, then a store hit)"
     time nb a lintCacheEnv
     grep -E 'mkGoLintCacheEnv' "$work/$run-a-lintCacheEnv.log" || true
-    for step in "a cold" "a warm" "b warm"; do
+    for step in "a cold" "a warm" "b warm" "a real-warm"; do
         set -- $step
         gum log --level info "lint lane $2, salt $1"
         time nb "$1" "$2"

@@ -8,6 +8,9 @@
 # `spinclass` is the checkout whose flake.lock supplies the bridged producers;
 # getFlake of an unlocked git+file URL makes this impure eval (nix-build only).
 #
+# `real-warm` instead uses spinclass's own packages.default as `base` — the
+# exact consumer shape (store-path src, postInstall, check-only inputs).
+#
 #   just explore-lint-warm-cache
 {
   pkgs ? import ../.. { },
@@ -16,6 +19,7 @@
 }:
 let
   spinFlake = builtins.getFlake "git+file://${spinclass}";
+  system = pkgs.stdenv.hostPlatform.system;
   treePath = /. + tree;
 
   base = pkgs.buildGoApplication {
@@ -32,7 +36,7 @@ let
         ringmaster
         purse-first
         ;
-      system = pkgs.stdenv.hostPlatform.system;
+      inherit system;
     };
     subPackages = [ "cmd/spinclass" ];
     GOTOOLCHAIN = "local";
@@ -54,16 +58,18 @@ let
       + (old.postBuild or "");
     });
 
-  lint =
-    warmCache:
+  lintOf =
+    b: warmCache:
     pkgs.buildGoLint {
-      inherit base warmCache;
+      base = b;
+      inherit warmCache;
       golangci-lint = pkgs.golangci-lint;
       extraArgs = [ "-v" ];
     };
 in
 {
-  cold = timed "cold" (lint false);
-  warm = timed "warm" (lint true);
-  inherit (lint true) lintCacheEnv;
+  cold = timed "cold" (lintOf base false);
+  warm = timed "warm" (lintOf base true);
+  inherit (lintOf base true) lintCacheEnv;
+  real-warm = timed "real-warm" (lintOf spinFlake.packages.${system}.default true);
 }

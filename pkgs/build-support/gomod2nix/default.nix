@@ -1315,6 +1315,9 @@ let
         touch $out
         runHook postInstall
       '';
+      # The base's install hooks act on its binary output; this lane has none.
+      preInstall = "";
+      postInstall = "";
 
       passthru = (old.passthru or { }) // { inherit cacheSeed; } // passthru;
     });
@@ -1322,19 +1325,19 @@ let
   golangciConfigFlag = config: optionalString (config != null) "-c ${config} ";
 
   # The directory stdenv's unpackPhase gives `src` (its store name minus the
-  # hash). A path is copied under a fresh hash, so its basename is kept whole.
+  # hash). A path outside the store is copied under a fresh hash, so its
+  # basename is kept whole.
   unpackedSourceName =
     src:
     if builtins.isAttrs src && src ? name then
       src.name
-    else if builtins.isPath src then
-      baseNameOf src
     else
       let
-        base = builtins.unsafeDiscardStringContext (baseNameOf (toString src));
-        m = builtins.match "[0-9a-z]{32}-(.*)" base;
+        path = toString src;
+        name = builtins.unsafeDiscardStringContext (baseNameOf path);
+        m = builtins.match "[0-9a-z]{32}-(.*)" name;
       in
-      if m != null then elemAt m 0 else base;
+      if m != null && lib.hasPrefix builtins.storeDir path then elemAt m 0 else name;
 
   # Deps-only warm cache for buildGoLint (FDR 0006, spinclass#294). Re-runs
   # the base's bridged sandbox over a src filtered to the module-root dep and
@@ -1373,9 +1376,10 @@ let
         name = unpackedSourceName base.src;
         filter = path: type: type != "directory" && builtins.elem (baseNameOf path) depFileNames;
       };
-      # pwd is a first-party source path and ldflags carry -X main.commit;
-      # either would re-key this derivation on every commit.
+      # pwd is a first-party source path; commit and ldflags (-X main.commit)
+      # change per commit. Any of them would re-key this on every commit.
       pwd = null;
+      commit = null;
       ldflags = [ ];
       nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ golangci-lint ];
       postPatch = optionalString (base.passthru ? mergedGoMod) ''
@@ -1414,6 +1418,12 @@ let
         ${gnutar}/bin/tar -cf - -C "$GOLANGCI_LINT_CACHE" . | ${zstd}/bin/zstd -T$NIX_BUILD_CORES -o "$out/golangci-lint-cache.tar.zst"
         runHook postInstall
       '';
+      # The base's hooks target first-party source and its binary; neither
+      # exists in this deps-only build.
+      preBuild = "";
+      postBuild = "";
+      preInstall = "";
+      postInstall = "";
       dontFixup = true;
     });
 
@@ -1430,7 +1440,9 @@ let
       config ? null,
       pnameSuffix ? "-lint",
       # Seed the caches from mkGoLintCacheEnv's deps-only snapshot. Opt-in
-      # while the warm cache is experimental.
+      # while the warm cache is experimental. Linux builders only: the seed's
+      # dependency facts are keyed by absolute sandbox path, stable only
+      # where NIX_BUILD_TOP is /build; elsewhere this degrades to cold.
       warmCache ? false,
       extraArgs ? [ ],
     }:
@@ -1440,7 +1452,7 @@ let
     buildGoCheck {
       inherit base pnameSuffix;
       extraNativeBuildInputs = [ golangci-lint ];
-      cacheSeed = if warmCache then lintCacheEnv else null;
+      cacheSeed = if warmCache && stdenv.buildPlatform.isLinux then lintCacheEnv else null;
       passthru = { inherit lintCacheEnv; };
       command = "golangci-lint run ${golangciConfigFlag config}${lib.escapeShellArgs extraArgs} ./...";
     };

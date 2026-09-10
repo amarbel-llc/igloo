@@ -58,6 +58,14 @@ in
     golangci-lint = pkgs.golangci-lint;
   };
 
+  # Warm-cache lane (spinclass#294): same lint, seeded from mkGoLintCacheEnv.
+  # Off Linux builders the seed is dropped (cacheSeed == null) and it runs cold.
+  lintWarm = pkgs.buildGoLint {
+    base = bridgedBase;
+    golangci-lint = pkgs.golangci-lint;
+    warmCache = true;
+  };
+
   # Phase 3 (control). EXPECTED to fail its build with a go/packages load
   # error (`no required module provides package example.com/producer/newpkg`).
   control = pkgs.buildGoLint {

@@ -21,6 +21,23 @@ nix-build-control:
     fi
     echo "OK: control failed to resolve producer/newpkg (bridge is load-bearing)"
 
+# [explore] Warm lane — build the lint seeded from the deps-only
+# mkGoLintCacheEnv snapshot (path-literal src shape).
+[group('explore')]
+nix-build-warm:
+    nix-build {{ justfile_directory() }} -A lintWarm --no-out-link
+
+# [explore] warmCache must degrade to cold off Linux builders: evaluate the
+# warm lane for aarch64-darwin and assert it carries no cache seed.
+[group('explore')]
+eval-darwin-warm-guard:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    got=$(nix-instantiate --eval --strict -E \
+      '(import {{ justfile_directory() }} { pkgs = import {{ justfile_directory() }}/../.. { system = "aarch64-darwin"; }; }).lintWarm.passthru.cacheSeed == null')
+    [[ "$got" == true ]] || { echo "FAIL: darwin warm lane still carries a cacheSeed"; exit 1; }
+    echo "OK: aarch64-darwin warm lane has cacheSeed == null (runs cold)"
+
 # [explore] remove the build result symlink, if any
 [group('explore')]
 clean:
