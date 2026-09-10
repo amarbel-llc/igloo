@@ -82,11 +82,9 @@ pkgs.buildGoAuto {
 Both backends are always reachable via *passthru.native* / *passthru.bga* (force
 either without re-plumbing); *passthru.backend* records the choice.
 
-A bridged consumer declares *goFlakeInputs* once on *buildGoAuto*: it is passed to
-buildGoApplication as-is and turned into buildGodynModule *bridges* (a
-*{ src; subPath; }* value becomes *<src>/<subPath>*; an explicit *nativeArgs.bridges*
-entry wins). Generate the graph with *godyn-gen -gomod* against
-*passthru.bga.passthru.mergedGoMod* (see above).
+A bridged consumer declares *goFlakeInputs* once on *buildGoAuto*, which hands it to
+both backends (see *goFlakeInputs* under buildGodynModule). Generate the graph with
+*godyn-gen -gomod* against *passthru.bga.passthru.mergedGoMod* (see above).
 
 # buildGodynModule
 
@@ -132,6 +130,11 @@ Arguments:
 - *cc* — a stdenv cc-wrapper, required iff any package is cgo.
 - *bridges* — modpath -> go-pkgs SOURCE store path; the bridged module's packages are
   compiled in THIS graph (cross-module composition, approach 2). See CROSS-MODULE.
+- *goFlakeInputs* — the RFC 0001 declaration buildGoApplication takes, resolved the
+  same way (including bridges inherited through producers' *passthru.goFlakeInputs*)
+  into *bridges*: a *{ src; subPath; }* value becomes *<src>/<subPath>*, and an
+  explicit *bridges* entry wins. Generate the graph with *godyn-gen -gomod* against the
+  matching merged go.mod.
 - *archiveBridges* — modpath -> go-pkgs-of-ARCHIVES store path; the bridged module's
   packages are LINKED from their pre-built archives, not compiled (approach 1).
 - *system*, *goVersion* — target tuning.

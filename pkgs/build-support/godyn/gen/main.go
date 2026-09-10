@@ -121,9 +121,14 @@ func main() {
 	}
 	cleanup := func() {}
 	if *gomod != "" {
-		var modfile string
-		modfile, cleanup = stageModfile(*gomod, moduleDir)
-		listArgs = append(listArgs, "-modfile="+modfile)
+		dir, err := stageModfile(*gomod, moduleDir)
+		if err != nil {
+			fatalf("staging -gomod: %v", err)
+		}
+		cleanup = func() { os.RemoveAll(dir) }
+		// -mod=mod: bridged producers can require versions the consumer's go.sum
+		// never recorded; let go add them to the throwaway staged go.sum.
+		listArgs = append(listArgs, "-modfile="+filepath.Join(dir, "go.mod"), "-mod=mod")
 	}
 	listArgs = append(listArgs, "-deps", "-json")
 	listArgs = append(listArgs, patterns...)
@@ -162,27 +167,25 @@ func main() {
 }
 
 // stageModfile copies an alternate go.mod, plus the module's go.sum (which
-// -modfile reads from beside the alternate file), into a temp dir so go list can
-// resolve against it without touching the tracked go.mod.
-func stageModfile(gomod, moduleDir string) (string, func()) {
+// -modfile reads from beside the alternate file), into a new temp dir so go list
+// can resolve against it without touching the tracked go.mod.
+func stageModfile(gomod, moduleDir string) (string, error) {
 	dir, err := os.MkdirTemp("", "godyn-gen-modfile-")
 	if err != nil {
-		fatalf("staging -gomod: %v", err)
+		return "", err
 	}
-	cleanup := func() { os.RemoveAll(dir) }
-	modfile := filepath.Join(dir, "go.mod")
-	if err := copyFile(gomod, modfile); err != nil {
-		cleanup()
-		fatalf("staging -gomod: %v", err)
-	}
-	sum := filepath.Join(moduleDir, "go.sum")
-	if _, err := os.Stat(sum); err == nil {
-		if err := copyFile(sum, filepath.Join(dir, "go.sum")); err != nil {
-			cleanup()
-			fatalf("staging -gomod: %v", err)
+	err = copyFile(gomod, filepath.Join(dir, "go.mod"))
+	if err == nil {
+		err = copyFile(filepath.Join(moduleDir, "go.sum"), filepath.Join(dir, "go.sum"))
+		if os.IsNotExist(err) {
+			err = nil
 		}
 	}
-	return modfile, cleanup
+	if err != nil {
+		os.RemoveAll(dir)
+		return "", err
+	}
+	return dir, nil
 }
 
 func copyFile(src, dst string) error {

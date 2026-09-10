@@ -6,10 +6,18 @@
 #   godyn-gen         — the dev-time graph generator CLI
 #   godynStdlib       — the shared CGO_ENABLED=1 stdlib derivation
 { callPackage }:
+let
+  # goFlakeInputs resolution (RFC 0001, incl. depth-N inheritance) is shared with
+  # buildGoApplication so both backends see the same bridge set.
+  gomod2nixInternals = import ../gomod2nix/internals.nix { };
+in
 rec {
   godynStdlib = callPackage ./stdlib.nix { };
   godyn-gen = callPackage ./gen { };
-  buildGodynModule = callPackage ./build-godyn-module.nix { stdlib = godynStdlib; };
+  buildGodynModule = callPackage ./build-godyn-module.nix {
+    stdlib = godynStdlib;
+    inherit gomod2nixInternals;
+  };
   # callPackage supplies buildGodynModule + buildGoApplication from the overlay.
   buildGoAuto = callPackage ./build-go-auto.nix { inherit buildGodynModule; };
 }

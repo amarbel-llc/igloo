@@ -18,6 +18,7 @@
   stdlib,
   buildGoApplication,
   stdenv,
+  gomod2nixInternals,
 }:
 {
   pname,
@@ -76,6 +77,12 @@
   # is sourced from there instead of vendorEnv and COMPILED in this graph (RFC 0001
   # cross-flake go-pkgs). This is the godyn→godyn "source" composition (approach 2).
   bridges ? { },
+  # goFlakeInputs: the RFC 0001 declaration buildGoApplication takes. Resolved the
+  # same way (incl. bridges inherited via producers' passthru.goFlakeInputs) into
+  # `bridges`, a { src; subPath; } value becoming <src>/<subPath>; an explicit
+  # `bridges` entry wins (igloo#69). Generate the graph with `godyn-gen -gomod`
+  # against the matching merged go.mod (igloo#67).
+  goFlakeInputs ? { },
   # archiveBridges: modpath -> go-pkgs-of-ARCHIVES store path (laid out as
   # <importpath>/pkg.a, e.g. another godyn module's passthru.archiveGoPkgs). A package
   # whose module is archive-bridged is NOT compiled here — dependents LINK its
@@ -98,10 +105,28 @@ let
       vendorEnv
     else if modules != null then
       # The vendor tree is version-independent; let buildGoApplication resolve its
-      # own version (don't thread godyn's null version through).
-      (buildGoApplication { inherit pname src modules; }).passthru.vendorEnv
+      # own version (don't thread godyn's null version through). goFlakeInputs goes
+      # along so third-party pins come from the same merged gomod2nix.toml the bga
+      # backend uses (producer tomls unioned, bridged keys stripped).
+      (buildGoApplication {
+        inherit
+          pname
+          src
+          modules
+          goFlakeInputs
+          ;
+      }).passthru.vendorEnv
     else
       null;
+
+  # goFlakeInputs resolved exactly as buildGoApplication resolves them (incl.
+  # bridges inherited via producers' passthru.goFlakeInputs), as source paths;
+  # explicit `bridges` win.
+  effectiveBridges =
+    lib.mapAttrs (_: n: "${n.src}" + lib.optionalString (n.subPath != "") "/${n.subPath}") (
+      gomod2nixInternals.resolveGoFlakeInputs goFlakeInputs
+    )
+    // bridges;
 
   # version.env auto-read + ldflags assembly — parity with buildGoApplication
   # (gomod2nix default.nix:794-870). Explicit version > version.env > "dev".
@@ -214,12 +239,12 @@ let
   goos = builtins.elemAt sysParts 1;
   goamd64 = lib.optionalString (goarch == "amd64") " -D GOAMD64_v1";
 
-  # A module is bridged iff it is in `bridges`; its packages source from the
+  # A module is bridged iff it is in effectiveBridges; its packages source from the
   # go-pkgs store path. (Import paths under <mod> map to <bridge>/<rest>.)
   bridgeOf =
     importPath:
     lib.findFirst (m: m == importPath || lib.hasPrefix "${m}/" importPath) null (
-      builtins.attrNames bridges
+      builtins.attrNames effectiveBridges
     );
 
   # A package is archive-bridged iff its module is in `archiveBridges`: it is not
@@ -350,7 +375,7 @@ let
               }
           )
         else if brMod != null then
-          "${bridges.${brMod}}"
+          "${effectiveBridges.${brMod}}"
           + lib.optionalString (importPath != brMod) "/${lib.removePrefix "${brMod}/" importPath}"
         else
           "${resolvedVendorEnv}/${importPath}";

@@ -418,23 +418,22 @@ explore-gen-godyn-fixture:
 explore-gen-godyn-embed-glob-fixture:
     #!/usr/bin/env bash
     set -euo pipefail
+    gen=$(nix build --no-link --print-out-paths '.#godyn-gen')/bin/godyn-gen
     goStore=$(nix build --no-link --print-out-paths '.#go')
-    export PATH="$goStore/bin:$PATH" GOCACHE=$(mktemp -d) GOPATH=$(mktemp -d)
-    gen=$(mktemp -d)/godyn-gen
-    ( cd pkgs/build-support/godyn/gen && go build -o "$gen" . )
+    export PATH="$goStore/bin:$PATH"
     fixture=pkgs/build-support/godyn/tests/embed-glob
     CGO_ENABLED=0 "$gen" "$fixture" "$fixture/graph.json"
     gum log --level info "regenerated embed-glob fixture graph"
 
 # [explore] igloo#67 acceptance: regenerate a goFlakeInputs consumer's godyn graph
 # with the in-tree `godyn-gen -gomod <its passthru.mergedGoMod>` and diff it against
-# the graph the consumer produced by swapping go.mod by hand. Defaults to
-# spinclass's parked godyn prototype; the new embedPatternFiles field is stripped
-# before the diff (and printed). Writes only under .tmp/.
+# the graph the consumer produced by swapping go.mod by hand (its committed
+# godyn-graph.json). The embedPatternFiles field is stripped before the diff (and
+# printed). Writes only under .tmp/.
 #
 # diff a godyn-gen -gomod graph against a consumer's hand-swapped graph
 [group: 'explore']
-explore-godyn-gomod-acceptance consumer=(env_var('HOME') + "/eng/repos/spinclass/.worktrees/fast-aspen"):
+explore-godyn-gomod-acceptance consumer:
     #!/usr/bin/env bash
     set -euo pipefail
     work="$PWD/.tmp/godyn-gomod-acceptance"

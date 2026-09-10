@@ -450,10 +450,12 @@
             in
             assert !attempt.success;
             pkgs.runCommandLocal "godyn-embed-legacy-throws" { } "echo OK > $out";
-          # igloo#67: `godyn-gen -gomod` resolves a bridged module through the given
-          # go.mod. The fixture app's tracked replace is pointed at a missing dir, so
-          # gen must fail without -gomod, and with it must reproduce the committed
-          # graph byte for byte while leaving the tracked go.mod untouched.
+          # igloo#67: `godyn-gen -gomod` resolves a bridged module through the merged
+          # go.mod buildGoApplication produces for the same goFlakeInputs — the file
+          # godyn(7) tells consumers to pass. The fixture app's tracked replace is
+          # pointed at a missing dir, so gen must fail without -gomod, and with it
+          # must reproduce the committed graph byte for byte while leaving the
+          # tracked go.mod untouched.
           godyn-gen-gomod-test =
             pkgs.runCommandLocal "godyn-gen-gomod-test"
               {
@@ -471,8 +473,9 @@
                 if godyn-gen app no-gomod.json 2>/dev/null; then
                   echo "godyn-gen resolved the broken replace without -gomod" >&2; exit 1
                 fi
-                sed 's|=> ./missing-dep|=> ${./pkgs/build-support/godyn/tests/cross/dep}|' app/go.mod > merged.mod
-                godyn-gen -gomod merged.mod app got.json
+                godyn-gen -gomod ${
+                  self.packages.${system}.godyn-auto-goflakeinputs-test.passthru.bga.passthru.mergedGoMod
+                } app got.json
                 diff -u ${./pkgs/build-support/godyn/tests/cross/app/godyn-graph.json} got.json
                 grep -q missing-dep app/go.mod
                 echo OK > $out
