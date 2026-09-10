@@ -279,6 +279,13 @@
             };
             strategy = "native";
           };
+          # per-package vet: a printf misuse through a wrapper in another package,
+          # visible only through that package's vet facts.
+          godyn-vet-test = pkgs.buildGodynModule {
+            pname = "godyn-vet-test";
+            src = ./pkgs/build-support/godyn/tests/vet;
+            graphFile = ./pkgs/build-support/godyn/tests/vet/graph.json;
+          };
 
           # -- bun2nix test fixtures --
           # Exercise buildBunBinary / buildZxScript / buildZxScriptFromFile
@@ -527,6 +534,17 @@
             [ "$got" = "hello from dep/greet" ] || { echo "buildGoAuto goFlakeInputs mismatch: [$got]" >&2; exit 1; }
             echo OK > $out
           '';
+          # per-package vet: the misuse of logf.Logf in main is only detectable from
+          # the logf package's printf facts, so this failure proves facts chain from
+          # one package's vet derivation to its dependents'.
+          godyn-vet-facts-test = pkgs.testers.testBuildFailure' {
+            drv = self.packages.${system}.godyn-vet-test.passthru.vet."example.com/vet";
+            expectedBuilderLogEntries = [ "Logf format %d has arg" ];
+          };
+          # a clean multi-package module vets green (gotest: local cross-package
+          # imports), and a bridged dependency is vetted facts-only.
+          godyn-vet-clean-test = self.packages.${system}.godyn-gotest-test.passthru.vetAll;
+          godyn-vet-bridged-test = self.packages.${system}.godyn-cross-source.passthru.vetAll;
 
           # gomod2nix hermetic lint lane (FDR 0006, igloo#62): buildGoLint must
           # resolve a goFlakeInputs-bridged-ONLY package inside the sandbox,

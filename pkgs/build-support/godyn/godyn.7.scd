@@ -242,7 +242,35 @@ hermetic and deterministic (no network, no clock/order dependence — the same
 contract as buildGoModule's doCheck). Runtime flags like -run or -count belong
 to manual testBins invocations, not the cached run.
 
+# VET
+
+godyn vets each package in its own content-addressed derivation, speaking the
+*go vet -vettool* (unitchecker) protocol: the tool gets a vet.cfg naming the
+package's sources, every import's export data (godyn's per-package archives and
+the stdlib), and each dependency's analysis facts — that dependency's own vet
+output. Facts therefore chain along the same merkle-delta as the compiles: a
+printf wrapper in one package is known to be one when its callers in another
+package are vetted, and an edit re-vets only the edited package and its
+dependents.
+
+Local packages report findings — any finding fails the build. Third-party and
+bridged packages run facts-only (their findings are not yours to fix). Only
+non-test sources are vetted. The analyzers default to the toolchain's own
+*go tool vet*; pass *vetTool* (a derivation whose mainProgram is a
+unitchecker binary) to run a different analyzer suite through the same wiring.
+
+Passthru surface: *vet.<importPath>* (the local packages' vet derivations) and
+*vetAll* (one manifest realising every local package's vet). Wire vetAll into
+flake checks:
+
+```
+checks.<system>.myapp-vet = myapp.passthru.vetAll;
+```
+
 # LIMITATIONS
+
+Vet: cgo packages are skipped (vetting them needs cgo's translated sources), and
+test sources are not vetted.
 
 go:embed patterns resolve per pattern only in graphs from a current godyn-gen; older
 graphs support literal and trailing-*\** patterns (see above).

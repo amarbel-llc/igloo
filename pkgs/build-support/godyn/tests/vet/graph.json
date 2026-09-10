@@ -1,0 +1,38 @@
+[
+  {
+    "importPath": "example.com/vet",
+    "dir": ".",
+    "name": "main",
+    "isMain": true,
+    "local": true,
+    "goFiles": [
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "embedFiles": null,
+    "embedPatterns": null,
+    "imports": [
+      "example.com/vet/logf"
+    ]
+  },
+  {
+    "importPath": "example.com/vet/logf",
+    "dir": "logf",
+    "name": "logf",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "logf.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "embedFiles": null,
+    "embedPatterns": null,
+    "imports": null
+  }
+]

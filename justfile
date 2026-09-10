@@ -408,22 +408,21 @@ explore-gen-godyn-fixture:
     CGO_ENABLED=0 "$gen" -tests . godyn-test-graph.json
     gum log --level info "regenerated gotest fixture graphs"
 
-# [explore] Regenerate the go:embed glob fixture's committed graph (igloo#68) with
-# the IN-TREE godyn-gen, so its per-pattern embed mapping is what the
-# godyn-embed-glob-test check exercises. Run after changing the fixture's embeds or
-# file set.
+# [explore] Regenerate a godyn test fixture's committed graph.json (e.g. embed-glob,
+# vet) with the IN-TREE godyn-gen, so the checks exercise what the current gen
+# emits. Run after changing a fixture's imports, embeds, or file set.
 #
-# regenerate the godyn embed-glob fixture graph with the in-tree gen
+# regenerate a godyn fixture's graph.json with the in-tree gen
 [group: 'explore']
-explore-gen-godyn-embed-glob-fixture:
+explore-gen-godyn-graph fixture:
     #!/usr/bin/env bash
     set -euo pipefail
     gen=$(nix build --no-link --print-out-paths '.#godyn-gen')/bin/godyn-gen
     goStore=$(nix build --no-link --print-out-paths '.#go')
     export PATH="$goStore/bin:$PATH"
-    fixture=pkgs/build-support/godyn/tests/embed-glob
-    CGO_ENABLED=0 "$gen" "$fixture" "$fixture/graph.json"
-    gum log --level info "regenerated embed-glob fixture graph"
+    dir=pkgs/build-support/godyn/tests/{{ fixture }}
+    CGO_ENABLED=0 "$gen" "$dir" "$dir/graph.json"
+    gum log --level info "regenerated $dir/graph.json"
 
 # [explore] igloo#67 acceptance: regenerate a goFlakeInputs consumer's godyn graph
 # with the in-tree `godyn-gen -gomod <its passthru.mergedGoMod>` and diff it against

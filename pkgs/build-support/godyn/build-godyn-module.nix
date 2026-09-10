@@ -18,6 +18,7 @@
   stdlib,
   buildGoApplication,
   stdenv,
+  jq,
   gomod2nixInternals,
 }:
 {
@@ -92,6 +93,10 @@
   archiveBridges ? { },
   system ? stdenv.system,
   goVersion ? "go1.26",
+  # vetTool: a unitchecker binary (golang.org/x/tools/go/analysis/unitchecker, the
+  # `go vet -vettool` protocol) for the per-package vet lane; its mainProgram runs
+  # once per package. null = the toolchain's own `go tool vet` analyzers.
+  vetTool ? null,
   # lazySrc (experiment, #27): source local packages directly from the flake input
   # tree (src + "/dir") instead of a per-package `builtins.path` copy. WARNING:
   # trades per-package incrementality for the lazy read (a bare `src + "/dir"` is a
@@ -337,10 +342,8 @@ let
     else
       rel;
 
-  # Compile a node per package, EXCEPT archive-bridged ones (those are linked from a
-  # pre-built archive, never compiled here). transitiveDeps still sees them (they stay
-  # in the graph) so dependents' importcfgs can reference their archives.
-  pkgDrvs = lib.mapAttrs (
+  # A package's source directory, shared by its compile and vet derivations.
+  srcDirFor =
     importPath: p:
     let
       brMod = bridgeOf importPath;
@@ -359,26 +362,34 @@ let
         ++ nl (p.embedFiles or null);
       srcFileSet = lib.listToAttrs (map (f: lib.nameValuePair f true) srcFiles);
       pkgRoot = pkgRootFor p.dir;
-      # Local: in-repo subdir (per-package filtered builtins.path; lazySrc keeps its
-      # documented unfiltered whole-input behavior). Bridged: the go-pkgs store path.
-      # Third-party: the vendor tree by import path.
-      srcDir =
-        if p.local then
-          (
-            if lazySrc then
-              pkgRoot
-            else
-              builtins.path {
-                path = pkgRoot;
-                name = "godyn-src-${sanitize importPath}";
-                filter = path: type: type == "directory" || builtins.hasAttr (relToRoot pkgRoot path) srcFileSet;
-              }
-          )
-        else if brMod != null then
-          "${effectiveBridges.${brMod}}"
-          + lib.optionalString (importPath != brMod) "/${lib.removePrefix "${brMod}/" importPath}"
+    in
+    # Local: in-repo subdir (per-package filtered builtins.path; lazySrc keeps its
+    # documented unfiltered whole-input behavior). Bridged: the go-pkgs store path.
+    # Third-party: the vendor tree by import path.
+    if p.local then
+      (
+        if lazySrc then
+          pkgRoot
         else
-          "${resolvedVendorEnv}/${importPath}";
+          builtins.path {
+            path = pkgRoot;
+            name = "godyn-src-${sanitize importPath}";
+            filter = path: type: type == "directory" || builtins.hasAttr (relToRoot pkgRoot path) srcFileSet;
+          }
+      )
+    else if brMod != null then
+      "${effectiveBridges.${brMod}}"
+      + lib.optionalString (importPath != brMod) "/${lib.removePrefix "${brMod}/" importPath}"
+    else
+      "${resolvedVendorEnv}/${importPath}";
+
+  # Compile a node per package, EXCEPT archive-bridged ones (those are linked from a
+  # pre-built archive, never compiled here). transitiveDeps still sees them (they stay
+  # in the graph) so dependents' importcfgs can reference their archives.
+  pkgDrvs = lib.mapAttrs (
+    importPath: p:
+    let
+      srcDir = srcDirFor importPath p;
 
       # nl: a pure-cgo package (e.g. zstd) has all .go in cgoFiles, so goFiles is
       # marshalled null; coerce before the list map.
@@ -521,6 +532,81 @@ let
       outputHashAlgo = "sha256";
     } (compile + link)
   ) (lib.filterAttrs (importPath: _: archiveBridgeOf importPath == null) byImport);
+
+  # ---- per-package vet (the unitchecker / `go vet -vettool` protocol) ----
+  # One CA derivation per package. The tool gets a vet.cfg naming the package's
+  # sources, every import's export data (godyn's per-package archives plus the
+  # stdlib importcfg), and each dependency's facts (that dependency's own vet
+  # output), and writes this package's facts to $out/vet.out — so analyzers'
+  # cross-package facts chain along the same merkle-delta as the compiles. Local
+  # packages report findings (any finding fails the build); third-party and bridged
+  # ones run facts-only (VetxOnly). cgo packages are skipped: vetting them needs
+  # cgo's translated sources. Only non-test sources are vetted.
+  vetToolExe = if vetTool != null then lib.getExe vetTool else ''"$(go env GOTOOLDIR)/vet"'';
+
+  # The stdlib half of every vet.cfg, derived once from the stdlib importcfg.
+  # "unsafe" has no archive but must resolve through ImportMap.
+  vetStdCfg = runCommandLocal "godyn-vet-stdlib-cfg" { nativeBuildInputs = [ jq ]; } ''
+    sed -n 's/^packagefile \([^=]*\)=\(.*\)$/\1\t\2/p' ${stdlib}/importcfg \
+      | jq -R -n '[inputs | split("\t") | {key: .[0], value: .[1]}] | from_entries
+          | {PackageFile: ., ImportMap: (with_entries(.value = .key) + {unsafe: "unsafe"}),
+             Standard: (with_entries(.value = true) + {unsafe: true})}' > $out
+  '';
+
+  vetDrvs = lib.mapAttrs (
+    importPath: p:
+    let
+      srcDir = srcDirFor importPath p;
+      deps = transitiveDeps importPath;
+      archiveOf = d: if archiveBridgeOf d != null then archivePathOf d else "${pkgDrvs.${d}}/pkg.a";
+    in
+    runCommandLocal "godyn-vet-${sanitize importPath}"
+      {
+        nativeBuildInputs = [
+          go
+          jq
+        ];
+        vetCfg = builtins.toJSON {
+          ID = importPath;
+          Compiler = "gc";
+          ImportPath = importPath;
+          GoVersion = goVersion;
+          GoFiles = map (f: "${srcDir}/${f}") (nl p.goFiles);
+          NonGoFiles = map (f: "${srcDir}/${f}") (nl p.sFiles);
+          ImportMap = lib.genAttrs deps (d: d);
+          PackageFile = lib.genAttrs deps archiveOf;
+          PackageVetx = lib.genAttrs (builtins.filter (d: vetDrvs ? ${d}) deps) (
+            d: "${vetDrvs.${d}}/vet.out"
+          );
+          VetxOnly = !p.local;
+          VetxOutput = "vet.out";
+        };
+        passAsFile = [ "vetCfg" ];
+        __contentAddressed = true;
+        outputHashMode = "recursive";
+        outputHashAlgo = "sha256";
+      }
+      ''
+        export GOROOT=${go}/share/go
+        mkdir -p "$out"
+        ${outWritableProbe}
+        jq -s '.[0] * .[1]' ${vetStdCfg} "$vetCfgPath" > vet.cfg
+        ${vetToolExe} vet.cfg
+        [ -e vet.out ] || : > vet.out
+        mv vet.out "$out/vet.out"
+        ${lib.optionalString p.local ''echo "ok ${importPath}" > "$out/result"''}
+      ''
+  ) (lib.filterAttrs (ip: p: archiveBridgeOf ip == null && nl p.cgoFiles == [ ]) byImport);
+
+  localVet = lib.filterAttrs (ip: _: byImport.${ip}.local) vetDrvs;
+
+  # One manifest realising every local package's vet run — the flake-checks hook.
+  vetAll = runCommandLocal "godyn-${pname}-vet" { } (
+    ": > $out\n"
+    + lib.concatMapStringsSep "\n" (ip: "cat ${localVet.${ip}}/result >> $out") (
+      builtins.attrNames localVet
+    )
+  );
 
   mainPkg = lib.findFirst (p: p.isMain) null graph;
 
@@ -731,6 +817,10 @@ terminal.overrideAttrs (old: {
     # all-tests manifest for flake checks. Empty when no test graph was passed.
     tests = testRuns;
     inherit testBins checkAll;
+    # per-package vet: run derivations for the local packages by import path (a
+    # finding fails the build), and the all-packages manifest for flake checks.
+    vet = localVet;
+    inherit vetAll;
   };
   meta = (old.meta or { }) // lib.optionalAttrs (mainPkg != null) { mainProgram = pname; };
 })
