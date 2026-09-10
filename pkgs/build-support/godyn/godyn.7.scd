@@ -48,6 +48,16 @@ set them): use *CGO_ENABLED=0* for a pure-Go module so file selection is clean, 
 *CGO_ENABLED=1* + *CC* for a cgo module so its CgoFiles populate; *GOFLAGS=-mod=vendor*
 when third-party deps are materialised into vendor/. Pin the same env in the
 regenerate and drift-check recipes so the output stays byte-deterministic.
++
+A consumer that bridges modules via *goFlakeInputs* (RFC 0001) must generate
+against the SAME merged go.mod the build uses: *godyn-gen -gomod <go.mod> ...*
+resolves the module graph against that file (staged with the module's go.sum;
+the tracked go.mod is never touched). Pass *buildGoApplication*'s
+*passthru.mergedGoMod*, whose replaces point bridged modules at their flake-version
+go-pkgs — otherwise *go list* sees the vestigial *require* version, and the graph
+records the wrong files for, or cannot resolve, a bridged package (igloo#67). The
+graph stays portable (dirs are module-relative), but regenerate it whenever a
+bridged producer's flake.lock rev moves.
 . *graph.json* is committed alongside *gomod2nix.toml*.
 . *buildGodynModule* reads the committed graph purely (no import-from-derivation).
 
@@ -71,6 +81,12 @@ pkgs.buildGoAuto {
 
 Both backends are always reachable via *passthru.native* / *passthru.bga* (force
 either without re-plumbing); *passthru.backend* records the choice.
+
+A bridged consumer declares *goFlakeInputs* once on *buildGoAuto*: it is passed to
+buildGoApplication as-is and turned into buildGodynModule *bridges* (a
+*{ src; subPath; }* value becomes *<src>/<subPath>*; an explicit *nativeArgs.bridges*
+entry wins). Generate the graph with *godyn-gen -gomod* against
+*passthru.bga.passthru.mergedGoMod* (see above).
 
 # buildGodynModule
 
@@ -126,8 +142,12 @@ graph (no main) produces a compile-only manifest realising every archive.
 *<importpath>/pkg.a*) for a downstream consumer's *archiveBridges*.
 
 *//go:embed* is handled automatically: godyn-gen records each package's embed
-patterns + files, and the compile step writes an embedcfg and passes
-*go tool compile -embedcfg* (literal and simple suffix-glob patterns).
+patterns, files, and which files each pattern matched (resolved with cmd/go's own
+rules: globs, directory patterns, and *all:*), and the compile step writes that
+mapping into an embedcfg for *go tool compile -embedcfg*. A pattern resolving to no
+files fails evaluation rather than building a binary with an empty embed.FS; a
+graph from an older godyn-gen (no per-pattern mapping) only supports literal and
+trailing-*\** patterns — regenerate it (igloo#68).
 
 # CROSS-MODULE COMPOSITION (godyn → godyn)
 
@@ -221,7 +241,8 @@ to manual testBins invocations, not the cached run.
 
 # LIMITATIONS
 
-go:embed supports literal and simple suffix-glob patterns.
+go:embed patterns resolve per pattern only in graphs from a current godyn-gen; older
+graphs support literal and trailing-*\** patterns (see above).
 
 Tests: cgo and asm packages' tests, test-only THIRD-PARTY deps, the -race
 stdlib variant, and embeds referenced only by \_test.go files are not yet

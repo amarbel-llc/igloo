@@ -182,6 +182,13 @@
               "main.channel" = "stable";
             };
           };
+          # go:embed beyond literal files (igloo#68): a mid-path glob and a
+          # directory pattern, resolved per pattern by godyn-gen.
+          godyn-embed-glob-test = pkgs.buildGodynModule {
+            pname = "godyn-embed-glob-test";
+            src = ./pkgs/build-support/godyn/tests/embed-glob;
+            graphFile = ./pkgs/build-support/godyn/tests/embed-glob/graph.json;
+          };
           # buildGoAuto dispatch: strategy="native" -> buildGodynModule. The check
           # below builds + runs it (proving the godyn backend was selected); both
           # backends stay reachable via passthru.{native,bga}.
@@ -257,6 +264,21 @@
                 "example.com/dep" = dep.passthru.archiveGoPkgs;
               };
             };
+          # buildGoAuto goFlakeInputs (igloo#69): the bridge declared once in RFC 0001
+          # { src; subPath; } form must reach the godyn backend as `bridges`, with
+          # subPath folded into the path (godyn's bridges have no subPath knob).
+          godyn-auto-goflakeinputs-test = pkgs.buildGoAuto {
+            pname = "godyn-cross-app";
+            src = ./pkgs/build-support/godyn/tests/cross/app;
+            graphFile = ./pkgs/build-support/godyn/tests/cross/app/godyn-graph.json;
+            goFlakeInputs = {
+              "example.com/dep" = {
+                src = ./pkgs/build-support/godyn/tests/cross;
+                subPath = "dep";
+              };
+            };
+            strategy = "native";
+          };
 
           # -- bun2nix test fixtures --
           # Exercise buildBunBinary / buildZxScript / buildZxScriptFromFile
@@ -398,6 +420,63 @@
             [ "$got" = "$want" ] || { echo "ldflags mismatch: got [$got] want [$want]" >&2; exit 1; }
             echo OK > $out
           '';
+          # igloo#68: every pattern embeds its files — the templates glob (not
+          # ignore.txt) and the static tree minus its dot-file.
+          godyn-embed-glob-test = pkgs.runCommandLocal "godyn-embed-glob-test-check" { } ''
+            got=$(${self.packages.${system}.godyn-embed-glob-test}/bin/godyn-embed-glob-test)
+            want=$(printf 'alpha\nbeta\nstatic/sub/y.txt\nstatic/x.txt')
+            [ "$got" = "$want" ] || { echo "embed-glob mismatch: got [$got] want [$want]" >&2; exit 1; }
+            echo OK > $out
+          '';
+          # igloo#68 fail-loud: the same fixture with its graph stripped back to the
+          # pre-mapping shape must refuse to evaluate, not build a binary whose
+          # embed.FS is empty.
+          godyn-embed-legacy-throws =
+            let
+              legacyGraph = builtins.toFile "godyn-embed-glob-legacy.json" (
+                builtins.toJSON (
+                  map (p: removeAttrs p [ "embedPatternFiles" ]) (
+                    builtins.fromJSON (builtins.readFile ./pkgs/build-support/godyn/tests/embed-glob/graph.json)
+                  )
+                )
+              );
+              attempt =
+                builtins.tryEval
+                  (pkgs.buildGodynModule {
+                    pname = "godyn-embed-glob-test";
+                    src = ./pkgs/build-support/godyn/tests/embed-glob;
+                    graphFile = legacyGraph;
+                  }).drvPath;
+            in
+            assert !attempt.success;
+            pkgs.runCommandLocal "godyn-embed-legacy-throws" { } "echo OK > $out";
+          # igloo#67: `godyn-gen -gomod` resolves a bridged module through the given
+          # go.mod. The fixture app's tracked replace is pointed at a missing dir, so
+          # gen must fail without -gomod, and with it must reproduce the committed
+          # graph byte for byte while leaving the tracked go.mod untouched.
+          godyn-gen-gomod-test =
+            pkgs.runCommandLocal "godyn-gen-gomod-test"
+              {
+                nativeBuildInputs = [
+                  pkgs.go
+                  pkgs.godyn-gen
+                ];
+              }
+              ''
+                export HOME=$TMPDIR GOCACHE=$TMPDIR/gocache GOPATH=$TMPDIR/gopath
+                export GOPROXY=off GOFLAGS=-mod=mod GOTOOLCHAIN=local CGO_ENABLED=0
+                cp -r ${./pkgs/build-support/godyn/tests/cross/app} app
+                chmod -R u+w app
+                sed -i 's|=> ../dep|=> ./missing-dep|' app/go.mod
+                if godyn-gen app no-gomod.json 2>/dev/null; then
+                  echo "godyn-gen resolved the broken replace without -gomod" >&2; exit 1
+                fi
+                sed 's|=> ./missing-dep|=> ${./pkgs/build-support/godyn/tests/cross/dep}|' app/go.mod > merged.mod
+                godyn-gen -gomod merged.mod app got.json
+                diff -u ${./pkgs/build-support/godyn/tests/cross/app/godyn-graph.json} got.json
+                grep -q missing-dep app/go.mod
+                echo OK > $out
+              '';
           # buildGoAuto picked the native (godyn) backend; its binary runs.
           godyn-selector-test = pkgs.runCommandLocal "godyn-selector-test-check" { } ''
             got=$(${self.packages.${system}.godyn-selector-test}/bin/godyn-embed-test)
@@ -438,6 +517,11 @@
           godyn-cross-archive = pkgs.runCommandLocal "godyn-cross-archive-check" { } ''
             got=$(${self.packages.${system}.godyn-cross-archive}/bin/godyn-cross-app)
             [ "$got" = "hello from dep/greet" ] || { echo "archiveBridges (output) mismatch: [$got]" >&2; exit 1; }
+            echo OK > $out
+          '';
+          godyn-auto-goflakeinputs-test = pkgs.runCommandLocal "godyn-auto-goflakeinputs-test-check" { } ''
+            got=$(${self.packages.${system}.godyn-auto-goflakeinputs-test}/bin/godyn-cross-app)
+            [ "$got" = "hello from dep/greet" ] || { echo "buildGoAuto goFlakeInputs mismatch: [$got]" >&2; exit 1; }
             echo OK > $out
           '';
 

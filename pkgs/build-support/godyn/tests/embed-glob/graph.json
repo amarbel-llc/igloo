@@ -1,0 +1,37 @@
+[
+  {
+    "importPath": "godyn-embed-glob-test",
+    "dir": ".",
+    "name": "main",
+    "isMain": true,
+    "local": true,
+    "goFiles": [
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "embedFiles": [
+      "static/sub/y.txt",
+      "static/x.txt",
+      "templates/a.md.tmpl",
+      "templates/b.md.tmpl"
+    ],
+    "embedPatterns": [
+      "static",
+      "templates/*.md.tmpl"
+    ],
+    "embedPatternFiles": {
+      "static": [
+        "static/sub/y.txt",
+        "static/x.txt"
+      ],
+      "templates/*.md.tmpl": [
+        "templates/a.md.tmpl",
+        "templates/b.md.tmpl"
+      ]
+    },
+    "imports": null
+  }
+]

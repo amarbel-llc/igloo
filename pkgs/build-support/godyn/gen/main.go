@@ -11,7 +11,12 @@
 // cache — the "capture route", so TestMain/Examples/fuzz wiring is exactly what
 // `go test` would produce). buildGodynModule consumes it via testGraphFile.
 //
-// Usage: godyn-gen [-tests] <module-dir> <out-graph.json> [packages...]
+// With -gomod it resolves the module graph against an alternate go.mod — for a
+// goFlakeInputs consumer, buildGoApplication's passthru.mergedGoMod, whose
+// replaces point bridged modules at their flake-version go-pkgs — so the graph
+// records the files the build will actually compile (igloo#67).
+//
+// Usage: godyn-gen [-tests] [-gomod <go.mod>] <module-dir> <out-graph.json> [packages...]
 // packages defaults to ./... ; pass e.g. ./internal/delta/... to emit only that
 // subtree's transitive closure (go list -deps follows imports across the scope).
 package main
@@ -19,9 +24,11 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -60,19 +67,20 @@ type goListPkg struct {
 // (pure/cgo/asm) is derived from the file lists, orthogonally to source-kind
 // (local/vendor/bridge).
 type genPkg struct {
-	ImportPath    string   `json:"importPath"`
-	Dir           string   `json:"dir"`           // for local pkgs: module-root-relative ("internal/leaf", "."); third-party: unused
-	Name          string   `json:"name"`          // package name; "main" links a binary
-	IsMain        bool     `json:"isMain"`        //
-	Local         bool     `json:"local"`         // in the main module (src=module/dir) vs third-party (src=vendorEnv/importPath)
-	GoFiles       []string `json:"goFiles"`       // non-test .go files (basenames)
-	CgoFiles      []string `json:"cgoFiles"`      // .go files with `import "C"` (non-empty => cgo path)
-	CFiles        []string `json:"cFiles"`        // C source compiled with cc
-	HFiles        []string `json:"hFiles"`        // C headers (kept so includes resolve)
-	SFiles        []string `json:"sFiles"`        // .s = Plan 9 asm (go tool asm); .S/.sx = gcc asm (cc)
-	EmbedFiles    []string `json:"embedFiles"`    // files matched by //go:embed (need -embedcfg at compile)
-	EmbedPatterns []string `json:"embedPatterns"` // the //go:embed patterns themselves
-	Imports       []string `json:"imports"`       // direct, in-graph (non-stdlib) imports
+	ImportPath        string              `json:"importPath"`
+	Dir               string              `json:"dir"`                         // for local pkgs: module-root-relative ("internal/leaf", "."); third-party: unused
+	Name              string              `json:"name"`                        // package name; "main" links a binary
+	IsMain            bool                `json:"isMain"`                      //
+	Local             bool                `json:"local"`                       // in the main module (src=module/dir) vs third-party (src=vendorEnv/importPath)
+	GoFiles           []string            `json:"goFiles"`                     // non-test .go files (basenames)
+	CgoFiles          []string            `json:"cgoFiles"`                    // .go files with `import "C"` (non-empty => cgo path)
+	CFiles            []string            `json:"cFiles"`                      // C source compiled with cc
+	HFiles            []string            `json:"hFiles"`                      // C headers (kept so includes resolve)
+	SFiles            []string            `json:"sFiles"`                      // .s = Plan 9 asm (go tool asm); .S/.sx = gcc asm (cc)
+	EmbedFiles        []string            `json:"embedFiles"`                  // files matched by //go:embed (need -embedcfg at compile)
+	EmbedPatterns     []string            `json:"embedPatterns"`               // the //go:embed patterns themselves
+	EmbedPatternFiles map[string][]string `json:"embedPatternFiles,omitempty"` // pattern -> the embedFiles it matched (-embedcfg Patterns)
+	Imports           []string            `json:"imports"`                     // direct, in-graph (non-stdlib) imports
 }
 
 // genTestPkg is one node in the emitted TEST graph: one per tested package.
@@ -87,15 +95,19 @@ type genTestPkg struct {
 	TestMain     string   `json:"testmain"`     // the captured go-generated _testmain.go source
 }
 
+const usage = "usage: godyn-gen [-tests] [-gomod <go.mod>] <module-dir> <out-graph.json> [packages...]"
+
 func main() {
-	args := os.Args[1:]
-	testsMode := false
-	if len(args) > 0 && args[0] == "-tests" {
-		testsMode = true
-		args = args[1:]
+	testsMode := flag.Bool("tests", false, "emit the TEST graph (go list -test) instead of the build graph")
+	gomod := flag.String("gomod", "", "resolve against this go.mod instead of <module-dir>/go.mod (e.g. passthru.mergedGoMod); the tracked go.mod is not touched")
+	flag.Usage = func() {
+		fmt.Fprintln(os.Stderr, usage)
+		flag.PrintDefaults()
 	}
+	flag.Parse()
+	args := flag.Args()
 	if len(args) < 2 {
-		fatalf("usage: godyn-gen [-tests] <module-dir> <out-graph.json> [packages...]")
+		fatalf(usage)
 	}
 	moduleDir, outPath := args[0], args[1]
 	patterns := args[2:]
@@ -104,8 +116,14 @@ func main() {
 	}
 
 	listArgs := []string{"list"}
-	if testsMode {
+	if *testsMode {
 		listArgs = append(listArgs, "-test")
+	}
+	cleanup := func() {}
+	if *gomod != "" {
+		var modfile string
+		modfile, cleanup = stageModfile(*gomod, moduleDir)
+		listArgs = append(listArgs, "-modfile="+modfile)
 	}
 	listArgs = append(listArgs, "-deps", "-json")
 	listArgs = append(listArgs, patterns...)
@@ -118,6 +136,7 @@ func main() {
 	// at its default.
 	cmd.Env = os.Environ()
 	data, err := cmd.Output()
+	cleanup()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
 			fatalf("go list: %v\n%s", err, ee.Stderr)
@@ -135,11 +154,43 @@ func main() {
 		pkgs = append(pkgs, p)
 	}
 
-	if testsMode {
+	if *testsMode {
 		writeJSON(outPath, testGraph(pkgs))
 		return
 	}
 	writeJSON(outPath, buildGraph(pkgs))
+}
+
+// stageModfile copies an alternate go.mod, plus the module's go.sum (which
+// -modfile reads from beside the alternate file), into a temp dir so go list can
+// resolve against it without touching the tracked go.mod.
+func stageModfile(gomod, moduleDir string) (string, func()) {
+	dir, err := os.MkdirTemp("", "godyn-gen-modfile-")
+	if err != nil {
+		fatalf("staging -gomod: %v", err)
+	}
+	cleanup := func() { os.RemoveAll(dir) }
+	modfile := filepath.Join(dir, "go.mod")
+	if err := copyFile(gomod, modfile); err != nil {
+		cleanup()
+		fatalf("staging -gomod: %v", err)
+	}
+	sum := filepath.Join(moduleDir, "go.sum")
+	if _, err := os.Stat(sum); err == nil {
+		if err := copyFile(sum, filepath.Join(dir, "go.sum")); err != nil {
+			cleanup()
+			fatalf("staging -gomod: %v", err)
+		}
+	}
+	return modfile, cleanup
+}
+
+func copyFile(src, dst string) error {
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, b, 0o644)
 }
 
 func buildGraph(pkgs []goListPkg) any {
@@ -174,23 +225,73 @@ func buildGraph(pkgs []goListPkg) any {
 		}
 		sort.Strings(imps)
 		graph = append(graph, genPkg{
-			ImportPath:    p.ImportPath,
-			Dir:           dir,
-			Name:          p.Name,
-			IsMain:        p.Name == "main",
-			Local:         p.Module != nil && p.Module.Main,
-			GoFiles:       p.GoFiles,
-			CgoFiles:      p.CgoFiles,
-			CFiles:        p.CFiles,
-			HFiles:        p.HFiles,
-			SFiles:        p.SFiles,
-			EmbedFiles:    p.EmbedFiles,
-			EmbedPatterns: p.EmbedPatterns,
-			Imports:       imps,
+			ImportPath:        p.ImportPath,
+			Dir:               dir,
+			Name:              p.Name,
+			IsMain:            p.Name == "main",
+			Local:             p.Module != nil && p.Module.Main,
+			GoFiles:           p.GoFiles,
+			CgoFiles:          p.CgoFiles,
+			CFiles:            p.CFiles,
+			HFiles:            p.HFiles,
+			SFiles:            p.SFiles,
+			EmbedFiles:        p.EmbedFiles,
+			EmbedPatterns:     p.EmbedPatterns,
+			EmbedPatternFiles: embedPatternFiles(p.ImportPath, p.EmbedPatterns, p.EmbedFiles),
+			Imports:           imps,
 		})
 	}
 	sort.Slice(graph, func(i, j int) bool { return graph[i].ImportPath < graph[j].ImportPath })
 	return graph
+}
+
+// embedPatternFiles attributes go list's resolved EmbedFiles to the //go:embed
+// patterns that matched them, so buildGodynModule can write -embedcfg without
+// re-implementing cmd/go's glob rules in Nix (igloo#68).
+func embedPatternFiles(importPath string, patterns, files []string) map[string][]string {
+	if len(patterns) == 0 {
+		return nil
+	}
+	out := map[string][]string{}
+	for _, raw := range patterns {
+		pat, all := strings.CutPrefix(raw, "all:")
+		var matched []string
+		for _, f := range files {
+			if embedMatch(pat, f, all) {
+				matched = append(matched, f)
+			}
+		}
+		if len(matched) == 0 {
+			fatalf("package %s: //go:embed %s matches none of go list's EmbedFiles", importPath, raw)
+		}
+		sort.Strings(matched)
+		out[raw] = matched
+	}
+	return out
+}
+
+// embedMatch reports whether cmd/go embeds file for pat: a direct glob match
+// (dot/underscore names included), or a match on an ancestor directory, whose
+// subtree is embedded except names beginning with '.' or '_' unless all: is set.
+func embedMatch(pat, file string, all bool) bool {
+	if ok, _ := path.Match(pat, file); ok {
+		return true
+	}
+	for dir := path.Dir(file); dir != "."; dir = path.Dir(dir) {
+		if ok, _ := path.Match(pat, dir); !ok {
+			continue
+		}
+		if all {
+			return true
+		}
+		for _, elem := range strings.Split(strings.TrimPrefix(file, dir+"/"), "/") {
+			if strings.HasPrefix(elem, ".") || strings.HasPrefix(elem, "_") {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // testGraph groups the synthesized packages `go list -test` adds for each tested

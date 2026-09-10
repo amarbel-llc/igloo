@@ -241,23 +241,36 @@ let
     in
     lib.unique (direct ++ lib.concatMap transitiveDeps direct);
 
-  # go:embed -embedcfg JSON for a package's embed files against a source dir: a
-  # literal pattern (init.toml) is itself a file; a simple suffix glob (dir/*)
-  # matches embedFiles by prefix. Shared by the package compile and the test
-  # variant compile (the variant includes the package's goFiles, so its embeds
-  # come along).
+  # go:embed -embedcfg JSON for a graph node's embeds against a source dir. godyn-gen
+  # records each pattern's matched files (embedPatternFiles, resolved with cmd/go's
+  # own rules — igloo#68); graphs from an older gen fall back to literal and
+  # trailing-* matching. A pattern that resolves to nothing throws: go build would
+  # reject it, and an empty embed.FS only surfaces as a runtime panic. Shared by the
+  # package compile and the test variant compile (the variant includes the
+  # package's goFiles, so its embeds come along).
   embedCfgJSON =
-    srcDir: embedFiles: embedPats:
+    srcDir: node:
     let
-      matchPat =
+      embedFiles = nl (node.embedFiles or null);
+      legacyMatch =
         pat:
         if lib.elem pat embedFiles then
           [ pat ]
         else
           builtins.filter (f: lib.hasPrefix (lib.removeSuffix "*" pat) f) embedFiles;
+      filesFor =
+        pat:
+        let
+          fs =
+            if node ? embedPatternFiles then nl (node.embedPatternFiles.${pat} or null) else legacyMatch pat;
+        in
+        if fs == [ ] then
+          throw "buildGodynModule(${pname}): //go:embed ${pat} in ${node.importPath} resolves to no files — regenerate the graph with a current godyn-gen (it records each pattern's files; older graphs only match literal and trailing-* patterns, igloo#68)"
+        else
+          fs;
     in
     builtins.toJSON {
-      Patterns = lib.listToAttrs (map (pat: lib.nameValuePair pat (matchPat pat)) embedPats);
+      Patterns = lib.genAttrs (nl (node.embedPatterns or null)) filesFor;
       Files = lib.listToAttrs (map (f: lib.nameValuePair f "${srcDir}/${f}") embedFiles);
     };
 
@@ -359,10 +372,8 @@ let
 
       # go:embed: a package with //go:embed needs `go tool compile -embedcfg`. gen
       # emits embedFiles/embedPatterns (absent on graphs from an older gen -> []).
-      embedFiles = nl (p.embedFiles or null);
-      embedPats = nl (p.embedPatterns or null);
-      hasEmbed = embedPats != [ ];
-      embedcfgJSON = embedCfgJSON srcDir embedFiles embedPats;
+      hasEmbed = nl (p.embedPatterns or null) != [ ];
+      embedcfgJSON = embedCfgJSON srcDir p;
       embedSetup = lib.optionalString hasEmbed "printf '%s' ${lib.escapeShellArg embedcfgJSON} > embedcfg.json\n";
       embedFlag = lib.optionalString hasEmbed "-embedcfg embedcfg.json ";
 
@@ -540,8 +551,7 @@ let
       binName = "${baseNameOf importPath}.test";
 
       embedFiles = nl (base.embedFiles or null);
-      embedPats = nl (base.embedPatterns or null);
-      hasEmbed = embedPats != [ ];
+      hasEmbed = nl (base.embedPatterns or null) != [ ];
 
       pkgRoot = pkgRootFor t.dir;
       compileFiles = goFiles ++ testGoFiles ++ xTestGoFiles ++ embedFiles;
@@ -589,9 +599,7 @@ let
       files = fs: lib.concatMapStringsSep " " (f: "${compileSrc}/${f}") fs;
       testmainSrc = builtins.toFile "godyn-testmain-${sanitize importPath}.go" t.testmain;
 
-      variantEmbedSetup = lib.optionalString hasEmbed "printf '%s' ${
-        lib.escapeShellArg (embedCfgJSON compileSrc embedFiles embedPats)
-      } > \"$W/embedcfg.json\"\n";
+      variantEmbedSetup = lib.optionalString hasEmbed "printf '%s' ${lib.escapeShellArg (embedCfgJSON compileSrc base)} > \"$W/embedcfg.json\"\n";
       variantEmbedFlag = lib.optionalString hasEmbed ''-embedcfg "$W/embedcfg.json" '';
 
       bin =

@@ -24,6 +24,11 @@
   graphFile ? null, # committed graph.json (godyn backend, single platform)
   graphFiles ? null, # { "<system>" = ./godyn-graph.<system>.json; … } — per-system graphs (igloo#33)
   modules ? null, # gomod2nix.toml — both backends (bga builds from it; godyn derives its vendorEnv)
+  # RFC 0001 flake-input bridges, declared once for both backends (igloo#69): passed
+  # to buildGoApplication as-is and turned into buildGodynModule `bridges`. Generate
+  # the godyn graph against the matching merged go.mod: `godyn-gen -gomod
+  # <result.passthru.bga.passthru.mergedGoMod> …` (igloo#67).
+  goFlakeInputs ? { },
   version ? null,
   ldflags ? [ ],
   ldflagsX ? { },
@@ -46,8 +51,27 @@ let
   // lib.optionalAttrs (version != null) { inherit version; }
   // lib.optionalAttrs (modules != null) { inherit modules; };
 
-  native = buildGodynModule (common // { inherit graphFile graphFiles; } // nativeArgs);
-  bga = buildGoApplication (common // bgaArgs);
+  # A goFlakeInputs value is a go-pkgs source, or { src; subPath ? ""; } slicing a
+  # module out of a polyglot go-pkgs. godyn's `bridges` has no subPath knob — it
+  # joins <bridge>/<import-path-minus-module> — so fold subPath into the path.
+  bridgeOf =
+    v:
+    let
+      n = if lib.isDerivation v || !(builtins.isAttrs v && v ? src) then { src = v; } else v;
+    in
+    "${n.src}" + lib.optionalString ((n.subPath or "") != "") "/${n.subPath}";
+
+  native = buildGodynModule (
+    common
+    // {
+      inherit graphFile graphFiles;
+    }
+    // nativeArgs
+    // {
+      bridges = lib.mapAttrs (_: bridgeOf) goFlakeInputs // (nativeArgs.bridges or { });
+    }
+  );
+  bga = buildGoApplication (common // { inherit goFlakeInputs; } // bgaArgs);
 
   backend =
     if
