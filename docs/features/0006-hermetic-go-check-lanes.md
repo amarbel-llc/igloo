@@ -55,7 +55,8 @@ they inherit its `src`, the merged-`go.mod` `postPatch`, and
 / `GOPROXY=off` / `go`-on-PATH environment):
 
 - **`buildGoCheck { base, command, extraNativeBuildInputs ? [],
-  pnameSuffix ? "-check" }`** — the general primitive. Runs `command`
+  pnameSuffix ? "-check", cacheSeed ? null, passthru ? {} }`** — the
+  general primitive. Runs `command`
   (a shell fragment) in the bridged sandbox with a writable `HOME` and
   Go caches, after the vendor tree and env are set up. It is
   **lint-only**: it replaces the base's build phase, so no binary is
@@ -70,7 +71,21 @@ they inherit its `src`, the merged-`go.mod` `postPatch`, and
   `-c ${config}` when a config is passed; otherwise golangci-lint's
   own walk-up finds the repo's `.golangci.yml` in `src`). The
   golangci-lint package is a required argument so the consumer pins the
-  version (typically `pkgs-master.golangci-lint`).
+  version (typically `pkgs-master.golangci-lint`). Also takes
+  `extraArgs ? []` and `warmCache ? false` (below).
+
+- **`mkGoLintCacheEnv { base, golangci-lint, config ? null, depFiles ?
+  base.src }`** — *experimental warm cache* (spinclass#294). A
+  deps-only derivation: the base's bridged sandbox over a `src` filtered
+  to the module-root `go.mod`/`go.sum`/`gomod2nix.toml`/`.golangci.*`,
+  linting a synthetic package that blank-imports every vendored package,
+  snapshotting `GOCACHE` + `GOLANGCI_LINT_CACHE`. First-party edits do
+  not re-key it. `buildGoLint { warmCache = true; }` passes it to
+  `buildGoCheck`'s `cacheSeed`, which restores it into the per-build
+  scratch caches; it is always exposed as `passthru.lintCacheEnv`. It
+  holds no first-party issue entries, so it cannot replay findings
+  against a vanished tree. Design, measurements, and limits:
+  `zz-pocs/gocheck-poc/WARM-CACHE.md`.
 
 Neither helper touches the working tree, sets no env in the devshell,
 and produces a normal derivation the consumer wires as a flake `check`
@@ -182,7 +197,7 @@ authoritative, bridge-aware checking is the sandbox's job.
 | Lever | Current | Rationale | Change signal |
 |---|---|---|---|
 | default `pnameSuffix` | `-check` / `-lint` | matches `buildGoRace`'s `-race` / `buildGoCover`'s `-cli-cover` naming | a consumer needs multiple check lanes and the suffixes collide |
-| golangci-lint cache location | `$TMPDIR` (per-build, cold) | hermetic + no shared writable state; a build already pays the compile | builds get slow enough that a shared `GOLANGCI_LINT_CACHE` derivation (à la `mkGoCacheEnv`) is worth the complexity |
+| golangci-lint cache location | `$TMPDIR` (per-build), cold unless `warmCache = true` seeds it from the deps-only `mkGoLintCacheEnv` | hermetic + no shared writable state; the opt-in seed is an immutable store artifact (spinclass: 14.8 s → 4.8 s lint phase, 106 MB seed) | the seed's dependency facts miss on Darwin (per-build `NIX_BUILD_TOP`, untested) or its storage cost outweighs the lint time saved |
 
 ## More Information
 

@@ -43,6 +43,7 @@ final: _: {
     mkGoEnv
     mkVendorEnv
     mkGoCacheEnv
+    mkGoLintCacheEnv
     goSourceFilter
     goSourceFilterMiddleware
     mkGoPkgs

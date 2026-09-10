@@ -50,3 +50,9 @@ zz-pocs/gocheck-poc` first if the fixture is not yet staged.
 The two derivations differ **only** in whether `goFlakeInputs` bridges the
 producer, so the bridge is exactly what makes golangci-lint resolve the
 package inside the sandbox.
+
+## Warm cache (spinclass#294)
+
+`warm-cache.nix` + `just explore-lint-warm-cache` measure the opt-in
+deps-only lint cache (`mkGoLintCacheEnv`, `buildGoLint { warmCache = true; }`)
+against real spinclass. Writeup: `WARM-CACHE.md`.

@@ -491,20 +491,34 @@ see the bridge": the tool runs where Nix owns the working tree, so no *go.mod* /
 Two overlay helpers provide this, alongside *buildGoRace* / *buildGoCover* and
 built by *overrideAttrs* on a *buildGoApplication*-produced base:
 
-- *buildGoLint { base, golangci-lint, config ? null }* — runs
-  *golangci-lint run ./...* in the bridged sandbox. *golangci-lint* is a
-  REQUIRED argument, so the consumer pins the version explicitly (typically
-  *pkgs-master.golangci-lint*), the same way it pins *go*. *config* optionally
-  points at a *.golangci.yml*; omitted, golangci-lint's own walk-up finds the
-  one in the source tree.
+- *buildGoLint { base, golangci-lint, config ? null, extraArgs ? [],
+  warmCache ? false }* — runs *golangci-lint run ./...* in the bridged
+  sandbox. *golangci-lint* is a REQUIRED argument, so the consumer pins the
+  version explicitly (typically *pkgs-master.golangci-lint*), the same way it
+  pins *go*. *config* optionally points at a *.golangci.yml*; omitted,
+  golangci-lint's own walk-up finds the one in the source tree. *extraArgs*
+  are appended to *golangci-lint run*. *warmCache* (experimental) seeds the
+  caches from *mkGoLintCacheEnv*, below.
 - *buildGoCheck { base, command, extraNativeBuildInputs ? [], pnameSuffix ?
-  "-check" }* — the general primitive that *buildGoLint* wraps, for any
-  package-loading tool (staticcheck, a custom *go vet* analyzer). It runs
-  *command* in the same bridged sandbox with a writable *HOME* and Go caches,
-  putting *extraNativeBuildInputs* on PATH. It is lint-only: it REPLACES the
-  build phase and compiles/installs no binary (producing the binary stays the
-  base derivation's job), and *$out* is an empty success marker; a non-zero
-  *command* fails the build.
+  "-check", cacheSeed ? null, passthru ? {} }* — the general primitive that
+  *buildGoLint* wraps, for any package-loading tool (staticcheck, a custom
+  *go vet* analyzer). It runs *command* in the same bridged sandbox with a
+  writable *HOME* and Go caches, putting *extraNativeBuildInputs* on PATH. It
+  is lint-only: it REPLACES the build phase and compiles/installs no binary
+  (producing the binary stays the base derivation's job), and *$out* is an
+  empty success marker; a non-zero *command* fails the build. *cacheSeed*, a
+  *mkGoLintCacheEnv* output, is restored into the per-build *GOCACHE* and
+  *GOLANGCI_LINT_CACHE* before *command* runs.
+- *mkGoLintCacheEnv { base, golangci-lint, config ? null, depFiles ?
+  base.src }* — experimental deps-only warm cache. It lints a synthetic
+  package that blank-imports every vendored package, in the base's sandbox
+  over a *src* filtered to the module-root *go.mod*, *go.sum*,
+  *gomod2nix.toml* and *.golangci.\** files, and snapshots both caches.
+  First-party edits do not re-key it, and it holds no first-party issue
+  entries, so a seeded lint cannot replay findings against another checkout.
+  Exposed on every *buildGoLint* result as *passthru.lintCacheEnv*. Its
+  dependency facts are keyed by absolute sandbox path, so the benefit assumes
+  a stable build directory (the Linux sandbox's */build*).
 
 A consumer exposes the lane as a flake *check* and points its lint target at
 *nix build .#<pkg>-lint*, retiring any impure worktree golangci-lint run:
