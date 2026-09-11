@@ -15,6 +15,6 @@
     "embedFiles": null,
     "embedPatterns": null,
     "imports": null,
-    "goVersion": "1.21"
+    "goVersion": "1.21.0"
   }
 ]

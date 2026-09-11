@@ -355,9 +355,11 @@ let
       rel;
 
   # The language version a package compiles at (-lang), like `go build`: its
-  # module's go directive, recorded by godyn-gen (igloo#74). Graphs from an older
-  # gen lack it and fall back to goVersion for the whole graph.
-  langOf = p: if (p.goVersion or "") != "" then "go${p.goVersion}" else goVersion;
+  # module's go directive, recorded by godyn-gen (igloo#74). Go directives may carry
+  # a patch level ("1.24.2") but -lang takes only major.minor, so truncate. Graphs
+  # from an older gen lack the field and fall back to goVersion for the whole graph.
+  langOf =
+    p: if (p.goVersion or "") != "" then "go${lib.versions.majorMinor p.goVersion}" else goVersion;
 
   # A package's source directory, shared by its compile and vet derivations.
   srcDirFor =

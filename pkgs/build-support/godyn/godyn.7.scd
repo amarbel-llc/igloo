@@ -146,7 +146,9 @@ Arguments:
 - *system* — target tuning.
 - *goVersion* — the fallback language version. godyn-gen records each package's
   module *go* directive in the graph (1.16 for a module without one), and every
-  package compiles at its own module's version (*-lang*), as *go build* does — a
+  package compiles at its own module's version (*-lang*, truncated to
+  major.minor since *-lang* rejects a patch level such as 1.24.2), as *go build*
+  does — a
   module declaring *go 1.21* keeps pre-1.22 loop-variable semantics (igloo#74).
   *goVersion* applies only to graphs from an older godyn-gen that lack the field;
   regenerate them to get per-module versions.
