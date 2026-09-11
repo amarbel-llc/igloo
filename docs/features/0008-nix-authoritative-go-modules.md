@@ -97,7 +97,12 @@ first fixture:
   imports its output (import-from-derivation). There is **no committed
   graph.json**: the manifest plus the source tree are sufficient to derive the
   graph, so it cannot drift. The graph records each module's Go version, and
-  godyn passes it as each package's `-lang`.
+  godyn passes it as each package's `-lang`. It should also record each
+  package's **standard-library imports**, which committed graphs omit today:
+  the type-bearing vetx lanes (igloo#71) must supply a vetx for every import,
+  and without that edge list they hand every package run the whole stdlib index
+  (355 packages, ~4.9 MB read per run). With it, each run gets only the stdlib
+  vetx files its package's imports actually reach.
 
 ## Decision: no committed graph
 
