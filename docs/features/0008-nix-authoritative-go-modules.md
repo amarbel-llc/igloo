@@ -3,10 +3,11 @@ status: exploring
 date: 2026-09-11
 promotion-criteria: |
   exploring → proposed: the manifest shape below is settled on one
-  fixture: igloo renders a go.mod from it inside a derivation, godyn
-  builds the fixture from that rendered go.mod with no go.mod in the
-  source tree, and the round trip go.mod → manifest → go.mod is lossless
-  for every field the manifest owns.
+  fixture: igloo renders a go.mod from it inside a derivation, derives
+  the fixture's package graph from it at eval time (no committed
+  graph.json), and godyn builds the fixture with no go.mod in the source
+  tree; the round trip go.mod → manifest → go.mod is lossless for every
+  field the manifest owns.
 
   proposed → experimental: the bidirectional tool exists — `render`
   writes a go.mod (and go.sum, if still needed) for editors, `ingest`
@@ -32,7 +33,8 @@ A fleet Go module's build inputs live in four files that must agree:
 - **go.mod** — module path, Go language version, requires, replaces;
 - **go.sum** — `h1:` checksums the go command verifies;
 - **gomod2nix.toml** — NAR hashes the nix vendor tree fetches by;
-- **graph.json** — godyn's committed package graph (FDR 0007).
+- **graph.json** — godyn's committed package graph (FDR 0007), regenerated
+  by hand whenever imports or files change.
 
 RFC 0001 removed one lockstep (fleet modules' pseudo-versions against
 `flake.lock`) by synthesizing `replace` directives at eval time, but it did so
@@ -90,9 +92,24 @@ first fixture:
   merge of an organic go.mod: there is no organic go.mod to merge into.
 - **Vendor tree**: built from `require`'s hashes (what gomod2nix.toml does
   now), so gomod2nix.toml folds into the manifest.
-- **godyn**: builds from the rendered go.mod; `godyn-gen` runs against it
-  (as `-gomod` does today) and records per-module Go versions for per-package
-  `-lang`.
+- **Package graph, derived at eval time**: `godyn-gen` runs inside a
+  derivation against the rendered go.mod and the vendor tree, and godyn
+  imports its output (import-from-derivation). There is **no committed
+  graph.json**: the manifest plus the source tree are sufficient to derive the
+  graph, so it cannot drift. The graph records each module's Go version, and
+  godyn passes it as each package's `-lang`.
+
+## Decision: no committed graph
+
+The manifest must be sufficient to derive the package graph at evaluation
+time; consumers commit no graph.json. The cost is that eval-time builds are
+per-system: evaluating another system's packages needs a builder for that
+system. That limit is **accepted** — goFlakeInputs consumers already have it
+today (spinclass's `packages.aarch64-darwin.default` cannot be evaluated from
+an x86_64-linux host, because the RFC 0001 merge builds a per-system go-pkgs
+derivation during evaluation). This supersedes the committed-graph workflow
+and its drift check (igloo#72), which only matter until a consumer moves to a
+manifest.
 
 ## Editor escape hatch: bidirectional go.mod ↔ manifest
 
@@ -125,15 +142,10 @@ directives into a go.mod.
 
 ## Open Questions
 
-- **Graph generation: committed or at eval time?** Running `godyn-gen` against
-  the rendered go.mod at eval time (import-from-derivation) removes the
-  committed `graph.json` and the drift problem (igloo#72). But eval-time builds
-  are per-system: evaluating another system's packages then needs a builder
-  for that system. goFlakeInputs consumers already have this property today —
-  spinclass's `packages.aarch64-darwin.default` cannot be evaluated from an
-  x86_64-linux host, because the RFC 0001 merge builds a per-system go-pkgs
-  derivation during evaluation. Keeping a committed graph plus a drift check
-  avoids adding more of it.
+- **Eval-time graph mechanics.** `godyn-gen` must run offline in the sandbox
+  (against the vendor tree), per system (GOOS/GOARCH), and for the test graph
+  (`-tests`); how the resulting JSON is imported at eval time is to be settled
+  on the first fixture.
 - **Does go.sum survive?** If `godyn-gen` and every other in-nix go command run
   against the vendored tree (`-mod=vendor`), the go command does not verify
   go.sum, and the manifest can carry NAR hashes only. Unverified for

@@ -57,8 +57,22 @@ type goListPkg struct {
 	SwigCXXFile   []string `json:"SwigCXXFiles"`
 	Imports       []string
 	Module        *struct {
-		Dir  string
-		Main bool
+		Dir       string
+		Main      bool
+		GoVersion string // the module's go directive; empty when it has none
+	}
+}
+
+// goVersionOf is the language version `go build` compiles p's module at: its go
+// directive, or 1.16 — cmd/go's default for a module without one.
+func goVersionOf(p goListPkg) string {
+	switch {
+	case p.Module == nil:
+		return ""
+	case p.Module.GoVersion == "":
+		return "1.16"
+	default:
+		return p.Module.GoVersion
 	}
 }
 
@@ -81,6 +95,7 @@ type genPkg struct {
 	EmbedPatterns     []string            `json:"embedPatterns"`               // the //go:embed patterns themselves
 	EmbedPatternFiles map[string][]string `json:"embedPatternFiles,omitempty"` // pattern -> the embedFiles it matched (-embedcfg Patterns)
 	Imports           []string            `json:"imports"`                     // direct, in-graph (non-stdlib) imports
+	GoVersion         string              `json:"goVersion,omitempty"`         // the package's module's language version (-lang)
 }
 
 // genTestPkg is one node in the emitted TEST graph: one per tested package.
@@ -93,6 +108,7 @@ type genTestPkg struct {
 	Imports      []string `json:"imports"`      // the VARIANT's in-graph imports — a superset incl. test-only deps
 	XTestImports []string `json:"xTestImports"` // the external package's in-graph imports, minus the variant itself
 	TestMain     string   `json:"testmain"`     // the captured go-generated _testmain.go source
+	GoVersion    string   `json:"goVersion,omitempty"` // the module's language version (-lang)
 }
 
 const usage = "usage: godyn-gen [-tests] [-gomod <go.mod>] <module-dir> <out-graph.json> [packages...]"
@@ -242,6 +258,7 @@ func buildGraph(pkgs []goListPkg) any {
 			EmbedPatterns:     p.EmbedPatterns,
 			EmbedPatternFiles: embedPatternFiles(p.ImportPath, p.EmbedPatterns, p.EmbedFiles),
 			Imports:           imps,
+			GoVersion:         goVersionOf(p),
 		})
 	}
 	sort.Slice(graph, func(i, j int) bool { return graph[i].ImportPath < graph[j].ImportPath })
@@ -409,6 +426,7 @@ func testGraph(pkgs []goListPkg) any {
 			Imports:      filterImports(v.Imports, ip),
 			XTestImports: xImports,
 			TestMain:     string(tm),
+			GoVersion:    goVersionOf(*g.base),
 		})
 	}
 	sort.Slice(graph, func(i, j int) bool { return graph[i].ImportPath < graph[j].ImportPath })

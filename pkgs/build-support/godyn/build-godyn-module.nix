@@ -354,6 +354,11 @@ let
     else
       rel;
 
+  # The language version a package compiles at (-lang), like `go build`: its
+  # module's go directive, recorded by godyn-gen (igloo#74). Graphs from an older
+  # gen lack it and fall back to goVersion for the whole graph.
+  langOf = p: if (p.goVersion or "") != "" then "go${p.goVersion}" else goVersion;
+
   # A package's source directory, shared by its compile and vet derivations.
   srcDirFor =
     importPath: p:
@@ -402,6 +407,7 @@ let
     importPath: p:
     let
       srcDir = srcDirFor importPath p;
+      lang = langOf p;
 
       # nl: a pure-cgo package (e.g. zstd) has all .go in cgoFiles, so goFiles is
       # marshalled null; coerce before the list map.
@@ -439,7 +445,7 @@ let
         ${cfg}
         ${embedSetup}go tool compile -importcfg importcfg ${embedFlag}-p '${pflag}' -buildid "" \
           -trimpath="${srcDir}=>${rewrite};$NIX_BUILD_TOP=>" \
-          -nolocalimports -pack -lang=${goVersion} \
+          -nolocalimports -pack -lang=${lang} \
           -o "$out/pkg.a" ${goFilesStr}
       '';
 
@@ -456,7 +462,7 @@ let
         ASM=(-p '${pflag}' -trimpath "${srcDir}=>${rewrite}" -I "$W/" -I ${go}/share/go/pkg/include -D GOOS_${goos} -D GOARCH_${goarch}${goamd64})
         go tool asm "''${ASM[@]}" -gensymabis -o "$W/symabis" ${asmList}
         ${embedSetup}go tool compile -importcfg importcfg ${embedFlag}-p '${pflag}' -buildid "" \
-          -trimpath="${srcDir}=>${rewrite};$NIX_BUILD_TOP=>" -nolocalimports -pack -lang=${goVersion} \
+          -trimpath="${srcDir}=>${rewrite};$NIX_BUILD_TOP=>" -nolocalimports -pack -lang=${lang} \
           -symabis "$W/symabis" -asmhdr "$W/go_asm.h" \
           -o "$out/pkg.a" ${goFilesStr}
         declare -a OBJ=()
@@ -508,7 +514,7 @@ let
           fi
         fi
         ${embedSetup}go tool compile -importcfg importcfg ${embedFlag}-p '${pflag}' -buildid "" \
-          -trimpath="$work=>;${srcDir}=>${rewrite};$NIX_BUILD_TOP=>" -nolocalimports -pack -lang=${goVersion} \
+          -trimpath="$work=>;${srcDir}=>${rewrite};$NIX_BUILD_TOP=>" -nolocalimports -pack -lang=${lang} \
           -o "$out/pkg.a" ${goFilesStr} "$work/_cgo_gotypes.go" "$work"/*.cgo1.go ''${DYN:+"$DYN"} ''${LDF:+"$LDF"}
         go tool pack r "$out/pkg.a" "''${OFILES[@]}"
         # if-block, not a trailing "test && cmd": a false bracket test as the last
@@ -588,7 +594,7 @@ let
               ID = importPath;
               Compiler = "gc";
               ImportPath = importPath;
-              GoVersion = goVersion;
+              GoVersion = langOf p;
               GoFiles = map (f: "${srcDir}/${f}") (nl p.goFiles);
               NonGoFiles = map (f: "${srcDir}/${f}") (nl p.sFiles);
               ImportMap = lib.genAttrs deps (d: d);
@@ -728,6 +734,7 @@ let
       testCfg = cfgFile: lib.concatMapStringsSep "\n" (depLine cfgFile) testDeps;
 
       files = fs: lib.concatMapStringsSep " " (f: "${compileSrc}/${f}") fs;
+      lang = langOf t;
       testmainSrc = builtins.toFile "godyn-testmain-${sanitize importPath}.go" t.testmain;
 
       variantEmbedSetup = lib.optionalString hasEmbed "printf '%s' ${lib.escapeShellArg (embedCfgJSON compileSrc base)} > \"$W/embedcfg.json\"\n";
@@ -754,7 +761,7 @@ let
               CFG="$W/ic.variant"; cat ${stdlib}/importcfg > "$CFG"
               ${testCfg ''"$CFG"''}
               ${variantEmbedSetup}go tool compile -importcfg "$CFG" ${variantEmbedFlag}-p '${importPath}' -buildid "" \
-                -trimpath="${compileSrc}=>${importPath};$W=>" -nolocalimports -pack -lang=${goVersion} \
+                -trimpath="${compileSrc}=>${importPath};$W=>" -nolocalimports -pack -lang=${lang} \
                 -o "$W/variant.a" ${files (goFiles ++ testGoFiles)}
 
               ${lib.optionalString hasExt ''
@@ -763,7 +770,7 @@ let
                 ${testCfg ''"$CFG"''}
                 echo "packagefile ${importPath}=$W/variant.a" >> "$CFG"
                 go tool compile -importcfg "$CFG" -p '${importPath}_test' -buildid "" \
-                  -trimpath="${compileSrc}=>${importPath}_test;$W=>" -nolocalimports -pack -lang=${goVersion} \
+                  -trimpath="${compileSrc}=>${importPath}_test;$W=>" -nolocalimports -pack -lang=${lang} \
                   -o "$W/xtest.a" ${files xTestGoFiles}
               ''}
 
@@ -772,7 +779,7 @@ let
               echo "packagefile ${importPath}=$W/variant.a" >> "$CFG"
               ${lib.optionalString hasExt ''echo "packagefile ${importPath}_test=$W/xtest.a" >> "$CFG"''}
               go tool compile -importcfg "$CFG" -p main -buildid "" \
-                -trimpath="$W=>" -nolocalimports -pack -lang=${goVersion} \
+                -trimpath="$W=>" -nolocalimports -pack -lang=${lang} \
                 -o "$W/testmain.a" ${testmainSrc}
 
               # 4. link the test binary.

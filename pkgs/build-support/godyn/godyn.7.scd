@@ -143,7 +143,13 @@ Arguments:
   matching merged go.mod.
 - *archiveBridges* — modpath -> go-pkgs-of-ARCHIVES store path; the bridged module's
   packages are LINKED from their pre-built archives, not compiled (approach 1).
-- *system*, *goVersion* — target tuning.
+- *system* — target tuning.
+- *goVersion* — the fallback language version. godyn-gen records each package's
+  module *go* directive in the graph (1.16 for a module without one), and every
+  package compiles at its own module's version (*-lang*), as *go build* does — a
+  module declaring *go 1.21* keeps pre-1.22 loop-variable semantics (igloo#74).
+  *goVersion* applies only to graphs from an older godyn-gen that lack the field;
+  regenerate them to get per-module versions.
 - *postInstall*, *nativeBuildInputs* — the install step, parity with
   buildGoApplication: *postInstall* runs after the link with *$out/bin/<pname>* in
   place and the working directory set to a writable copy of *src*, with

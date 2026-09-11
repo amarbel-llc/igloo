@@ -305,6 +305,15 @@
             '';
             strategy = "native";
           };
+          # Go language version: the module declares go 1.21 (pre-loopvar), built
+          # through both backends; see the godyn-lang-test check.
+          godyn-lang-test = pkgs.buildGoAuto {
+            pname = "godyn-lang-test";
+            src = ./pkgs/build-support/godyn/tests/lang;
+            graphFile = ./pkgs/build-support/godyn/tests/lang/graph.json;
+            version = "0.0.0"; # igloo#70
+            strategy = "native";
+          };
           # per-package lint (godyn-lint): package bad carries an unsuppressed
           # staticcheck finding, package ok the same one under //nolint.
           godyn-lint-test = pkgs.buildGodynModule {
@@ -591,6 +600,20 @@
           # imports), and a bridged dependency is vetted facts-only.
           godyn-vet-clean-test = self.packages.${system}.godyn-gotest-test.passthru.vetAll;
           godyn-vet-bridged-test = self.packages.${system}.godyn-cross-source.passthru.vetAll;
+          # godyn must compile a module at the language version its go.mod
+          # declares, like `go build`: go 1.21 closures share the loop variable.
+          godyn-lang-test =
+            let
+              auto = self.packages.${system}.godyn-lang-test;
+            in
+            pkgs.runCommandLocal "godyn-lang-test-check" { } ''
+              bga=$(${auto.passthru.bga}/bin/*)
+              native=$(${auto.passthru.native}/bin/*)
+              echo "buildGoApplication: $bga  godyn: $native"
+              [ "$bga" = 333 ] || { echo "buildGoApplication did not apply go 1.21 rules: [$bga]" >&2; exit 1; }
+              [ "$native" = "$bga" ] || { echo "godyn applied different language rules than go build: [$native] vs [$bga]" >&2; exit 1; }
+              echo OK > $out
+            '';
           # per-package lint: staticcheck's findings reach the build log and fail it;
           # a //nolint naming the golangci-lint linter suppresses the same finding.
           godyn-lint-finding-test = pkgs.testers.testBuildFailure' {

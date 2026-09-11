@@ -1,0 +1,20 @@
+[
+  {
+    "importPath": "example.com/lang",
+    "dir": ".",
+    "name": "main",
+    "isMain": true,
+    "local": true,
+    "goFiles": [
+      "main.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "embedFiles": null,
+    "embedPatterns": null,
+    "imports": null,
+    "goVersion": "1.21"
+  }
+]
