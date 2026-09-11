@@ -31,6 +31,10 @@
   version ? null,
   ldflags ? [ ],
   ldflagsX ? { },
+  # Install step, declared once for both backends: bga runs it as its own
+  # postInstall; godyn in a separate install derivation (see buildGodynModule).
+  postInstall ? "",
+  nativeBuildInputs ? [ ],
   strategy ? "native",
   # Escape hatches for backend-specific args that don't overlap:
   #   nativeArgs — extra buildGodynModule args (vendorEnv, cc, bridges, pwd, ...)
@@ -49,7 +53,9 @@ let
       ;
   }
   // lib.optionalAttrs (version != null) { inherit version; }
-  // lib.optionalAttrs (modules != null) { inherit modules; };
+  // lib.optionalAttrs (modules != null) { inherit modules; }
+  // lib.optionalAttrs (postInstall != "") { inherit postInstall; }
+  // lib.optionalAttrs (nativeBuildInputs != [ ]) { inherit nativeBuildInputs; };
 
   native = buildGodynModule (common // { inherit graphFile graphFiles; } // nativeArgs);
   bga = buildGoApplication (common // bgaArgs);

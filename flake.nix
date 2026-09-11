@@ -279,6 +279,32 @@
             };
             strategy = "native";
           };
+          # buildGoAuto install step, declared once for both backends: runs the
+          # just-built binary, reads the source tree (cwd), uses a nativeBuildInput,
+          # and adds an alias symlink. Binary names differ per backend, so glob.
+          godyn-auto-postinstall-test = pkgs.buildGoAuto {
+            pname = "godyn-cross-app";
+            src = ./pkgs/build-support/godyn/tests/cross/app;
+            graphFile = ./pkgs/build-support/godyn/tests/cross/app/godyn-graph.json;
+            goFlakeInputs = {
+              "example.com/dep" = {
+                src = ./pkgs/build-support/godyn/tests/cross;
+                subPath = "dep";
+              };
+            };
+            # explicit version: without it the bga backend fails eval on this
+            # modules-less fixture ("attribute 'name' missing", igloo#70).
+            version = "0.0.0";
+            nativeBuildInputs = [ pkgs.jq ];
+            postInstall = ''
+              mkdir -p "$out/share"
+              for b in "$out"/bin/*; do "$b" > "$out/share/greeting"; done
+              cp go.mod "$out/share/go.mod"
+              jq -n '"ok"' > "$out/share/jq"
+              ln -s "$(basename "$(ls "$out"/bin/* | head -n1)")" "$out/bin/alias"
+            '';
+            strategy = "native";
+          };
           # per-package vet: a printf misuse through a wrapper in another package,
           # visible only through that package's vet facts.
           godyn-vet-test = pkgs.buildGodynModule {
@@ -534,6 +560,19 @@
             [ "$got" = "hello from dep/greet" ] || { echo "buildGoAuto goFlakeInputs mismatch: [$got]" >&2; exit 1; }
             echo OK > $out
           '';
+          godyn-auto-postinstall-test =
+            let
+              auto = self.packages.${system}.godyn-auto-postinstall-test;
+            in
+            pkgs.runCommandLocal "godyn-auto-postinstall-test-check" { } ''
+              for pkg in ${auto.passthru.native} ${auto.passthru.bga}; do
+                [ "$(cat "$pkg/share/greeting")" = "hello from dep/greet" ] || { echo "$pkg: postInstall did not run the binary" >&2; exit 1; }
+                grep -q '^module example.com/app' "$pkg/share/go.mod" || { echo "$pkg: postInstall cwd is not the source tree" >&2; exit 1; }
+                [ "$(cat "$pkg/share/jq")" = '"ok"' ] || { echo "$pkg: nativeBuildInputs not on PATH" >&2; exit 1; }
+                "$pkg/bin/alias" > /dev/null || { echo "$pkg: alias symlink broken" >&2; exit 1; }
+              done
+              echo OK > $out
+            '';
           # per-package vet: the misuse of logf.Logf in main is only detectable from
           # the logf package's printf facts, so this failure proves facts chain from
           # one package's vet derivation to its dependents'.

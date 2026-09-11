@@ -86,6 +86,12 @@ A bridged consumer declares *goFlakeInputs* once on *buildGoAuto*, which hands i
 both backends (see *goFlakeInputs* under buildGodynModule). Generate the graph with
 *godyn-gen -gomod* against *passthru.bga.passthru.mergedGoMod* (see above).
 
+The install step (*postInstall*, *nativeBuildInputs*) is likewise declared once on
+*buildGoAuto* and handed to both backends. The script sees each backend's own
+binary name under *$out/bin* (godyn: *pname*; buildGoApplication: the main
+package's directory name), so a script meant for both should use a name the two
+agree on, or glob.
+
 # buildGodynModule
 
 ```
@@ -138,6 +144,14 @@ Arguments:
 - *archiveBridges* — modpath -> go-pkgs-of-ARCHIVES store path; the bridged module's
   packages are LINKED from their pre-built archives, not compiled (approach 1).
 - *system*, *goVersion* — target tuning.
+- *postInstall*, *nativeBuildInputs* — the install step, parity with
+  buildGoApplication: *postInstall* runs after the link with *$out/bin/<pname>* in
+  place and the working directory set to a writable copy of *src*, with
+  *nativeBuildInputs* (and their setup hooks) available — e.g. running the binary
+  to generate manpages or completions, installing extra files, adding symlinks.
+  Setting either makes the result a separate install derivation layered on the
+  content-addressed link output, so editing the install script never re-links.
+  Requires a main package.
 
 A module with a *package main* links a binary at *$out/bin/<pname>*; a library
 graph (no main) produces a compile-only manifest realising every archive.

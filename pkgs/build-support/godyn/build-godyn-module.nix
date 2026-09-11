@@ -97,6 +97,13 @@
   # `go vet -vettool` protocol) for the per-package vet lane; its mainProgram runs
   # once per package. null = the toolchain's own `go tool vet` analyzers.
   vetTool ? null,
+  # Install step, parity with buildGoApplication: postInstall runs after the link
+  # with $out/bin/<pname> in place and cwd = a writable copy of src (as bga runs it
+  # from the unpacked source); nativeBuildInputs are available to it. Main-package
+  # graphs only. Set either and the result is a separate install derivation
+  # layered on the CA link output, so editing the install script never re-links.
+  postInstall ? "",
+  nativeBuildInputs ? [ ],
   # lazySrc (experiment, #27): source local packages directly from the flake input
   # tree (src + "/dir") instead of a per-package `builtins.path` copy. WARNING:
   # trades per-package incrementality for the lazy read (a bare `src + "/dir"` is a
@@ -801,10 +808,25 @@ let
   );
 
   terminal = if mainPkg != null then pkgDrvs.${mainPkg.importPath} else manifest;
+
+  hasInstallStep = postInstall != "" || nativeBuildInputs != [ ];
+  installed =
+    if !hasInstallStep then
+      terminal
+    else if mainPkg == null then
+      throw "buildGodynModule: postInstall/nativeBuildInputs need a main package; ${pname}'s graph has none"
+    else
+      runCommandLocal "${pname}-${effectiveVersion}" { inherit nativeBuildInputs postInstall; } ''
+        mkdir -p "$out/bin"
+        cp ${terminal}/bin/${pname} "$out/bin/${pname}"
+        cp -r --no-preserve=mode ${src} source
+        cd source
+        runHook postInstall
+      '';
 in
 # Surface the resolved version + assembled ldflags (parity with buildGoApplication,
 # and so eval-time tests can assert without building); set mainProgram for `nix run`.
-terminal.overrideAttrs (old: {
+installed.overrideAttrs (old: {
   passthru = (old.passthru or { }) // {
     version = effectiveVersion;
     ldflags = versionLdflags ++ ldflags ++ ldflagsXFlags;
