@@ -20,6 +20,8 @@
   stdenv,
   jq,
   godyn-lint,
+  godyn-gen,
+  buildGoCheck,
   gomod2nixInternals,
 }:
 {
@@ -50,6 +52,10 @@
   # so an unchanged test cone never re-runs.
   testGraphFile ? null,
   testGraphFiles ? null,
+  # tests: with no testGraphFile(s), derive the test graph at eval time
+  # (`godyn-gen -tests`, like the build graph; FDR 0008) and enable per-package
+  # go test. Needs `modules`.
+  tests ? false,
   # Third-party packages come from a gomod2nix vendor tree. Pass `modules`
   # (./gomod2nix.toml) to derive it via buildGoApplication, or pass a prebuilt
   # `vendorEnv` directly. null for an all-local module.
@@ -210,11 +216,43 @@ let
     let
       g = resolveGraphFile "graphFiles" graphFile graphFiles;
     in
-    if g != null then
-      g
+    if g != null then g else deriveGraph "" "-godyn-graph";
+
+  # No committed graph (FDR 0008, igloo#72): derive it at eval time by running
+  # godyn-gen inside the buildGoApplication sandbox — merged go.mod for
+  # goFlakeInputs, vendored deps, offline — for the current system, and import its
+  # JSON. That is import-from-derivation, so evaluating another system's packages
+  # needs a builder for that system (accepted in FDR 0008; igloo#75). cgo is on only
+  # when a cc is given, matching what this builder can compile.
+  deriveGraph =
+    genFlags: pnameSuffix:
+    if modules == null then
+      throw "buildGodynModule(${pname}): pass graphFile/graphFiles, or modules (gomod2nix.toml) to derive the graph at eval time"
     else
-      throw ''buildGodynModule(${pname}): pass graphFile (single platform) or graphFiles ({ "<system>" = <path>; })'';
-  resolvedTestGraphFile = resolveGraphFile "testGraphFiles" testGraphFile testGraphFiles;
+      buildGoCheck {
+        base = buildGoApplication {
+          inherit
+            pname
+            src
+            modules
+            goFlakeInputs
+            ;
+          version = effectiveVersion; # an explicit version sidesteps igloo#70
+        };
+        inherit pnameSuffix;
+        extraNativeBuildInputs = [ godyn-gen ];
+        command = ''CGO_ENABLED=${if cc != null then "1" else "0"} godyn-gen ${genFlags} . "$out"'';
+      };
+  resolvedTestGraphFile =
+    let
+      t = resolveGraphFile "testGraphFiles" testGraphFile testGraphFiles;
+    in
+    if t != null then
+      t
+    else if tests then
+      deriveGraph "-tests" "-godyn-test-graph"
+    else
+      null;
 
   graph = builtins.fromJSON (builtins.readFile resolvedGraphFile);
   byImport = lib.listToAttrs (map (p: lib.nameValuePair p.importPath p) graph);
@@ -955,6 +993,9 @@ installed.overrideAttrs (old: {
     lintAll = lintLane.all;
     # the lint tool's stdlib vetx lane (type-bearing vetx tools only; igloo#71)
     lintStdVetx = lintLane.stdVetx;
+    # the graphs this build used: the committed files, or the derived ones (FDR 0008)
+    graphFile = resolvedGraphFile;
+    testGraphFile = resolvedTestGraphFile;
   };
   meta = (old.meta or { }) // lib.optionalAttrs (mainPkg != null) { mainProgram = pname; };
 })

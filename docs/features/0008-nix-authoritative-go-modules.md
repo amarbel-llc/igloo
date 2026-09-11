@@ -116,6 +116,18 @@ derivation during evaluation). This supersedes the committed-graph workflow
 and its drift check (igloo#72), which only matter until a consumer moves to a
 manifest.
 
+**Progress (igloo#72).** The eval-time half works today, ahead of the manifest:
+with no `graphFile`, `buildGodynModule` derives the build graph — and, with
+`tests = true`, the test graph — by running `godyn-gen` inside the
+buildGoApplication sandbox from the existing go.mod and gomod2nix.toml
+(merged go.mod for goFlakeInputs, vendored deps, offline). In that vendor mode
+`go list` reports no module for vendored packages, so `godyn-gen` recovers each
+one's module root and go directive from the vendored module's own go.mod. On
+igloo's fixtures the derived graphs equal the ones `godyn-gen` produces in
+module mode (checks `godyn-derived-graph-test`, `godyn-derived-tests-test`).
+Still to come: the manifest and its render step, which replace go.mod and
+gomod2nix.toml as the inputs, and the stdlib-import edge list.
+
 ## Editor escape hatch: bidirectional go.mod ↔ manifest
 
 The go toolchain outside nix is unsupported, but editors (gopls) and the

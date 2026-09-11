@@ -14,7 +14,8 @@
     "sFiles": null,
     "embedFiles": null,
     "embedPatterns": null,
-    "imports": null
+    "imports": null,
+    "goVersion": "1.26"
   },
   {
     "importPath": "example.com/gotest/helper",
@@ -31,7 +32,8 @@
     "sFiles": null,
     "embedFiles": null,
     "embedPatterns": null,
-    "imports": null
+    "imports": null,
+    "goVersion": "1.26"
   },
   {
     "importPath": "example.com/gotest/leaf",
@@ -48,7 +50,8 @@
     "sFiles": null,
     "embedFiles": null,
     "embedPatterns": null,
-    "imports": null
+    "imports": null,
+    "goVersion": "1.26"
   },
   {
     "importPath": "example.com/gotest/mid",
@@ -69,8 +72,14 @@
     "embedPatterns": [
       "banner.txt"
     ],
+    "embedPatternFiles": {
+      "banner.txt": [
+        "banner.txt"
+      ]
+    },
     "imports": [
       "example.com/gotest/leaf"
-    ]
+    ],
+    "goVersion": "1.26"
   }
 ]

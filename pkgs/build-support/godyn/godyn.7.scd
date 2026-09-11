@@ -61,6 +61,39 @@ bridged producer's flake.lock rev moves.
 . *graph.json* is committed alongside *gomod2nix.toml*.
 . *buildGodynModule* reads the committed graph purely (no import-from-derivation).
 
+# DERIVED GRAPHS (no committed graph)
+
+Committing the graph is optional, and not the recommended path (FDR 0008). Omit
+*graphFile* / *graphFiles* and pass *modules*, and *buildGodynModule* derives the
+graph at evaluation time: it runs *godyn-gen* inside the *buildGoApplication*
+sandbox — the merged go.mod for *goFlakeInputs*, the vendored dependencies,
+offline — and imports the resulting JSON. Pass *tests = true* to derive the test
+graph the same way (*godyn-gen -tests*) instead of committing *testGraphFile*.
+
+```
+pkgs.buildGodynModule {
+  pname = "myapp";
+  src = self;
+  modules = ./gomod2nix.toml;   # required to derive
+  goFlakeInputs = { ... };      # as for buildGoApplication
+  tests = true;                 # derive the test graph too
+}
+```
+
+- The graph can never drift from the source: it is recomputed whenever the
+  source, go.mod, gomod2nix.toml or a bridged input changes.
+- It is derived for the system being evaluated, so *graphFiles* is unnecessary.
+  The price is import-from-derivation: evaluating another system's packages needs
+  a builder for that system — the same limit *goFlakeInputs* consumers already
+  have (igloo#75).
+- cgo files are included only when *cc* is passed, matching what the builder can
+  compile.
+- In the sandbox's vendor mode *go list* reports no module for vendored packages;
+  *godyn-gen* recovers each one's module root and *go* directive from the vendored
+  module's own go.mod, so per-module *-lang* still applies.
+- *passthru.graphFile* / *passthru.testGraphFile* expose the graphs a build used,
+  committed or derived.
+
 # buildGoAuto (selector)
 
 *pkgs.buildGoAuto* picks the backend by intent — godyn for the incremental dev/test
@@ -115,6 +148,8 @@ Arguments:
 - *testGraphFile*, *testGraphFiles* — the committed test graph produced by
   *godyn-gen -tests* (single platform / per-system attrset). Optional; enables
   per-package go test. See TESTS below.
+- *tests* — with no committed test graph, derive it at evaluation time and enable
+  per-package go test (see DERIVED GRAPHS).
 - *graphFiles* — per-system graphs as an attrset *{ "<system>" =
   ./godyn-graph.<system>.json; ... }*, selected by *system* at eval time. *go list*'s
   file/import selection honors GOOS/GOARCH build constraints, so a graph is only
@@ -123,7 +158,8 @@ Arguments:
   on more than one system. godyn-gen respects GOOS/GOARCH (and CGO_ENABLED) from its
   environment, so every platform's graph can be generated from one host:
   *CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 godyn-gen . godyn-graph.aarch64-darwin.json*.
-  Exactly one of graphFile/graphFiles is required.
+  Omit both to derive the graph at evaluation time instead (needs *modules*; see
+  DERIVED GRAPHS).
 - *modules* — a gomod2nix.toml; its vendorEnv (third-party sources by import path)
   is derived internally via buildGoApplication. Omit for an all-local module.
 - *vendorEnv* — alternatively pass a prebuilt vendor tree directly.

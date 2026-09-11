@@ -17,7 +17,7 @@ rec {
   godyn-lint = callPackage ./lint { };
   buildGodynModule = callPackage ./build-godyn-module.nix {
     stdlib = godynStdlib;
-    inherit gomod2nixInternals godyn-lint;
+    inherit gomod2nixInternals godyn-lint godyn-gen;
   };
   # buildGodynLint: the per-package lint lane of a buildGodynModule — takes the same
   # args (plus lintTool) and returns the manifest realising every local package's

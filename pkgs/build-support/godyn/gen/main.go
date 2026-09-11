@@ -56,11 +56,58 @@ type goListPkg struct {
 	SwigFiles     []string
 	SwigCXXFile   []string `json:"SwigCXXFiles"`
 	Imports       []string
-	Module        *struct {
-		Dir       string
-		Main      bool
-		GoVersion string // the module's go directive; empty when it has none
+	Module        *moduleInfo
+}
+
+type moduleInfo struct {
+	Dir       string
+	Main      bool
+	GoVersion string // the module's go directive; empty when it has none
+}
+
+// fillVendoredModules supplies the module that go list leaves out in vendor mode:
+// with a vendor tree that has no modules.txt (gomod2nix's, used under
+// GO_NO_VENDOR_CHECKS — e.g. when the graph is derived at eval time inside a
+// buildGoApplication sandbox, FDR 0008), vendored packages carry no Module, so
+// their module root and go directive are recovered from the nearest go.mod above
+// the package inside vendor/.
+func fillVendoredModules(pkgs []goListPkg, moduleDir string) {
+	vendorRoot, err := filepath.Abs(filepath.Join(moduleDir, "vendor"))
+	if err != nil {
+		return
 	}
+	for i := range pkgs {
+		p := &pkgs[i]
+		if p.Standard || p.Module != nil {
+			continue
+		}
+		if rel, err := filepath.Rel(vendorRoot, p.Dir); err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+			continue
+		}
+		p.Module = vendoredModule(vendorRoot, p.Dir)
+	}
+}
+
+// vendoredModule finds the module containing a vendored package dir: the nearest
+// directory at or above it (below vendorRoot) holding a go.mod. A module without
+// one gets no go version, so goVersionOf applies cmd/go's 1.16 default.
+func vendoredModule(vendorRoot, dir string) *moduleInfo {
+	for d := dir; d != vendorRoot && strings.HasPrefix(d, vendorRoot+string(filepath.Separator)); d = filepath.Dir(d) {
+		if data, err := os.ReadFile(filepath.Join(d, "go.mod")); err == nil {
+			return &moduleInfo{Dir: d, GoVersion: goDirective(data)}
+		}
+	}
+	return &moduleInfo{Dir: dir}
+}
+
+// goDirective is the version on a go.mod's `go` line, or "" if it has none.
+func goDirective(gomod []byte) string {
+	for _, line := range strings.Split(string(gomod), "\n") {
+		if f := strings.Fields(line); len(f) >= 2 && f[0] == "go" {
+			return f[1]
+		}
+	}
+	return ""
 }
 
 // goVersionOf is the language version `go build` compiles p's module at: its go
@@ -174,6 +221,7 @@ func main() {
 		}
 		pkgs = append(pkgs, p)
 	}
+	fillVendoredModules(pkgs, moduleDir)
 
 	if *testsMode {
 		writeJSON(outPath, testGraph(pkgs))

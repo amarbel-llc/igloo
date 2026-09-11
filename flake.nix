@@ -305,6 +305,26 @@
             '';
             strategy = "native";
           };
+          # No committed graph (FDR 0008, igloo#72): the cross/app module built with
+          # its graph derived at eval time from gomod2nix.toml + goFlakeInputs.
+          godyn-derived-graph-test = pkgs.buildGodynModule {
+            pname = "godyn-cross-app";
+            src = ./pkgs/build-support/godyn/tests/cross/app;
+            modules = ./pkgs/build-support/godyn/tests/cross/app/gomod2nix.toml;
+            goFlakeInputs."example.com/dep" = {
+              src = ./pkgs/build-support/godyn/tests/cross;
+              subPath = "dep";
+            };
+            version = "0.0.0";
+          };
+          # No committed graphs at all: the gotest fixture with both its build and
+          # test graphs derived at eval time (tests = true).
+          godyn-derived-tests-test = pkgs.buildGodynModule {
+            pname = "godyn-gotest-test";
+            src = ./pkgs/build-support/godyn/tests/gotest;
+            modules = ./pkgs/build-support/godyn/tests/gotest/gomod2nix.toml;
+            tests = true;
+          };
           # Go language version: the module declares go 1.21 (pre-loopvar), built
           # through both backends; see the godyn-lang-test check.
           godyn-lang-test = pkgs.buildGoAuto {
@@ -608,6 +628,40 @@
           # imports), and a bridged dependency is vetted facts-only.
           godyn-vet-clean-test = self.packages.${system}.godyn-gotest-test.passthru.vetAll;
           godyn-vet-bridged-test = self.packages.${system}.godyn-cross-source.passthru.vetAll;
+          # eval-time graph: the derived-graph build runs, and its graph equals the
+          # committed one godyn-gen -gomod produced for the same module.
+          godyn-derived-graph-test =
+            let
+              derived = self.packages.${system}.godyn-derived-graph-test;
+            in
+            pkgs.runCommandLocal "godyn-derived-graph-test-check" { nativeBuildInputs = [ pkgs.jq ]; } ''
+              got=$(${derived}/bin/godyn-cross-app)
+              [ "$got" = "hello from dep/greet" ] || { echo "derived-graph build mismatch: [$got]" >&2; exit 1; }
+              jq -S . ${./pkgs/build-support/godyn/tests/cross/app/godyn-graph.json} > committed.json
+              jq -S . ${derived.passthru.graphFile} > derived.json
+              diff -u committed.json derived.json
+              echo OK > $out
+            '';
+          # derived build + test graphs: every per-package test runs, and both
+          # graphs equal the committed ones for the same fixture.
+          godyn-derived-tests-test =
+            let
+              derived = self.packages.${system}.godyn-derived-tests-test;
+              fixture = ./pkgs/build-support/godyn/tests/gotest;
+            in
+            pkgs.runCommandLocal "godyn-derived-tests-test-check" { nativeBuildInputs = [ pkgs.jq ]; } ''
+              res=${derived.passthru.checkAll}
+              for p in example.com/gotest/leaf example.com/gotest/mid example.com/gotest; do
+                grep -qx "ok $p" "$res" || { echo "missing test result for $p" >&2; cat "$res" >&2; exit 1; }
+              done
+              jq -S . ${fixture}/godyn-graph.json > committed.json
+              jq -S . ${derived.passthru.graphFile} > derived.json
+              diff -u committed.json derived.json
+              jq -S . ${fixture}/godyn-test-graph.json > committed-tests.json
+              jq -S . ${derived.passthru.testGraphFile} > derived-tests.json
+              diff -u committed-tests.json derived-tests.json
+              echo OK > $out
+            '';
           # godyn must compile a module at the language version its go.mod
           # declares, like `go build`: go 1.21 closures share the loop variable.
           godyn-lang-test =
