@@ -166,10 +166,11 @@ type genTestPkg struct {
 	GoVersion    string   `json:"goVersion,omitempty"` // the module's language version (-lang)
 }
 
-const usage = "usage: godyn-gen [-tests] [-gomod <go.mod>] <module-dir> <out-graph.json> [packages...]"
+const usage = "usage: godyn-gen [-tests] [-tags <t1,t2>] [-gomod <go.mod>] <module-dir> <out-graph.json> [packages...]"
 
 func main() {
 	testsMode := flag.Bool("tests", false, "emit the TEST graph (go list -test) instead of the build graph")
+	tags := flag.String("tags", "", "comma-separated build tags selecting files, as `go build -tags`")
 	gomod := flag.String("gomod", "", "resolve against this go.mod instead of <module-dir>/go.mod (e.g. passthru.mergedGoMod); the tracked go.mod is not touched")
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, usage)
@@ -189,6 +190,9 @@ func main() {
 	listArgs := []string{"list"}
 	if *testsMode {
 		listArgs = append(listArgs, "-test")
+	}
+	if *tags != "" {
+		listArgs = append(listArgs, "-tags", *tags)
 	}
 	cleanup := func() {}
 	if *gomod != "" {

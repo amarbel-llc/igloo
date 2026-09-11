@@ -38,6 +38,8 @@
   # subPackages: the main packages to build, declared once for both backends
   # (module-relative dirs); null = all of them.
   subPackages ? null,
+  # Go build tags, declared once for both backends (see buildGodynModule).
+  tags ? [ ],
   # cgo inputs, declared once for both backends (see buildGodynModule).
   buildInputs ? [ ],
   CGO_CFLAGS ? "",
@@ -64,6 +66,7 @@ let
   // lib.optionalAttrs (postInstall != "") { inherit postInstall; }
   // lib.optionalAttrs (nativeBuildInputs != [ ]) { inherit nativeBuildInputs; }
   // lib.optionalAttrs (subPackages != null) { inherit subPackages; }
+  // lib.optionalAttrs (tags != [ ]) { inherit tags; }
   // lib.optionalAttrs (buildInputs != [ ]) { inherit buildInputs; }
   // lib.optionalAttrs (CGO_CFLAGS != "") { inherit CGO_CFLAGS; }
   // lib.optionalAttrs (CGO_LDFLAGS != "") { inherit CGO_LDFLAGS; };

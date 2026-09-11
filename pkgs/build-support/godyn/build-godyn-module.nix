@@ -122,6 +122,18 @@
   # `go install ./...` would. One binary is named pname; several are each named
   # after their import path's last element, as `go install` names them.
   subPackages ? null,
+  # tags: Go build tags, as `go build -tags` / buildGoApplication's `tags`. They
+  # select files when the graph is derived (godyn-gen -tags), so every package —
+  # including the deps a test compiles against — builds under them; a committed
+  # graph must be generated with the same -tags. Tags do not re-select stdlib
+  # files (the stdlib is built once, untagged). For test-only tags (`//go:build
+  # test` helpers used across packages), build the tests from a second instance
+  # with `tags = [ "test" ]; tests = true;` — `go test -tags test` compiles every
+  # package under the tag too; untouched packages come out identical (CA).
+  tags ? [ ],
+  # testEnv: environment variables for every per-package test run, as an attrset
+  # (store paths welcome, e.g. { FOO_BIN = "${foo}/bin/foo"; }).
+  testEnv ? { },
   # Install step, parity with buildGoApplication: postInstall runs after the link
   # with $out/bin/<pname> in place and cwd = a writable copy of src (as bga runs it
   # from the unpacked source); nativeBuildInputs are available to it. Main-package
@@ -255,7 +267,9 @@ let
         };
         inherit pnameSuffix;
         extraNativeBuildInputs = [ godyn-gen ];
-        command = ''CGO_ENABLED=${if cc != null then "1" else "0"} godyn-gen ${genFlags} . "$out"'';
+        command = ''CGO_ENABLED=${if cc != null then "1" else "0"} godyn-gen ${genFlags} ${
+          lib.optionalString (tags != [ ]) "-tags ${lib.escapeShellArg (lib.concatStringsSep "," tags)}"
+        } . "$out"'';
       };
   resolvedTestGraphFile =
     let
@@ -980,11 +994,14 @@ let
 
       run =
         runCommandLocal "godyn-test-${sanitize importPath}"
-          {
-            __contentAddressed = true;
-            outputHashMode = "recursive";
-            outputHashAlgo = "sha256";
-          }
+          (
+            testEnv
+            // {
+              __contentAddressed = true;
+              outputHashMode = "recursive";
+              outputHashAlgo = "sha256";
+            }
+          )
           ''
             mkdir -p "$out"
             ${outWritableProbe}

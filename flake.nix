@@ -368,6 +368,24 @@
               version = "0.0.0";
               tests = true;
             };
+          # build tags: the same module untagged, and tagged `test` with per-package
+          # tests (a tagged helper in lib is used by user's untagged test, so lib
+          # must compile under the tag) plus a testEnv the tests read.
+          godyn-tags-plain = pkgs.buildGodynModule {
+            pname = "godyn-tags-plain";
+            src = ./pkgs/build-support/godyn/tests/buildtags;
+            modules = ./pkgs/build-support/godyn/tests/buildtags/gomod2nix.toml;
+            version = "0.0.0";
+          };
+          godyn-tags-test = pkgs.buildGodynModule {
+            pname = "godyn-tags-test";
+            src = ./pkgs/build-support/godyn/tests/buildtags;
+            modules = ./pkgs/build-support/godyn/tests/buildtags/gomod2nix.toml;
+            version = "0.0.0";
+            tags = [ "test" ];
+            tests = true;
+            testEnv.GODYN_TEST_ENV = "set";
+          };
           # cgo flags cmd/go resolves before cgo runs: `#cgo pkg-config: zlib` plus a
           # -D define that only CGO_CFLAGS supplies (maneater's shape).
           godyn-cgo-pkgconfig-test = pkgs.buildGodynModule {
@@ -737,6 +755,22 @@
               || { echo "p's tests did not run from go-pkgs-test" >&2; exit 1; }
             echo OK > $out
           '';
+          # build tags select files in the derived graph: untagged links the
+          # default file, tagged the other; the tagged tests (cross-package tagged
+          # helper, testEnv) all pass.
+          godyn-tags-test =
+            let
+              plain = self.packages.${system}.godyn-tags-plain;
+              tagged = self.packages.${system}.godyn-tags-test;
+            in
+            pkgs.runCommandLocal "godyn-tags-test-check" { } ''
+              [ "$(${plain}/bin/godyn-tags-plain)" = default ] || { echo "untagged build did not select mode_default.go" >&2; exit 1; }
+              [ "$(${tagged}/bin/godyn-tags-test)" = tagged ] || { echo "tagged build did not select mode_tagged.go" >&2; exit 1; }
+              for p in example.com/tags/lib example.com/tags/user; do
+                grep -qx "ok $p" ${tagged.passthru.checkAll} || { echo "missing tagged test result for $p" >&2; exit 1; }
+              done
+              echo OK > $out
+            '';
           # cgo flags: the zlib headers/lib arrive via `#cgo pkg-config`, the define
           # via CGO_CFLAGS, and the binary links and runs; the lint lane analyzes it.
           godyn-cgo-pkgconfig-test = pkgs.runCommandLocal "godyn-cgo-pkgconfig-test-check" { } ''

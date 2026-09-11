@@ -177,6 +177,14 @@ Arguments:
   *CFLAGS*, *CPPFLAGS*, *LDFLAGS* and *pkg-config* — are recorded in the graph and
   resolved at build time (*pkg-config* runs over *buildInputs*), as *cmd/go* does
   before invoking cgo. *buildGoAuto* forwards all three to both backends.
+- *tags* — Go build tags (as *go build -tags*); they select files when the graph is
+  derived (*godyn-gen -tags*), so every package, including a test's deps, builds
+  under them. A committed graph must be generated with the same *-tags*. The stdlib
+  is not re-selected. For test-only tags (*//go:build test* helpers shared across
+  packages) build the tests from a second instance with *tags = [ "test" ];
+  tests = true;*, as *go test -tags test* would; untouched packages are shared (CA).
+  *buildGoAuto* forwards *tags* to both backends.
+- *testEnv* — environment variables (an attrset) set for every per-package test run.
 - *bridges* — modpath -> go-pkgs SOURCE store path; the bridged module's packages are
   compiled in THIS graph (cross-module composition, approach 2). See CROSS-MODULE.
 - *goFlakeInputs* — the RFC 0001 declaration buildGoApplication takes, resolved the
