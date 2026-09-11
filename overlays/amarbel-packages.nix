@@ -68,6 +68,7 @@ final: _: {
     godyn-gen
     godyn-lint
     godynStdlib
+    godynSystems
     ;
 
   # nixgc — targeted Nix store GC CLI (extracted + generalized from spinclass's

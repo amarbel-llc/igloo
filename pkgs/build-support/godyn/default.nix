@@ -12,6 +12,10 @@ let
   gomod2nixInternals = import ../gomod2nix/internals.nix { };
 in
 rec {
+  # The systems godyn is validated (and gated) on. buildGoAuto's default strategy
+  # picks godyn here and buildGoApplication elsewhere, and consumers' gates can key
+  # off passthru.backend — so adding a system (igloo#33) flips the fleet in one bump.
+  godynSystems = [ "x86_64-linux" ];
   godynStdlib = callPackage ./stdlib.nix { };
   godyn-gen = callPackage ./gen { };
   godyn-lint = callPackage ./lint { };
@@ -24,5 +28,5 @@ rec {
   # lint derivation; wire it as a flake check.
   buildGodynLint = args: (buildGodynModule args).passthru.lintAll;
   # callPackage supplies buildGodynModule + buildGoApplication from the overlay.
-  buildGoAuto = callPackage ./build-go-auto.nix { inherit buildGodynModule; };
+  buildGoAuto = callPackage ./build-go-auto.nix { inherit buildGodynModule godynSystems; };
 }

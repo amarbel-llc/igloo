@@ -1140,17 +1140,18 @@ let
     + lib.concatMapStringsSep "\n" (t: "cat ${testRuns.${t.importPath}}/result >> $out") testGraph
   );
 
+  # A main package's CA compile output also holds its pkg.a, so the result is a
+  # bin/-only copy of each linked binary, like buildGoApplication's output: a
+  # symlinkJoin over it gains nothing stray, and the compile outputs stay out of
+  # the runtime closure.
   terminal =
     if mainPkg == null then
       manifest
-    else if singleBinary then
-      pkgDrvs.${mainPkg.importPath}
     else
-      # several binaries: one bin/ over each main package's CA link output
-      runCommandLocal "godyn-${pname}-bins" { } (
+      runCommandLocal "${pname}-${effectiveVersion}" { } (
         "mkdir -p $out/bin\n"
         + lib.concatMapStringsSep "\n" (
-          p: "ln -s ${pkgDrvs.${p.importPath}}/bin/${binNameOf p} $out/bin/${binNameOf p}"
+          p: "cp ${pkgDrvs.${p.importPath}}/bin/${binNameOf p} $out/bin/${binNameOf p}"
         ) mainPkgs
       );
 

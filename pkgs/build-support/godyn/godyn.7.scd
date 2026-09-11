@@ -112,6 +112,12 @@ pkgs.buildGoAuto {
 }
 ```
 
+With no *strategy*, *buildGoAuto* picks godyn on the systems in *godynSystems*
+(igloo's list of systems godyn is validated on; today x86_64-linux) and
+buildGoApplication elsewhere. Consumers should not hard-code a system: select test
+lanes and gates by *passthru.backend*, so extending *godynSystems* (igloo#33)
+switches every consumer's builds and gates in one igloo bump.
+
 Both backends are always reachable via *passthru.native* / *passthru.bga* (force
 either without re-plumbing); *passthru.backend* records the choice.
 
@@ -237,7 +243,10 @@ Arguments:
   *nativeBuildInputs* (and their setup hooks) available — e.g. running the binary
   to generate manpages or completions, installing extra files, adding symlinks.
   Setting either makes the result a separate install derivation layered on the
-  content-addressed link output, so editing the install script never re-links.
+  linked binaries, so editing the install script never re-links. Either way a
+  module with main packages yields a *bin/*-only result (a copy of each linked
+  binary), like buildGoApplication's: package archives stay in the per-package
+  derivations, out of the result and its runtime closure.
   Requires a main package.
 
 A module with a *package main* links a binary at *$out/bin/<pname>*; a library

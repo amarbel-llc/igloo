@@ -15,8 +15,10 @@
 # without re-plumbing: `result.passthru.native`, `result.passthru.bga`.
 {
   lib,
+  stdenv,
   buildGodynModule,
   buildGoApplication,
+  godynSystems,
 }:
 {
   pname,
@@ -46,7 +48,10 @@
   buildInputs ? [ ],
   CGO_CFLAGS ? "",
   CGO_LDFLAGS ? "",
-  strategy ? "native",
+  # Default: godyn ("native") on the systems igloo validates it on (godynSystems),
+  # buildGoApplication elsewhere — so extending godynSystems flips every consumer
+  # that doesn't pin a strategy. Gates should key off passthru.backend, not a system.
+  strategy ? if lib.elem stdenv.hostPlatform.system godynSystems then "native" else "bga",
   # Escape hatches for backend-specific args that don't overlap:
   #   nativeArgs — extra buildGodynModule args (vendorEnv, cc, bridges, pwd, ...)
   #   bgaArgs    — extra buildGoApplication args (subPackages, go, GOTOOLCHAIN, ...)

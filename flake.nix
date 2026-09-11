@@ -873,6 +873,24 @@
               || { echo "the test could not run a nativeCheckInputs tool" >&2; exit 1; }
             echo OK > $out
           '';
+          # buildGoAuto's default strategy follows godynSystems: godyn where it is
+          # validated, buildGoApplication elsewhere (no per-consumer system checks).
+          godyn-auto-default-strategy-test =
+            let
+              backend =
+                (pkgs.buildGoAuto {
+                  pname = "godyn-multi-auto";
+                  src = ./pkgs/build-support/godyn/tests/multi;
+                  modules = ./pkgs/build-support/godyn/tests/multi/gomod2nix.toml;
+                  subPackages = [ "cmd/alpha" ];
+                  version = "0.0.0";
+                }).passthru.backend;
+              want = if builtins.elem system pkgs.godynSystems then "native" else "bga";
+            in
+            assert backend == want;
+            pkgs.runCommandLocal "godyn-auto-default-strategy-test-check" { } ''
+              echo ${backend} > $out
+            '';
           # cgo flags: the zlib headers/lib arrive via `#cgo pkg-config`, the define
           # via CGO_CFLAGS, and the binary links and runs; the lint lane analyzes it.
           godyn-cgo-pkgconfig-test = pkgs.runCommandLocal "godyn-cgo-pkgconfig-test-check" { } ''
@@ -892,17 +910,22 @@
           godyn-multi-test =
             pkgs.runCommandLocal "godyn-multi-test-check" { nativeBuildInputs = [ pkgs.binutils ]; }
               ''
-                all=${self.packages.${system}.godyn-multi-test}
-                [ "$($all/bin/alpha)" = "hello from alpha" ] || { echo "alpha missing or wrong" >&2; ls -l $all/bin >&2; exit 1; }
-                [ "$($all/bin/beta)" = "hello from beta" ] || { echo "beta missing or wrong" >&2; ls -l $all/bin >&2; exit 1; }
-                ida=$(readelf -n $all/bin/alpha | sed -n 's/.*Build ID: //p')
-                idb=$(readelf -n $all/bin/beta | sed -n 's/.*Build ID: //p')
-                [ -n "$ida" ] && [ "$ida" != "$idb" ] || { echo "GNU build IDs not distinct: alpha=[$ida] beta=[$idb]" >&2; exit 1; }
-                if readelf -S --wide $all/bin/alpha | grep -q 'debug_info'; then echo "alpha still carries DWARF" >&2; exit 1; fi
-                sub=${self.packages.${system}.godyn-multi-sub-test}
-                [ "$(ls $sub/bin)" = "godyn-multi-sub-test" ] || { echo "subPackages linked: $(ls $sub/bin)" >&2; exit 1; }
-                [ "$($sub/bin/godyn-multi-sub-test)" = "hello from beta" ] || { echo "subPackages picked the wrong main" >&2; exit 1; }
-                echo OK > $out
+                    all=${self.packages.${system}.godyn-multi-test}
+                    [ "$($all/bin/alpha)" = "hello from alpha" ] || { echo "alpha missing or wrong" >&2; ls -l $all/bin >&2; exit 1; }
+                    [ "$($all/bin/beta)" = "hello from beta" ] || { echo "beta missing or wrong" >&2; ls -l $all/bin >&2; exit 1; }
+                    ida=$(readelf -n $all/bin/alpha | sed -n 's/.*Build ID: //p')
+                    idb=$(readelf -n $all/bin/beta | sed -n 's/.*Build ID: //p')
+                    [ -n "$ida" ] && [ "$ida" != "$idb" ] || { echo "GNU build IDs not distinct: alpha=[$ida] beta=[$idb]" >&2; exit 1; }
+                    if readelf -S --wide $all/bin/alpha | grep -q 'debug_info'; then echo "alpha still carries DWARF" >&2; exit 1; fi
+                # the result is bin/ only (no pkg.a leaking into a symlinkJoin), for both
+                # the multi-binary and the single-binary (subPackages) shapes.
+                for r in $all ${self.packages.${system}.godyn-multi-sub-test}; do
+                  [ "$(ls -A $r)" = bin ] || { echo "$r holds more than bin/: $(ls -A $r)" >&2; exit 1; }
+                done
+                    sub=${self.packages.${system}.godyn-multi-sub-test}
+                    [ "$(ls $sub/bin)" = "godyn-multi-sub-test" ] || { echo "subPackages linked: $(ls $sub/bin)" >&2; exit 1; }
+                    [ "$($sub/bin/godyn-multi-sub-test)" = "hello from beta" ] || { echo "subPackages picked the wrong main" >&2; exit 1; }
+                    echo OK > $out
               '';
           # godyn must compile a module at the language version its go.mod
           # declares, like `go build`: go 1.21 closures share the loop variable.
