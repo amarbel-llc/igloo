@@ -108,6 +108,11 @@
   # lintAll, and buildGodynLint). Default: godyn-lint — vet's passes plus
   # staticcheck's default checks, with golangci-lint style //nolint suppression.
   lintTool ? godyn-lint,
+  # subPackages: which main packages to link, as module-relative dirs ("cmd/foo",
+  # "." — like buildGoApplication's). null = every main package in the graph, as
+  # `go install ./...` would. One binary is named pname; several are each named
+  # after their import path's last element, as `go install` names them.
+  subPackages ? null,
   # Install step, parity with buildGoApplication: postInstall runs after the link
   # with $out/bin/<pname> in place and cwd = a writable copy of src (as bga runs it
   # from the unpacked source); nativeBuildInputs are available to it. Main-package
@@ -580,7 +585,7 @@ let
         GOTOOLDIR="$(go env GOTOOLDIR)"
         export GOROOT=
         "$GOTOOLDIR/link" -buildid=redacted -buildmode=exe ${lib.optionalString mainCgo "-extld ${cc}/bin/cc"} ${effectiveLdflagsStr} -importcfg importcfg.link \
-          -o "$out/bin/${pname}" "$out/pkg.a"
+          -o "$out/bin/${binNameOf p}" "$out/pkg.a"
       '';
     in
     runCommandLocal "godyn-compile-${sanitize importPath}" {
@@ -774,7 +779,24 @@ let
   ) (speaksTypedVetx vetTool);
   lintLane = analysisLane "lint" (lib.getExe lintTool) (speaksTypedVetx lintTool);
 
-  mainPkg = lib.findFirst (p: p.isMain) null graph;
+  # The main packages to link (subPackages, or every main in the graph).
+  allMains = builtins.filter (p: p.isMain) graph;
+  mainPkgs =
+    if subPackages == null then
+      allMains
+    else
+      map (
+        d:
+        let
+          dir = lib.removeSuffix "/" (lib.removePrefix "./" d);
+        in
+        lib.findFirst (
+          p: p.dir == dir
+        ) (throw "buildGodynModule(${pname}): subPackages: no main package in ${d}") allMains
+      ) subPackages;
+  singleBinary = builtins.length mainPkgs == 1;
+  binNameOf = p: if singleBinary then pname else baseNameOf p.importPath;
+  mainPkg = if mainPkgs == [ ] then null else builtins.head mainPkgs;
 
   # Packages this graph actually compiles (archive-bridged ones are linked, not built).
   ownPkgs = builtins.filter (p: archiveBridgeOf p.importPath == null) graph;
@@ -967,7 +989,19 @@ let
     + lib.concatMapStringsSep "\n" (t: "cat ${testRuns.${t.importPath}}/result >> $out") testGraph
   );
 
-  terminal = if mainPkg != null then pkgDrvs.${mainPkg.importPath} else manifest;
+  terminal =
+    if mainPkg == null then
+      manifest
+    else if singleBinary then
+      pkgDrvs.${mainPkg.importPath}
+    else
+      # several binaries: one bin/ over each main package's CA link output
+      runCommandLocal "godyn-${pname}-bins" { } (
+        "mkdir -p $out/bin\n"
+        + lib.concatMapStringsSep "\n" (
+          p: "ln -s ${pkgDrvs.${p.importPath}}/bin/${binNameOf p} $out/bin/${binNameOf p}"
+        ) mainPkgs
+      );
 
   hasInstallStep = postInstall != "" || nativeBuildInputs != [ ];
   installed =
@@ -978,7 +1012,7 @@ let
     else
       runCommandLocal "${pname}-${effectiveVersion}" { inherit nativeBuildInputs postInstall; } ''
         mkdir -p "$out/bin"
-        cp ${terminal}/bin/${pname} "$out/bin/${pname}"
+        cp -L ${terminal}/bin/* "$out/bin/"
         cp -r --no-preserve=mode ${src} source
         cd source
         runHook postInstall
@@ -1011,5 +1045,6 @@ installed.overrideAttrs (old: {
     graphFile = resolvedGraphFile;
     testGraphFile = resolvedTestGraphFile;
   };
-  meta = (old.meta or { }) // lib.optionalAttrs (mainPkg != null) { mainProgram = pname; };
+  meta =
+    (old.meta or { }) // lib.optionalAttrs (mainPkg != null) { mainProgram = binNameOf mainPkg; };
 })

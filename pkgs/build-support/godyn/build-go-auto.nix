@@ -35,6 +35,9 @@
   # postInstall; godyn in a separate install derivation (see buildGodynModule).
   postInstall ? "",
   nativeBuildInputs ? [ ],
+  # subPackages: the main packages to build, declared once for both backends
+  # (module-relative dirs); null = all of them.
+  subPackages ? null,
   strategy ? "native",
   # Escape hatches for backend-specific args that don't overlap:
   #   nativeArgs — extra buildGodynModule args (vendorEnv, cc, bridges, pwd, ...)
@@ -55,7 +58,8 @@ let
   // lib.optionalAttrs (version != null) { inherit version; }
   // lib.optionalAttrs (modules != null) { inherit modules; }
   // lib.optionalAttrs (postInstall != "") { inherit postInstall; }
-  // lib.optionalAttrs (nativeBuildInputs != [ ]) { inherit nativeBuildInputs; };
+  // lib.optionalAttrs (nativeBuildInputs != [ ]) { inherit nativeBuildInputs; }
+  // lib.optionalAttrs (subPackages != null) { inherit subPackages; };
 
   native = buildGodynModule (common // { inherit graphFile graphFiles; } // nativeArgs);
   bga = buildGoApplication (common // bgaArgs);

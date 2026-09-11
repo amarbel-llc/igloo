@@ -325,6 +325,19 @@
             modules = ./pkgs/build-support/godyn/tests/gotest/gomod2nix.toml;
             tests = true;
           };
+          # Multi-binary module: two commands over a shared package, graph derived.
+          # All mains link by default; subPackages selects.
+          godyn-multi-test = pkgs.buildGodynModule {
+            pname = "godyn-multi-test";
+            src = ./pkgs/build-support/godyn/tests/multi;
+            modules = ./pkgs/build-support/godyn/tests/multi/gomod2nix.toml;
+          };
+          godyn-multi-sub-test = pkgs.buildGodynModule {
+            pname = "godyn-multi-sub-test";
+            src = ./pkgs/build-support/godyn/tests/multi;
+            modules = ./pkgs/build-support/godyn/tests/multi/gomod2nix.toml;
+            subPackages = [ "cmd/beta" ];
+          };
           # Go language version: the module declares go 1.21 (pre-loopvar), built
           # through both backends; see the godyn-lang-test check.
           godyn-lang-test = pkgs.buildGoAuto {
@@ -662,6 +675,17 @@
               diff -u committed-tests.json derived-tests.json
               echo OK > $out
             '';
+          # multi-binary: every main links (named like `go install`); subPackages
+          # links only the selected one (named pname).
+          godyn-multi-test = pkgs.runCommandLocal "godyn-multi-test-check" { } ''
+            all=${self.packages.${system}.godyn-multi-test}
+            [ "$($all/bin/alpha)" = "hello from alpha" ] || { echo "alpha missing or wrong" >&2; ls -l $all/bin >&2; exit 1; }
+            [ "$($all/bin/beta)" = "hello from beta" ] || { echo "beta missing or wrong" >&2; ls -l $all/bin >&2; exit 1; }
+            sub=${self.packages.${system}.godyn-multi-sub-test}
+            [ "$(ls $sub/bin)" = "godyn-multi-sub-test" ] || { echo "subPackages linked: $(ls $sub/bin)" >&2; exit 1; }
+            [ "$($sub/bin/godyn-multi-sub-test)" = "hello from beta" ] || { echo "subPackages picked the wrong main" >&2; exit 1; }
+            echo OK > $out
+          '';
           # godyn must compile a module at the language version its go.mod
           # declares, like `go build`: go 1.21 closures share the loop variable.
           godyn-lang-test =

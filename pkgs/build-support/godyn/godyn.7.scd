@@ -142,7 +142,7 @@ pkgs.buildGodynModule {
 
 Arguments:
 
-- *pname* — package name; also the binary name.
+- *pname* — package name; also the binary name when one binary is linked.
 - *src* — the module source root (a flake input); local packages live under it.
 - *graphFile* — the committed graph.json produced by godyn-gen (single platform).
 - *testGraphFile*, *testGraphFiles* — the committed test graph produced by
@@ -180,6 +180,11 @@ Arguments:
 - *archiveBridges* — modpath -> go-pkgs-of-ARCHIVES store path; the bridged module's
   packages are LINKED from their pre-built archives, not compiled (approach 1).
 - *system* — target tuning.
+- *subPackages* — which main packages to link, as module-relative dirs
+  (*[ "cmd/foo" ]*, *"."*), like buildGoApplication's; default: every main package
+  in the graph, as *go install ./...*. One linked binary is named *pname*; several
+  are each named after their import path's last element (*cmd/foo* → *foo*) and
+  gathered into one *bin/*. *buildGoAuto* forwards it to both backends.
 - *goVersion* — the fallback language version. godyn-gen records each package's
   module *go* directive in the graph (1.16 for a module without one), and every
   package compiles at its own module's version (*-lang*, truncated to
