@@ -68,7 +68,7 @@ build-eval:
 
     gum log --level info "all changed packages evaluated successfully"
 
-test: test-gomod2nix test-gomod2nix-merge-annotation test-go-toolchain
+test: test-gomod2nix test-gomod2nix-merge-annotation test-go-toolchain test-godyn
 
 # [test] Build every gomod2nix build-support eval-test fixture. These pin
 # buildGoApplication / mkGoEnv / mkGoPkgs behavior (version resolution,
@@ -136,6 +136,28 @@ test-gomod2nix-merge-annotation:
 [group: 'test']
 test-go-toolchain:
     NIXPKGS_ALLOW_UNFREE=1 nix-build --no-out-link pkgs/development/compilers/go-toolchain/go-toolchain-test.nix
+
+# [test] Build every godyn flake check (checks.<system>.godyn-*: build, embed,
+# ldflags, cross-module, buildGoAuto, tests, vet, lint, postInstall fixtures).
+# `just` does not run `nix flake check`, so without this a godyn regression would
+# pass the merge hook. The names come from the flake, so a new godyn-* check joins
+# the gate automatically. x86_64-linux only: godyn is unvalidated elsewhere
+# (igloo#33).
+#
+# build every godyn flake check
+[group: 'test']
+test-godyn:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    system=$(nix eval --raw --impure --expr 'builtins.currentSystem')
+    if [[ "$system" != x86_64-linux ]]; then
+        gum log --level warn "skipping godyn checks on $system (godyn validated on x86_64-linux only, igloo#33)"
+        exit 0
+    fi
+    mapfile -t names < <(nix eval --raw ".#checks.${system}" \
+        --apply 'cs: builtins.concatStringsSep "\n" (builtins.filter (n: builtins.substring 0 6 n == "godyn-") (builtins.attrNames cs))')
+    gum log --level info "building ${#names[@]} godyn checks"
+    nix build --no-link --print-build-logs "${names[@]/#/.#checks.${system}.}"
 
 lint: lint-fmt lint-worktree
 
