@@ -676,6 +676,10 @@ let
         done
         jq --arg out "$out" 'map({key: .ImportPath, value: ($out + "/" + .ImportPath + ".vetx")}) | from_entries' \
           pkgs.json > "$out/index.json"
+        # each stdlib package's transitive stdlib deps: a run whose graph records
+        # stdImports is handed only the vetx its imports reach
+        jq 'map({key: .ImportPath, value: [(.Deps // [])[] | select(. != "unsafe" and . != "C")]}) | from_entries' \
+          pkgs.json > "$out/deps.json"
       '';
 
   # A lane: { local = run derivations of the local packages by import path;
@@ -687,9 +691,9 @@ let
       stdVetx = stdVetxLane lane toolExe;
       mergeCfg =
         if typedVetx then
-          "jq -s '.[2] as $std | (.[0] * .[1]) | .PackageVetx = ($std + .PackageVetx)' ${vetStdCfg} \"$vetCfgPath\" ${stdVetx}/index.json"
+          "jq -s '.[2] as $idx | .[3] as $deps | (.[0] * .[1]) | (if .stdRoots == null then $idx else ([.stdRoots[] as $r | $r, ($deps[$r] // [])[]] | unique) as $closure | ($idx | with_entries(select(.key | IN($closure[])))) end) as $std | .PackageVetx = ($std + .PackageVetx) | del(.stdRoots)' ${vetStdCfg} \"$vetCfgPath\" ${stdVetx}/index.json ${stdVetx}/deps.json"
         else
-          "jq -s '.[0] * .[1]' ${vetStdCfg} \"$vetCfgPath\"";
+          "jq -s '.[0] * .[1] | del(.stdRoots)' ${vetStdCfg} \"$vetCfgPath\"";
       drvs =
         lib.mapAttrs
           (
@@ -722,6 +726,15 @@ let
                   ImportMap = lib.genAttrs deps (d: d);
                   PackageFile = lib.genAttrs deps archiveOf;
                   PackageVetx = lib.genAttrs (builtins.filter (d: drvs ? ${d}) deps) (d: "${drvs.${d}}/vet.out");
+                  # the stdlib the package's import closure reaches: its own and its
+                  # graph deps' direct stdlib imports (expanded through the stdlib
+                  # lane's deps.json at build time); null for graphs from an older gen,
+                  # which get the whole stdlib index
+                  stdRoots =
+                    if p ? stdImports then
+                      lib.unique (lib.concatMap (d: nl (byImport.${d}.stdImports or null)) ([ importPath ] ++ deps))
+                    else
+                      null;
                   VetxOnly = !p.local;
                   VetxOutput = "vet.out";
                 };
@@ -736,6 +749,7 @@ let
                 ${outWritableProbe}
                 ${mergeCfg} > vet.cfg
                 ${toolExe} vet.cfg
+                ${lib.optionalString typedVetx ''jq --arg s "${stdVetx}" '[.PackageVetx[] | select(startswith($s))] | length' vet.cfg > "$out/stdvetx.count"''}
                 [ -e vet.out ] || : > vet.out
                 mv vet.out "$out/vet.out"
                 ${lib.optionalString p.local ''echo "ok ${importPath}" > "$out/result"''}

@@ -17,7 +17,10 @@
     "imports": [
       "example.com/cgo/cadd"
     ],
-    "goVersion": "1.26"
+    "goVersion": "1.26",
+    "stdImports": [
+      "fmt"
+    ]
   },
   {
     "importPath": "example.com/cgo/cadd",
@@ -35,6 +38,10 @@
     "embedFiles": null,
     "embedPatterns": null,
     "imports": null,
-    "goVersion": "1.26"
+    "goVersion": "1.26",
+    "stdImports": [
+      "runtime/cgo",
+      "syscall"
+    ]
   }
 ]

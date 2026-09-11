@@ -352,8 +352,10 @@ package's run writes a type-bearing vetx; cgo packages are analyzed from cgo's
 translated sources, which the compile derivation keeps in *$out/cgo*; and the
 standard library gets its own lane — the tool run facts-only over the stdlib in
 dependency order (cgo on, translated as *cmd/go* does), once per tool and
-toolchain — whose index is handed to every package's run
-(*passthru.lintStdVetx*). The toolchain's own *go tool vet* keeps the older
+toolchain — whose index serves every package's run (*passthru.lintStdVetx*). Graphs from
+a current godyn-gen record each package's stdlib imports (*stdImports*), so a
+run is handed only the stdlib vetx its import closure reaches (a package that
+imports *fmt* gets about 60 of the ~355); an older graph gets the whole index. The toolchain's own *go tool vet* keeps the older
 protocol and is fed exactly as before (igloo#71).
 
 *.golangci.yml* is not read: which analyzers run is godyn-lint's suite, and

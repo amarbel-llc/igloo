@@ -97,8 +97,9 @@ first fixture:
   imports its output (import-from-derivation). There is **no committed
   graph.json**: the manifest plus the source tree are sufficient to derive the
   graph, so it cannot drift. The graph records each module's Go version, and
-  godyn passes it as each package's `-lang`. It should also record each
-  package's **standard-library imports**, which committed graphs omit today:
+  godyn passes it as each package's `-lang`. It also records each
+  package's **standard-library imports** (`stdImports`; graphs from an older
+  `godyn-gen` omit them):
   the type-bearing vetx lanes (igloo#71) must supply a vetx for every import,
   and without that edge list they hand every package run the whole stdlib index
   (355 packages, ~4.9 MB read per run). With it, each run gets only the stdlib
@@ -125,8 +126,11 @@ buildGoApplication sandbox from the existing go.mod and gomod2nix.toml
 one's module root and go directive from the vendored module's own go.mod. On
 igloo's fixtures the derived graphs equal the ones `godyn-gen` produces in
 module mode (checks `godyn-derived-graph-test`, `godyn-derived-tests-test`).
-Still to come: the manifest and its render step, which replace go.mod and
-gomod2nix.toml as the inputs, and the stdlib-import edge list.
+The stdlib-import edge list has landed too: graphs record each package's
+`stdImports`, and a lint run is handed only the stdlib vetx its import closure
+reaches — 61 of 355 for the cgo fixture's `main`, which imports `fmt`. Still to
+come: the manifest and its render step, which replace go.mod and
+gomod2nix.toml as the inputs.
 
 ## Editor escape hatch: bidirectional go.mod ↔ manifest
 

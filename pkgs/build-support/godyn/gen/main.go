@@ -143,6 +143,7 @@ type genPkg struct {
 	EmbedPatternFiles map[string][]string `json:"embedPatternFiles,omitempty"` // pattern -> the embedFiles it matched (-embedcfg Patterns)
 	Imports           []string            `json:"imports"`                     // direct, in-graph (non-stdlib) imports
 	GoVersion         string              `json:"goVersion,omitempty"`         // the package's module's language version (-lang)
+	StdImports        []string            `json:"stdImports"`                  // direct stdlib imports (always present: absent = an older gen)
 }
 
 // genTestPkg is one node in the emitted TEST graph: one per tested package.
@@ -263,9 +264,11 @@ func copyFile(src, dst string) error {
 func buildGraph(pkgs []goListPkg) any {
 	// The set of non-stdlib import paths — an import is an in-graph edge iff it
 	// is in this set (stdlib comes from the shared stdlib derivation).
-	local := map[string]bool{}
+	local, std := map[string]bool{}, map[string]bool{}
 	for _, p := range pkgs {
-		if !p.Standard {
+		if p.Standard {
+			std[p.ImportPath] = true
+		} else {
 			local[p.ImportPath] = true
 		}
 	}
@@ -285,12 +288,25 @@ func buildGraph(pkgs []goListPkg) any {
 			fatalf("package %s has unsupported sources (C++/Fortran/SWIG)", p.ImportPath)
 		}
 		var imps []string
+		stdSet := map[string]bool{}
 		for _, i := range p.Imports {
-			if local[i] {
+			switch {
+			case local[i]:
 				imps = append(imps, i)
+			case std[i] && i != "unsafe":
+				stdSet[i] = true
 			}
 		}
+		if len(p.CgoFiles) > 0 {
+			// cgo's generated sources import these as well
+			stdSet["runtime/cgo"], stdSet["syscall"] = true, true
+		}
+		stdImps := make([]string, 0, len(stdSet))
+		for i := range stdSet {
+			stdImps = append(stdImps, i)
+		}
 		sort.Strings(imps)
+		sort.Strings(stdImps)
 		graph = append(graph, genPkg{
 			ImportPath:        p.ImportPath,
 			Dir:               dir,
@@ -307,6 +323,7 @@ func buildGraph(pkgs []goListPkg) any {
 			EmbedPatternFiles: embedPatternFiles(p.ImportPath, p.EmbedPatterns, p.EmbedFiles),
 			Imports:           imps,
 			GoVersion:         goVersionOf(p),
+			StdImports:        stdImps,
 		})
 	}
 	sort.Slice(graph, func(i, j int) bool { return graph[i].ImportPath < graph[j].ImportPath })

@@ -14,7 +14,9 @@
     "sFiles": null,
     "embedFiles": null,
     "embedPatterns": null,
-    "imports": null
+    "imports": null,
+    "goVersion": "1.26",
+    "stdImports": []
   },
   {
     "importPath": "example.com/lint/ok",
@@ -31,6 +33,8 @@
     "sFiles": null,
     "embedFiles": null,
     "embedPatterns": null,
-    "imports": null
+    "imports": null,
+    "goVersion": "1.26",
+    "stdImports": []
   }
 ]
