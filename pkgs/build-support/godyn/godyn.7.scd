@@ -196,6 +196,12 @@ Arguments:
   package's own variable is named by its FULL import path (*-X
   example.com/cmd/foo.fixture=...*), even for package main, because the test
   variant is compiled as *-p <importpath>*.
+- *nativeCheckInputs* — tools on PATH for every per-package test run (e.g. git),
+  as in buildGoApplication's check phase; *buildGoAuto* forwards it to both
+  backends.
+- *subPackages* entries are also passed to *godyn-gen* as package patterns, so a
+  main under *testdata/* (which *./...* skips) can be selected, as with
+  buildGoApplication.
 - *dontStrip* — keep DWARF in linked binaries; by default they link with *-w*, the
   equivalent of buildGoApplication's *strip -S*. Each binary's Go build ID — and the
   GNU build ID the linker derives from it — is a hash of its link inputs, so it is

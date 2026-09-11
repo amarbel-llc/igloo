@@ -423,6 +423,22 @@
               version = "0.0.0";
               tests = true;
             };
+          # a main under testdata/ (skipped by ./...) selected via subPackages.
+          godyn-testdata-main-test = pkgs.buildGodynModule {
+            pname = "godyn-testdata-main-test";
+            src = ./pkgs/build-support/godyn/tests/multi;
+            modules = ./pkgs/build-support/godyn/tests/multi/gomod2nix.toml;
+            subPackages = [ "tools/testdata/fix" ];
+          };
+          # a test that shells out to a tool from nativeCheckInputs.
+          godyn-checkinputs-test = pkgs.buildGodynModule {
+            pname = "godyn-checkinputs-test";
+            src = ./pkgs/build-support/godyn/tests/checkinputs;
+            modules = ./pkgs/build-support/godyn/tests/checkinputs/gomod2nix.toml;
+            version = "0.0.0";
+            tests = true;
+            nativeCheckInputs = [ pkgs.hello ];
+          };
           # cgo flags cmd/go resolves before cgo runs: `#cgo pkg-config: zlib` plus a
           # -D define that only CGO_CFLAGS supplies (maneater's shape).
           godyn-cgo-pkgconfig-test = pkgs.buildGodynModule {
@@ -843,6 +859,18 @@
               self.packages.${system}.godyn-testonly-bridge-test.passthru.checkAll
             } \
               || { echo "t's test (test-only bridged dep) did not pass" >&2; exit 1; }
+            echo OK > $out
+          '';
+          # subPackages reaches a main under testdata/, like buildGoApplication.
+          godyn-testdata-main-test = pkgs.runCommandLocal "godyn-testdata-main-test-check" { } ''
+            got=$(${self.packages.${system}.godyn-testdata-main-test}/bin/godyn-testdata-main-test)
+            [ "$got" = "hello from testdata fixture" ] || { echo "testdata main printed [$got]" >&2; exit 1; }
+            echo OK > $out
+          '';
+          # nativeCheckInputs are on PATH in the per-package test run.
+          godyn-checkinputs-test = pkgs.runCommandLocal "godyn-checkinputs-test-check" { } ''
+            grep -qx "ok example.com/ci" ${self.packages.${system}.godyn-checkinputs-test.passthru.checkAll} \
+              || { echo "the test could not run a nativeCheckInputs tool" >&2; exit 1; }
             echo OK > $out
           '';
           # cgo flags: the zlib headers/lib arrive via `#cgo pkg-config`, the define

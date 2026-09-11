@@ -40,6 +40,8 @@
   subPackages ? null,
   # Go build tags, declared once for both backends (see buildGodynModule).
   tags ? [ ],
+  # Tools on PATH for tests, declared once: bga's check phase, godyn's test runs.
+  nativeCheckInputs ? [ ],
   # cgo inputs, declared once for both backends (see buildGodynModule).
   buildInputs ? [ ],
   CGO_CFLAGS ? "",
@@ -67,6 +69,7 @@ let
   // lib.optionalAttrs (nativeBuildInputs != [ ]) { inherit nativeBuildInputs; }
   // lib.optionalAttrs (subPackages != null) { inherit subPackages; }
   // lib.optionalAttrs (tags != [ ]) { inherit tags; }
+  // lib.optionalAttrs (nativeCheckInputs != [ ]) { inherit nativeCheckInputs; }
   // lib.optionalAttrs (buildInputs != [ ]) { inherit buildInputs; }
   // lib.optionalAttrs (CGO_CFLAGS != "") { inherit CGO_CFLAGS; }
   // lib.optionalAttrs (CGO_LDFLAGS != "") { inherit CGO_LDFLAGS; };

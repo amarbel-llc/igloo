@@ -144,6 +144,9 @@
   # testEnv: environment variables for every per-package test run, as an attrset
   # (store paths welcome, e.g. { FOO_BIN = "${foo}/bin/foo"; }).
   testEnv ? { },
+  # nativeCheckInputs: tools on PATH for every per-package test run (git, …), as
+  # in buildGoApplication's check phase.
+  nativeCheckInputs ? [ ],
   # Install step, parity with buildGoApplication: postInstall runs after the link
   # with $out/bin/<pname> in place and cwd = a writable copy of src (as bga runs it
   # from the unpacked source); nativeBuildInputs are available to it. Main-package
@@ -309,7 +312,14 @@ let
         extraNativeBuildInputs = [ godyn-gen ];
         command = ''CGO_ENABLED=${if cc != null then "1" else "0"} godyn-gen ${genFlags} ${
           lib.optionalString (tags != [ ]) "-tags ${lib.escapeShellArg (lib.concatStringsSep "," tags)}"
-        } . "$out"'';
+        } . "$out"${
+          # subPackages are listed explicitly too, so a main under testdata/ (which
+          # ./... skips; bga builds it) can be selected.
+          lib.optionalString (subPackages != null)
+            " ./... ${
+               lib.escapeShellArgs (map (d: "./" + lib.removeSuffix "/" (lib.removePrefix "./" d)) subPackages)
+             }"
+        }'';
       };
   resolvedTestGraphFile =
     let
@@ -1096,6 +1106,7 @@ let
         runCommandLocal "godyn-test-${sanitize importPath}"
           (
             testEnv
+            // lib.optionalAttrs (nativeCheckInputs != [ ]) { nativeBuildInputs = nativeCheckInputs; }
             // {
               __contentAddressed = true;
               outputHashMode = "recursive";
