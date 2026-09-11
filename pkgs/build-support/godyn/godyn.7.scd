@@ -309,6 +309,17 @@ codebase's suppressions carry over:
   code, and the v1 names *gosimple* (S) and *stylecheck* (ST).
 - Findings in generated files (*// Code generated ... DO NOT EDIT.*) are dropped.
 
+godyn-lint is built against golang.org/x/tools v0.50 or newer, whose unitchecker
+reads each import's *types* (not only its facts) from that import's vetx file.
+A tool that declares *passthru.typedVetx* gets that protocol end to end: every
+package's run writes a type-bearing vetx; cgo packages are analyzed from cgo's
+translated sources, which the compile derivation keeps in *$out/cgo*; and the
+standard library gets its own lane — the tool run facts-only over the stdlib in
+dependency order (cgo on, translated as *cmd/go* does), once per tool and
+toolchain — whose index is handed to every package's run
+(*passthru.lintStdVetx*). The toolchain's own *go tool vet* keeps the older
+protocol and is fed exactly as before (igloo#71).
+
 *.golangci.yml* is not read: which analyzers run is godyn-lint's suite, and
 staticcheck's own *//lint:ignore* directives are not honored. Pass *lintTool*
 (a unitchecker binary) to run a different suite.
@@ -328,10 +339,10 @@ checks.<system>.myapp-lint = pkgs.buildGodynLint {
 
 # LIMITATIONS
 
-Vet and lint: cgo packages are skipped (analyzing them needs cgo's translated
-sources), and test sources are not analyzed. godyn-lint pins golang.org/x/tools
-v0.49.0: newer unitcheckers expect every import's vetx to carry its type data,
-which these lanes do not produce yet (igloo#71).
+Vet and lint: test sources are not analyzed. The toolchain-vet lane (the older
+vetx protocol) skips cgo packages; the lint lane analyzes them from cgo's
+translated sources. Under a type-bearing vetx tool (see LINT), archive-bridged
+packages cannot be analyzed — there are no sources — so their importers fail.
 
 go:embed patterns resolve per pattern only in graphs from a current godyn-gen; older
 graphs support literal and trailing-*\** patterns (see above).

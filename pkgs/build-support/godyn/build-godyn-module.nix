@@ -519,6 +519,8 @@ let
           -trimpath="$work=>;${srcDir}=>${rewrite};$NIX_BUILD_TOP=>" -nolocalimports -pack -lang=${lang} \
           -o "$out/pkg.a" ${goFilesStr} "$work/_cgo_gotypes.go" "$work"/*.cgo1.go ''${DYN:+"$DYN"} ''${LDF:+"$LDF"}
         go tool pack r "$out/pkg.a" "''${OFILES[@]}"
+        # keep cgo's translated Go sources: the analysis lanes type-check them (igloo#71)
+        mkdir -p "$out/cgo" && cp "$work/_cgo_gotypes.go" "$work"/*.cgo1.go "$out/cgo/"
         # if-block, not a trailing "test && cmd": a false bracket test as the last
         # statement makes 1 the exit status (silent) and fails the build.
         if [ -e "$work/_cgo_flags" ]; then go tool pack r "$out/pkg.a" "$work/_cgo_flags"; fi
@@ -574,67 +576,151 @@ let
              Standard: (with_entries(.value = true) + {unsafe: true})}' > $out
   '';
 
-  # A lane: { local = run derivations of the local packages by import path;
-  # all = the manifest realising every one of them }.
-  analysisLane =
+  # New-protocol tools (x/tools >= v0.50, tool.passthru.typedVetx) read every
+  # import's TYPES from that import's vetx file rather than PackageFile, so the
+  # stdlib needs vetx files too: run the tool facts-only over the stdlib in
+  # dependency order, once per tool, and index the results (igloo#71). cgo is on,
+  # matching godynStdlib: the stdlib's cgo packages are translated the way cmd/go's
+  # runCgo does (including its runtime/* flags) and analyzed from the translated
+  # sources; cgo-generated code imports runtime/cgo and syscall, so imports resolve
+  # over each package's whole dependency set.
+  stdVetxLane =
     lane: toolExe:
+    runCommandLocal "godyn-${lane}-stdlib-vetx"
+      {
+        nativeBuildInputs = [
+          go
+          jq
+          stdenv.cc
+        ];
+      }
+      ''
+        export GOROOT=${go}/share/go HOME="$TMPDIR" GOCACHE="$TMPDIR/gocache" \
+          CGO_ENABLED=1 CC=cc GOTOOLCHAIN=local GOPROXY=off GOFLAGS=
+        mkdir -p "$out"
+        go list -e -deps -json std \
+          | jq -s 'map(select(.ImportPath != "unsafe" and .Error == null and (((.GoFiles // []) + (.CgoFiles // [])) | length) > 0))' > pkgs.json
+        jq -c '.[]' pkgs.json | while read -r pkg; do
+          ip=$(jq -r .ImportPath <<<"$pkg")
+          mkdir -p "$(dirname "$out/$ip")"
+          cgoGo='[]'
+          mapfile -t cgofiles < <(jq -r '(.CgoFiles // [])[]' <<<"$pkg")
+          if [ ''${#cgofiles[@]} -gt 0 ]; then
+            obj="$TMPDIR/cgo/$ip"
+            mkdir -p "$obj"
+            flags=()
+            case "$ip" in
+              runtime/cgo) flags=(-import_runtime_cgo=false -import_syscall=false) ;;
+              runtime/race | runtime/msan | runtime/asan) flags=(-import_syscall=false) ;;
+            esac
+            mapfile -t cflags < <(jq -r '((.CgoCPPFLAGS // []) + (.CgoCFLAGS // []))[]' <<<"$pkg")
+            ( cd "$(jq -r .Dir <<<"$pkg")" \
+              && go tool cgo -objdir "$obj" -importpath "$ip" "''${flags[@]}" -- -I "$obj" "''${cflags[@]}" "''${cgofiles[@]}" )
+            cgoGo=$(jq -n --arg obj "$obj" \
+              '[$obj + "/_cgo_gotypes.go"] + ($ARGS.positional | map($obj + "/" + rtrimstr(".go") + ".cgo1.go"))' \
+              --args "''${cgofiles[@]}")
+          fi
+          jq --arg out "$out" --arg lang ${goVersion} --argjson cgoGo "$cgoGo" '
+            .Dir as $d | ((.Imports // []) + (.Deps // []) | unique) as $imps | {
+              ID: .ImportPath,
+              Compiler: "gc",
+              ImportPath: .ImportPath,
+              GoVersion: $lang,
+              GoFiles: ([(.GoFiles // [])[] | $d + "/" + .] + $cgoGo),
+              NonGoFiles: [(.SFiles // [])[] | $d + "/" + .],
+              ImportMap: ((reduce $imps[] as $i ({}; .[$i] = $i)) + (.ImportMap // {})),
+              PackageVetx: (reduce ($imps[] | select(. != "unsafe" and . != "C")) as $i ({}; .[$i] = $out + "/" + $i + ".vetx")),
+              Standard: (reduce $imps[] as $i ({}; .[$i] = true)),
+              VetxOnly: true,
+              VetxOutput: ($out + "/" + .ImportPath + ".vetx")
+            }' <<<"$pkg" > vet.cfg
+          ${toolExe} vet.cfg
+        done
+        jq --arg out "$out" 'map({key: .ImportPath, value: ($out + "/" + .ImportPath + ".vetx")}) | from_entries' \
+          pkgs.json > "$out/index.json"
+      '';
+
+  # A lane: { local = run derivations of the local packages by import path;
+  # all = the manifest realising every one of them }. typedVetx: the tool speaks
+  # the type-bearing vetx protocol, so its runs also get the stdlib vetx index.
+  analysisLane =
+    lane: toolExe: typedVetx:
     let
-      drvs = lib.mapAttrs (
-        importPath: p:
-        let
-          srcDir = srcDirFor importPath p;
-          deps = transitiveDeps importPath;
-          archiveOf = d: if archiveBridgeOf d != null then archivePathOf d else "${pkgDrvs.${d}}/pkg.a";
-        in
-        runCommandLocal "godyn-${lane}-${sanitize importPath}"
-          {
-            nativeBuildInputs = [
-              go
-              jq
-            ];
-            vetCfg = builtins.toJSON {
-              ID = importPath;
-              Compiler = "gc";
-              ImportPath = importPath;
-              GoVersion = langOf p;
-              GoFiles = map (f: "${srcDir}/${f}") (nl p.goFiles);
-              NonGoFiles = map (f: "${srcDir}/${f}") (nl p.sFiles);
-              ImportMap = lib.genAttrs deps (d: d);
-              PackageFile = lib.genAttrs deps archiveOf;
-              PackageVetx = lib.genAttrs (builtins.filter (d: drvs ? ${d}) deps) (d: "${drvs.${d}}/vet.out");
-              VetxOnly = !p.local;
-              VetxOutput = "vet.out";
-            };
-            passAsFile = [ "vetCfg" ];
-            __contentAddressed = true;
-            outputHashMode = "recursive";
-            outputHashAlgo = "sha256";
-          }
-          ''
-            export GOROOT=${go}/share/go
-            mkdir -p "$out"
-            ${outWritableProbe}
-            jq -s '.[0] * .[1]' ${vetStdCfg} "$vetCfgPath" > vet.cfg
-            ${toolExe} vet.cfg
-            [ -e vet.out ] || : > vet.out
-            mv vet.out "$out/vet.out"
-            ${lib.optionalString p.local ''echo "ok ${importPath}" > "$out/result"''}
-          ''
-      ) (lib.filterAttrs (ip: p: archiveBridgeOf ip == null && nl p.cgoFiles == [ ]) byImport);
+      stdVetx = stdVetxLane lane toolExe;
+      mergeCfg =
+        if typedVetx then
+          "jq -s '.[2] as $std | (.[0] * .[1]) | .PackageVetx = ($std + .PackageVetx)' ${vetStdCfg} \"$vetCfgPath\" ${stdVetx}/index.json"
+        else
+          "jq -s '.[0] * .[1]' ${vetStdCfg} \"$vetCfgPath\"";
+      drvs =
+        lib.mapAttrs
+          (
+            importPath: p:
+            let
+              srcDir = srcDirFor importPath p;
+              deps = transitiveDeps importPath;
+              archiveOf = d: if archiveBridgeOf d != null then archivePathOf d else "${pkgDrvs.${d}}/pkg.a";
+            in
+            runCommandLocal "godyn-${lane}-${sanitize importPath}"
+              {
+                nativeBuildInputs = [
+                  go
+                  jq
+                ];
+                vetCfg = builtins.toJSON {
+                  ID = importPath;
+                  Compiler = "gc";
+                  ImportPath = importPath;
+                  GoVersion = langOf p;
+                  # a cgo package is type-checked from cgo's translated sources, kept by
+                  # its compile derivation (only reached for typed-vetx tools)
+                  GoFiles =
+                    map (f: "${srcDir}/${f}") (nl p.goFiles)
+                    ++ lib.optionals (nl p.cgoFiles != [ ]) (
+                      [ "${pkgDrvs.${importPath}}/cgo/_cgo_gotypes.go" ]
+                      ++ map (f: "${pkgDrvs.${importPath}}/cgo/${lib.removeSuffix ".go" f}.cgo1.go") (nl p.cgoFiles)
+                    );
+                  NonGoFiles = map (f: "${srcDir}/${f}") (nl p.sFiles);
+                  ImportMap = lib.genAttrs deps (d: d);
+                  PackageFile = lib.genAttrs deps archiveOf;
+                  PackageVetx = lib.genAttrs (builtins.filter (d: drvs ? ${d}) deps) (d: "${drvs.${d}}/vet.out");
+                  VetxOnly = !p.local;
+                  VetxOutput = "vet.out";
+                };
+                passAsFile = [ "vetCfg" ];
+                __contentAddressed = true;
+                outputHashMode = "recursive";
+                outputHashAlgo = "sha256";
+              }
+              ''
+                export GOROOT=${go}/share/go
+                mkdir -p "$out"
+                ${outWritableProbe}
+                ${mergeCfg} > vet.cfg
+                ${toolExe} vet.cfg
+                [ -e vet.out ] || : > vet.out
+                mv vet.out "$out/vet.out"
+                ${lib.optionalString p.local ''echo "ok ${importPath}" > "$out/result"''}
+              ''
+          )
+          (
+            lib.filterAttrs (ip: p: archiveBridgeOf ip == null && (typedVetx || nl p.cgoFiles == [ ])) byImport
+          );
       local = lib.filterAttrs (ip: _: byImport.${ip}.local) drvs;
     in
     {
-      inherit local;
+      inherit local stdVetx;
       all = runCommandLocal "godyn-${pname}-${lane}" { } (
         ": > $out\n"
         + lib.concatMapStringsSep "\n" (ip: "cat ${local.${ip}}/result >> $out") (builtins.attrNames local)
       );
     };
 
+  speaksTypedVetx = tool: tool != null && (tool.passthru.typedVetx or false);
   vetLane = analysisLane "vet" (
     if vetTool != null then lib.getExe vetTool else ''"$(go env GOTOOLDIR)/vet"''
-  );
-  lintLane = analysisLane "lint" (lib.getExe lintTool);
+  ) (speaksTypedVetx vetTool);
+  lintLane = analysisLane "lint" (lib.getExe lintTool) (speaksTypedVetx lintTool);
 
   mainPkg = lib.findFirst (p: p.isMain) null graph;
 
@@ -867,6 +953,8 @@ installed.overrideAttrs (old: {
     vetAll = vetLane.all;
     lint = lintLane.local;
     lintAll = lintLane.all;
+    # the lint tool's stdlib vetx lane (type-bearing vetx tools only; igloo#71)
+    lintStdVetx = lintLane.stdVetx;
   };
   meta = (old.meta or { }) // lib.optionalAttrs (mainPkg != null) { mainProgram = pname; };
 })

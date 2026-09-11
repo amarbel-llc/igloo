@@ -314,6 +314,14 @@
             version = "0.0.0"; # igloo#70
             strategy = "native";
           };
+          # cgo: a C-backed package imported by main — the cgo compile path, and the
+          # analysis lanes over cgo packages (igloo#71).
+          godyn-cgo-test = pkgs.buildGodynModule {
+            pname = "godyn-cgo-test";
+            src = ./pkgs/build-support/godyn/tests/cgo;
+            graphFile = ./pkgs/build-support/godyn/tests/cgo/graph.json;
+            cc = pkgs.stdenv.cc;
+          };
           # per-package lint (godyn-lint): package bad carries an unsuppressed
           # staticcheck finding, package ok the same one under //nolint.
           godyn-lint-test = pkgs.buildGodynModule {
@@ -614,6 +622,16 @@
               [ "$native" = "$bga" ] || { echo "godyn applied different language rules than go build: [$native] vs [$bga]" >&2; exit 1; }
               echo OK > $out
             '';
+          godyn-cgo-test = pkgs.runCommandLocal "godyn-cgo-test-check" { } ''
+            got=$(${self.packages.${system}.godyn-cgo-test}/bin/godyn-cgo-test)
+            [ "$got" = 5 ] || { echo "cgo fixture printed [$got], want 5" >&2; exit 1; }
+            echo OK > $out
+          '';
+          # The lint lane (type-bearing vetx tool) analyzes the cgo package from its
+          # translated sources and hands main the cgo package's vetx; the
+          # toolchain-vet lane still skips cgo packages (old protocol).
+          godyn-cgo-lint-test = self.packages.${system}.godyn-cgo-test.passthru.lintAll;
+          godyn-cgo-vet-test = self.packages.${system}.godyn-cgo-test.passthru.vetAll;
           # per-package lint: staticcheck's findings reach the build log and fail it;
           # a //nolint naming the golangci-lint linter suppresses the same finding.
           godyn-lint-finding-test = pkgs.testers.testBuildFailure' {

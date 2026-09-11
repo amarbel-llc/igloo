@@ -22,9 +22,9 @@ schema = 3
     goVersion = '1.26.0'
 
   [mod.'golang.org/x/tools']
-    version = 'v0.49.0'
-    hash = 'sha256-3oaXp2PlfuIn6/UTarnYD279YqJKTyaCWT/KD7ABjD4='
-    goVersion = '1.25.0'
+    version = 'v0.50.0'
+    hash = 'sha256-BjwWAoexahydRI7Tn98NMRfRPlW8ag5jTENGODYFTaU='
+    goVersion = '1.26.0'
 
   [mod.'honnef.co/go/tools']
     version = 'v0.8.1'

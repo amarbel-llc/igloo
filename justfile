@@ -437,27 +437,27 @@ explore-gen-godyn-fixture:
 
 # [explore] Regenerate a godyn test fixture's committed graph.json (e.g. embed-glob,
 # vet) with the IN-TREE godyn-gen, so the checks exercise what the current gen
-# emits. Run after changing a fixture's imports, embeds, or file set.
+# emits. Run after changing a fixture's imports, embeds, or file set; pass cgo=1
+# for a fixture with cgo packages (the default drops cgo files).
 #
 # regenerate a godyn fixture's graph.json with the in-tree gen
 [group: 'explore']
-explore-gen-godyn-graph fixture:
+explore-gen-godyn-graph fixture cgo="0":
     #!/usr/bin/env bash
     set -euo pipefail
     gen=$(nix build --no-link --print-out-paths '.#godyn-gen')/bin/godyn-gen
     goStore=$(nix build --no-link --print-out-paths '.#go')
     export PATH="$goStore/bin:$PATH"
     dir=pkgs/build-support/godyn/tests/{{ fixture }}
-    CGO_ENABLED=0 "$gen" "$dir" "$dir/graph.json"
+    CGO_ENABLED={{ cgo }} "$gen" "$dir" "$dir/graph.json"
     gum log --level info "regenerated $dir/graph.json"
 
 # [explore] Refresh godyn-lint's dependencies (buildGodynLint's analyzer suite):
 # bump staticcheck to latest, tidy, vet + test it, and regenerate its
 # gomod2nix.toml with the in-tree gomod2nix. Needs network; run after changing
-# its imports or to pick up new analyzers. x/tools stays at v0.49.0: from v0.50.0
-# unitchecker expects every import's vetx to carry its type data too, which
-# godyn's lanes do not yet produce (they pass export data via PackageFile).
-# Tracked in igloo#71.
+# its imports or to pick up new analyzers. From x/tools v0.50.0 unitchecker
+# expects every import's vetx to carry its type data; godyn-lint declares that
+# (passthru.typedVetx) and its lint lane feeds it the stdlib vetx lane (igloo#71).
 #
 # update godyn-lint's go.mod/go.sum/gomod2nix.toml (network)
 [group: 'explore']
@@ -468,7 +468,7 @@ explore-update-godyn-lint-deps:
     g2n=$(nix build --no-link --print-out-paths '.#gomod2nix')/bin/gomod2nix
     export PATH="$goStore/bin:$PATH" GOTOOLCHAIN=local CGO_ENABLED=0
     cd pkgs/build-support/godyn/lint
-    go get honnef.co/go/tools@latest golang.org/x/tools@v0.49.0
+    go get honnef.co/go/tools@latest golang.org/x/tools@latest
     go mod tidy
     go vet ./...
     go test ./...

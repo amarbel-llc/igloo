@@ -3,7 +3,7 @@ module godyn-lint
 go 1.26.0
 
 require (
-	golang.org/x/tools v0.49.0
+	golang.org/x/tools v0.50.0
 	honnef.co/go/tools v0.8.1
 )
 
