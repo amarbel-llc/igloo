@@ -183,7 +183,9 @@ Arguments:
   same way (including bridges inherited through producers' *passthru.goFlakeInputs*)
   into *bridges*: a *{ src; subPath; }* value becomes *<src>/<subPath>*, and an
   explicit *bridges* entry wins. Generate the graph with *godyn-gen -gomod* against the
-  matching merged go.mod.
+  matching merged go.mod. A *mkGoPkgs* producer builds under godyn from its own
+  *go-pkgs-test* (*src = go-pkgs-test*, *modules = "${go-pkgs-test}/gomod2nix.toml"*,
+  *tests = true*) — the RFC 0001 self-consumption contract (godyn-producer-test).
 - *archiveBridges* — modpath -> go-pkgs-of-ARCHIVES store path; the bridged module's
   packages are LINKED from their pre-built archives, not compiled (approach 1).
 - *system* — target tuning.

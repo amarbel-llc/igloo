@@ -325,6 +325,49 @@
             modules = ./pkgs/build-support/godyn/tests/gotest/gomod2nix.toml;
             tests = true;
           };
+          # flake-input-go_mod producers under godyn: q and p publish go-pkgs via
+          # mkGoPkgs (p's carries goFlakeInputs for q). godyn builds consumer c from
+          # a derived graph declaring ONLY p — q must be inherited — and builds p
+          # from its own go-pkgs-test (self-consumption, a derivation as src).
+          godyn-producer-consumer-test =
+            let
+              q = pkgs.mkGoPkgs {
+                src = ./pkgs/build-support/godyn/tests/producer/q;
+                name = "q";
+              };
+              p = pkgs.mkGoPkgs {
+                src = ./pkgs/build-support/godyn/tests/producer/p;
+                name = "p";
+                goFlakeInputs."example.com/q" = q.go-pkgs;
+              };
+            in
+            pkgs.buildGodynModule {
+              pname = "godyn-producer-consumer-test";
+              src = ./pkgs/build-support/godyn/tests/producer/c;
+              modules = ./pkgs/build-support/godyn/tests/producer/c/gomod2nix.toml;
+              goFlakeInputs."example.com/p" = p.go-pkgs;
+              version = "0.0.0";
+            };
+          godyn-producer-self-test =
+            let
+              q = pkgs.mkGoPkgs {
+                src = ./pkgs/build-support/godyn/tests/producer/q;
+                name = "q";
+              };
+              p = pkgs.mkGoPkgs {
+                src = ./pkgs/build-support/godyn/tests/producer/p;
+                name = "p";
+                goFlakeInputs."example.com/q" = q.go-pkgs;
+              };
+            in
+            pkgs.buildGodynModule {
+              pname = "godyn-producer-self-test";
+              src = p.go-pkgs-test;
+              modules = "${p.go-pkgs-test}/gomod2nix.toml";
+              goFlakeInputs."example.com/q" = q.go-pkgs;
+              version = "0.0.0";
+              tests = true;
+            };
           # cgo flags cmd/go resolves before cgo runs: `#cgo pkg-config: zlib` plus a
           # -D define that only CGO_CFLAGS supplies (maneater's shape).
           godyn-cgo-pkgconfig-test = pkgs.buildGodynModule {
@@ -685,6 +728,15 @@
               diff -u committed-tests.json derived-tests.json
               echo OK > $out
             '';
+          # producers: the consumer links p and the INHERITED q; p's own tests pass
+          # when godyn builds it from its published go-pkgs-test.
+          godyn-producer-test = pkgs.runCommandLocal "godyn-producer-test-check" { } ''
+            got=$(${self.packages.${system}.godyn-producer-consumer-test}/bin/godyn-producer-consumer-test)
+            [ "$got" = "p wraps q" ] || { echo "consumer printed [$got]" >&2; exit 1; }
+            grep -qx "ok example.com/p" ${self.packages.${system}.godyn-producer-self-test.passthru.checkAll} \
+              || { echo "p's tests did not run from go-pkgs-test" >&2; exit 1; }
+            echo OK > $out
+          '';
           # cgo flags: the zlib headers/lib arrive via `#cgo pkg-config`, the define
           # via CGO_CFLAGS, and the binary links and runs; the lint lane analyzes it.
           godyn-cgo-pkgconfig-test = pkgs.runCommandLocal "godyn-cgo-pkgconfig-test-check" { } ''
