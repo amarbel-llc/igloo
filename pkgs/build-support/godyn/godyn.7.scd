@@ -304,7 +304,9 @@ honors GOOS/GOARCH).
 Per tested package the builder compiles the *go list -test* package shape: the
 test VARIANT (package sources + in-package \_test.go files, same import path),
 the external <pkg>\_test package compiled against the VARIANT's archive (so
-test-only exports resolve), and the testmain — then links <name>.test (the
+test-only exports resolve; the in-graph packages it imports that depend on <pkg>
+are recompiled against the variant too, as go test does — godyn-gen records them
+as *recompiled*), and the testmain — then links <name>.test (the
 testBin derivation) and executes it with cwd = the package source, so testdata/
 and golden files resolve (the testRun derivation). A failing test fails the
 build with the test's output in the log.

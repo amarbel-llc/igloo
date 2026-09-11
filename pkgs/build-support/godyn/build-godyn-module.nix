@@ -951,19 +951,52 @@ let
       testDeps = lib.unique (
         directDeps ++ lib.concatMap (d: if byImport ? ${d} then transitiveDeps d else [ ]) directDeps
       );
+      # go test recompiles the in-graph packages the external test imports that
+      # depend on this package ("X [P.test]") against the variant; those, and this
+      # package itself, resolve to this derivation's $W archives, not the build graph's.
+      recompiled = nl (t.recompiled or null);
+      recompiledSet = lib.listToAttrs (map (r: lib.nameValuePair r true) recompiled);
+      rcArchive = r: "$W/rc-${sanitize r}.a";
       depLine =
         cfgFile: dep:
         let
           archive =
-            if archiveBridgeOf dep != null then
+            if dep == importPath then
+              "$W/variant.a"
+            else if recompiledSet ? ${dep} then
+              rcArchive dep
+            else if archiveBridgeOf dep != null then
               archivePathOf dep
             else if byImport ? ${dep} then
               "${pkgDrvs.${dep}}/pkg.a"
             else
               throw "buildGodynModule(${pname}): test dependency ${dep} of ${importPath} is not in the build graph (test-only third-party deps are not yet supported — igloo#32)";
         in
-        "echo 'packagefile ${dep}=${archive}' >> ${cfgFile}";
+        ''echo "packagefile ${dep}=${archive}" >> ${cfgFile}'';
       testCfg = cfgFile: lib.concatMapStringsSep "\n" (depLine cfgFile) testDeps;
+      recompileStep = lib.concatMapStringsSep "\n" (
+        r:
+        let
+          node =
+            byImport.${r}
+              or (throw "buildGodynModule(${pname}): ${r}, recompiled for ${importPath}'s tests, is not in the build graph");
+          rDir = srcDirFor r node;
+          rEmbed = nl (node.embedPatterns or null) != [ ];
+        in
+        if archiveBridgeOf r != null then
+          throw "buildGodynModule(${pname}): ${r} is archive-bridged, but ${importPath}'s tests need it recompiled against the test variant — bridge it by source"
+        else if nl node.cgoFiles != [ ] || nl node.sFiles != [ ] then
+          throw "buildGodynModule(${pname}): recompiling cgo/asm package ${r} for ${importPath}'s tests is not yet supported (igloo#32)"
+        else
+          ''
+            CFG="$W/ic.rc"; cat ${stdlib}/importcfg > "$CFG"
+            ${lib.concatMapStringsSep "\n" (depLine ''"$CFG"'') (transitiveDeps r)}
+            ${lib.optionalString rEmbed "printf '%s' ${lib.escapeShellArg (embedCfgJSON rDir node)} > \"$W/rc-embedcfg.json\""}
+            go tool compile -importcfg "$CFG" ${lib.optionalString rEmbed ''-embedcfg "$W/rc-embedcfg.json" ''}-p '${r}' -buildid "" \
+              -trimpath="${rDir}=>${r};$W=>" -nolocalimports -pack -lang=${langOf node} \
+              -o "${rcArchive r}" ${lib.concatMapStringsSep " " (f: "${rDir}/${f}") (nl node.goFiles)}
+          ''
+      ) recompiled;
 
       files = fs: lib.concatMapStringsSep " " (f: "${compileSrc}/${f}") fs;
       lang = langOf t;
@@ -995,6 +1028,9 @@ let
               ${variantEmbedSetup}go tool compile -importcfg "$CFG" ${variantEmbedFlag}-p '${importPath}' -buildid "" \
                 -trimpath="${compileSrc}=>${importPath};$W=>" -nolocalimports -pack -lang=${lang} \
                 -o "$W/variant.a" ${files (goFiles ++ testGoFiles)}
+
+              # 1b. dependents the external test imports, recompiled against the variant.
+              ${recompileStep}
 
               ${lib.optionalString hasExt ''
                 # 2. the external test package <ip>_test, against the VARIANT's archive.

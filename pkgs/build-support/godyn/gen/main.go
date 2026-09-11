@@ -164,6 +164,10 @@ type genTestPkg struct {
 	XTestImports []string `json:"xTestImports"` // the external package's in-graph imports, minus the variant itself
 	TestMain     string   `json:"testmain"`     // the captured go-generated _testmain.go source
 	GoVersion    string   `json:"goVersion,omitempty"` // the module's language version (-lang)
+	// Recompiled: in-graph packages `go test` recompiles against the test variant
+	// ("X [P.test]") because an external test imports them and they depend on P,
+	// in dependency order (deps first).
+	Recompiled []string `json:"recompiled,omitempty"`
 }
 
 const usage = "usage: godyn-gen [-tests] [-tags <t1,t2>] [-gomod <go.mod>] <module-dir> <out-graph.json> [packages...]"
@@ -418,6 +422,7 @@ func testGraph(pkgs []goListPkg) any {
 
 	type group struct {
 		base, variant, xtest, testmain *goListPkg
+		recompiled                     []string
 	}
 	groups := map[string]*group{}
 	grp := func(ip string) *group {
@@ -441,6 +446,10 @@ func testGraph(pkgs []goListPkg) any {
 			grp(p.ForTest).variant = p
 		case ip == p.ForTest+"_test":
 			grp(p.ForTest).xtest = p
+		default:
+			// A dependent of P recompiled for P's test; -deps lists deps first,
+			// so appending keeps dependency order.
+			grp(p.ForTest).recompiled = append(grp(p.ForTest).recompiled, ip)
 		}
 	}
 
@@ -506,6 +515,7 @@ func testGraph(pkgs []goListPkg) any {
 			XTestImports: xImports,
 			TestMain:     string(tm),
 			GoVersion:    goVersionOf(*g.base),
+			Recompiled:   g.recompiled,
 		})
 	}
 	sort.Slice(graph, func(i, j int) bool { return graph[i].ImportPath < graph[j].ImportPath })

@@ -386,6 +386,15 @@
             tests = true;
             testEnv.GODYN_TEST_ENV = "set";
           };
+          # go test's recompiled dependents: a's external test imports b, which
+          # imports a, so b must be recompiled against a's test variant.
+          godyn-fortest-test = pkgs.buildGodynModule {
+            pname = "godyn-fortest-test";
+            src = ./pkgs/build-support/godyn/tests/fortest;
+            modules = ./pkgs/build-support/godyn/tests/fortest/gomod2nix.toml;
+            version = "0.0.0";
+            tests = true;
+          };
           # cgo flags cmd/go resolves before cgo runs: `#cgo pkg-config: zlib` plus a
           # -D define that only CGO_CFLAGS supplies (maneater's shape).
           godyn-cgo-pkgconfig-test = pkgs.buildGodynModule {
@@ -771,6 +780,18 @@
               for p in example.com/tags/lib example.com/tags/user; do
                 grep -qx "ok $p" ${tagged.passthru.checkAll} || { echo "missing tagged test result for $p" >&2; exit 1; }
               done
+              echo OK > $out
+            '';
+          # recompiled dependents: the derived test graph records b as recompiled
+          # for a's test, and a's tests link and pass (no fingerprint mismatch).
+          godyn-fortest-test =
+            let
+              drv = self.packages.${system}.godyn-fortest-test;
+            in
+            pkgs.runCommandLocal "godyn-fortest-test-check" { nativeBuildInputs = [ pkgs.jq ]; } ''
+              rc=$(jq -c '.[] | select(.importPath == "example.com/fortest/a") | .recompiled' ${drv.passthru.testGraphFile})
+              [ "$rc" = '["example.com/fortest/b"]' ] || { echo "recompiled for a: [$rc]" >&2; exit 1; }
+              grep -qx "ok example.com/fortest/a" ${drv.passthru.checkAll} || { echo "a's tests did not pass" >&2; exit 1; }
               echo OK > $out
             '';
           # cgo flags: the zlib headers/lib arrive via `#cgo pkg-config`, the define
