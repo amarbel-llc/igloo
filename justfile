@@ -424,6 +424,30 @@ explore-gen-godyn-graph fixture:
     CGO_ENABLED=0 "$gen" "$dir" "$dir/graph.json"
     gum log --level info "regenerated $dir/graph.json"
 
+# [explore] Refresh godyn-lint's dependencies (buildGodynLint's analyzer suite):
+# bump staticcheck to latest, tidy, vet + test it, and regenerate its
+# gomod2nix.toml with the in-tree gomod2nix. Needs network; run after changing
+# its imports or to pick up new analyzers. x/tools stays at v0.49.0: from v0.50.0
+# unitchecker expects every import's vetx to carry its type data too, which
+# godyn's lanes do not yet produce (they pass export data via PackageFile).
+# Tracked in igloo#71.
+#
+# update godyn-lint's go.mod/go.sum/gomod2nix.toml (network)
+[group: 'explore']
+explore-update-godyn-lint-deps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    goStore=$(nix build --no-link --print-out-paths '.#go')
+    g2n=$(nix build --no-link --print-out-paths '.#gomod2nix')/bin/gomod2nix
+    export PATH="$goStore/bin:$PATH" GOTOOLCHAIN=local CGO_ENABLED=0
+    cd pkgs/build-support/godyn/lint
+    go get honnef.co/go/tools@latest golang.org/x/tools@v0.49.0
+    go mod tidy
+    go vet ./...
+    go test ./...
+    "$g2n" generate
+    gum log --level info "refreshed godyn-lint deps and gomod2nix.toml"
+
 # [explore] igloo#67 acceptance: regenerate a goFlakeInputs consumer's godyn graph
 # with the in-tree `godyn-gen -gomod <its passthru.mergedGoMod>` and diff it against
 # the graph the consumer produced by swapping go.mod by hand (its committed

@@ -305,6 +305,13 @@
             '';
             strategy = "native";
           };
+          # per-package lint (godyn-lint): package bad carries an unsuppressed
+          # staticcheck finding, package ok the same one under //nolint.
+          godyn-lint-test = pkgs.buildGodynModule {
+            pname = "godyn-lint-test";
+            src = ./pkgs/build-support/godyn/tests/lint;
+            graphFile = ./pkgs/build-support/godyn/tests/lint/graph.json;
+          };
           # per-package vet: a printf misuse through a wrapper in another package,
           # visible only through that package's vet facts.
           godyn-vet-test = pkgs.buildGodynModule {
@@ -584,6 +591,21 @@
           # imports), and a bridged dependency is vetted facts-only.
           godyn-vet-clean-test = self.packages.${system}.godyn-gotest-test.passthru.vetAll;
           godyn-vet-bridged-test = self.packages.${system}.godyn-cross-source.passthru.vetAll;
+          # per-package lint: staticcheck's findings reach the build log and fail it;
+          # a //nolint naming the golangci-lint linter suppresses the same finding.
+          godyn-lint-finding-test = pkgs.testers.testBuildFailure' {
+            drv = self.packages.${system}.godyn-lint-test.passthru.lint."example.com/lint/bad";
+            expectedBuilderLogEntries = [ "should omit comparison to bool constant" ];
+          };
+          godyn-lint-nolint-test =
+            self.packages.${system}.godyn-lint-test.passthru.lint."example.com/lint/ok";
+          # buildGodynLint on real multi-package code (local imports, bridged dep).
+          godyn-lint-clean-test = pkgs.buildGodynLint {
+            pname = "godyn-cross-app";
+            src = ./pkgs/build-support/godyn/tests/cross/app;
+            graphFile = ./pkgs/build-support/godyn/tests/cross/app/godyn-graph.json;
+            bridges."example.com/dep" = ./pkgs/build-support/godyn/tests/cross/dep;
+          };
 
           # gomod2nix hermetic lint lane (FDR 0006, igloo#62): buildGoLint must
           # resolve a goFlakeInputs-bridged-ONLY package inside the sandbox,

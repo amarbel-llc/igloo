@@ -1,0 +1,36 @@
+[
+  {
+    "importPath": "example.com/lint/bad",
+    "dir": "bad",
+    "name": "bad",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "bad.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "embedFiles": null,
+    "embedPatterns": null,
+    "imports": null
+  },
+  {
+    "importPath": "example.com/lint/ok",
+    "dir": "ok",
+    "name": "ok",
+    "isMain": false,
+    "local": true,
+    "goFiles": [
+      "ok.go"
+    ],
+    "cgoFiles": null,
+    "cFiles": null,
+    "hFiles": null,
+    "sFiles": null,
+    "embedFiles": null,
+    "embedPatterns": null,
+    "imports": null
+  }
+]

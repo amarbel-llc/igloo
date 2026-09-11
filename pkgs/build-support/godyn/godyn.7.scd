@@ -281,10 +281,49 @@ flake checks:
 checks.<system>.myapp-vet = myapp.passthru.vetAll;
 ```
 
+# LINT
+
+The lint lane is the same per-package machinery running *godyn-lint*: cmd/vet's
+passes plus staticcheck's default-enabled checks (SA, S, ST — staticcheck's own
+default selection; quickfix QF suggestions are left out). Findings fail the
+build exactly as in the vet lane, and cross-package facts chain the same way
+(e.g. staticcheck's deprecation facts from a dependency).
+
+*//nolint* directives are honored with golangci-lint's rules, so an existing
+codebase's suppressions carry over:
+
+- *//nolint* (every linter) or *//nolint:a,b* (named ones); a trailing
+  *// reason* is allowed; *//nolint:all* is every linter.
+- After code, a directive covers its own line; on a line by itself, it covers
+  the whole node that starts on the next line (a func, a statement, a field).
+- A name matches the analyzer (*printf*, *SA1019*) or the golangci-lint linter
+  it runs under: *govet* for vet passes, *staticcheck* for every staticcheck
+  code, and the v1 names *gosimple* (S) and *stylecheck* (ST).
+- Findings in generated files (*// Code generated ... DO NOT EDIT.*) are dropped.
+
+*.golangci.yml* is not read: which analyzers run is godyn-lint's suite, and
+staticcheck's own *//lint:ignore* directives are not honored. Pass *lintTool*
+(a unitchecker binary) to run a different suite.
+
+Passthru surface: *lint.<importPath>* and *lintAll*, like vet.
+*pkgs.buildGodynLint* takes buildGodynModule's arguments and returns *lintAll*
+directly — the flake-checks shape:
+
+```
+checks.<system>.myapp-lint = pkgs.buildGodynLint {
+  pname = "myapp";
+  src = self;
+  graphFile = ./godyn-graph.json;
+  modules = ./gomod2nix.toml;
+};
+```
+
 # LIMITATIONS
 
-Vet: cgo packages are skipped (vetting them needs cgo's translated sources), and
-test sources are not vetted.
+Vet and lint: cgo packages are skipped (analyzing them needs cgo's translated
+sources), and test sources are not analyzed. godyn-lint pins golang.org/x/tools
+v0.49.0: newer unitcheckers expect every import's vetx to carry its type data,
+which these lanes do not produce yet (igloo#71).
 
 go:embed patterns resolve per pattern only in graphs from a current godyn-gen; older
 graphs support literal and trailing-*\** patterns (see above).

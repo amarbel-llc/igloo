@@ -14,10 +14,15 @@ in
 rec {
   godynStdlib = callPackage ./stdlib.nix { };
   godyn-gen = callPackage ./gen { };
+  godyn-lint = callPackage ./lint { };
   buildGodynModule = callPackage ./build-godyn-module.nix {
     stdlib = godynStdlib;
-    inherit gomod2nixInternals;
+    inherit gomod2nixInternals godyn-lint;
   };
+  # buildGodynLint: the per-package lint lane of a buildGodynModule — takes the same
+  # args (plus lintTool) and returns the manifest realising every local package's
+  # lint derivation; wire it as a flake check.
+  buildGodynLint = args: (buildGodynModule args).passthru.lintAll;
   # callPackage supplies buildGodynModule + buildGoApplication from the overlay.
   buildGoAuto = callPackage ./build-go-auto.nix { inherit buildGodynModule; };
 }

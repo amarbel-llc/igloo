@@ -63,8 +63,10 @@ final: _: {
   # (produced by godyn-gen) + a gomod2nix.toml/vendorEnv for third-party deps.
   inherit (final.callPackage ../pkgs/build-support/godyn { })
     buildGodynModule
+    buildGodynLint
     buildGoAuto
     godyn-gen
+    godyn-lint
     godynStdlib
     ;
 

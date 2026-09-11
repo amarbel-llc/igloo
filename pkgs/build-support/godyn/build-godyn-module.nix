@@ -19,6 +19,7 @@
   buildGoApplication,
   stdenv,
   jq,
+  godyn-lint,
   gomod2nixInternals,
 }:
 {
@@ -97,6 +98,10 @@
   # `go vet -vettool` protocol) for the per-package vet lane; its mainProgram runs
   # once per package. null = the toolchain's own `go tool vet` analyzers.
   vetTool ? null,
+  # lintTool: the unitchecker binary the per-package LINT lane runs (passthru.lint /
+  # lintAll, and buildGodynLint). Default: godyn-lint — vet's passes plus
+  # staticcheck's default checks, with golangci-lint style //nolint suppression.
+  lintTool ? godyn-lint,
   # Install step, parity with buildGoApplication: postInstall runs after the link
   # with $out/bin/<pname> in place and cwd = a writable copy of src (as bga runs it
   # from the unpacked source); nativeBuildInputs are available to it. Main-package
@@ -540,16 +545,17 @@ let
     } (compile + link)
   ) (lib.filterAttrs (importPath: _: archiveBridgeOf importPath == null) byImport);
 
-  # ---- per-package vet (the unitchecker / `go vet -vettool` protocol) ----
-  # One CA derivation per package. The tool gets a vet.cfg naming the package's
-  # sources, every import's export data (godyn's per-package archives plus the
-  # stdlib importcfg), and each dependency's facts (that dependency's own vet
-  # output), and writes this package's facts to $out/vet.out — so analyzers'
-  # cross-package facts chain along the same merkle-delta as the compiles. Local
-  # packages report findings (any finding fails the build); third-party and bridged
-  # ones run facts-only (VetxOnly). cgo packages are skipped: vetting them needs
-  # cgo's translated sources. Only non-test sources are vetted.
-  vetToolExe = if vetTool != null then lib.getExe vetTool else ''"$(go env GOTOOLDIR)/vet"'';
+  # ---- per-package analysis lanes (the unitchecker / `go vet -vettool` protocol) ----
+  # One CA derivation per package per lane. The tool gets a vet.cfg naming the
+  # package's sources, every import's export data (godyn's per-package archives plus
+  # the stdlib importcfg), and each dependency's facts (that dependency's own output
+  # in the same lane), and writes this package's facts to $out/vet.out — so
+  # analyzers' cross-package facts chain along the same merkle-delta as the
+  # compiles. Local packages report findings (any finding fails the build);
+  # third-party and bridged ones run facts-only (VetxOnly). cgo packages are
+  # skipped: analyzing them needs cgo's translated sources. Only non-test sources
+  # are analyzed. Two lanes share this: vet (the toolchain's vet, or vetTool) and
+  # lint (lintTool, godyn-lint by default).
 
   # The stdlib half of every vet.cfg, derived once from the stdlib importcfg.
   # "unsafe" has no archive but must resolve through ImportMap.
@@ -560,60 +566,67 @@ let
              Standard: (with_entries(.value = true) + {unsafe: true})}' > $out
   '';
 
-  vetDrvs = lib.mapAttrs (
-    importPath: p:
+  # A lane: { local = run derivations of the local packages by import path;
+  # all = the manifest realising every one of them }.
+  analysisLane =
+    lane: toolExe:
     let
-      srcDir = srcDirFor importPath p;
-      deps = transitiveDeps importPath;
-      archiveOf = d: if archiveBridgeOf d != null then archivePathOf d else "${pkgDrvs.${d}}/pkg.a";
+      drvs = lib.mapAttrs (
+        importPath: p:
+        let
+          srcDir = srcDirFor importPath p;
+          deps = transitiveDeps importPath;
+          archiveOf = d: if archiveBridgeOf d != null then archivePathOf d else "${pkgDrvs.${d}}/pkg.a";
+        in
+        runCommandLocal "godyn-${lane}-${sanitize importPath}"
+          {
+            nativeBuildInputs = [
+              go
+              jq
+            ];
+            vetCfg = builtins.toJSON {
+              ID = importPath;
+              Compiler = "gc";
+              ImportPath = importPath;
+              GoVersion = goVersion;
+              GoFiles = map (f: "${srcDir}/${f}") (nl p.goFiles);
+              NonGoFiles = map (f: "${srcDir}/${f}") (nl p.sFiles);
+              ImportMap = lib.genAttrs deps (d: d);
+              PackageFile = lib.genAttrs deps archiveOf;
+              PackageVetx = lib.genAttrs (builtins.filter (d: drvs ? ${d}) deps) (d: "${drvs.${d}}/vet.out");
+              VetxOnly = !p.local;
+              VetxOutput = "vet.out";
+            };
+            passAsFile = [ "vetCfg" ];
+            __contentAddressed = true;
+            outputHashMode = "recursive";
+            outputHashAlgo = "sha256";
+          }
+          ''
+            export GOROOT=${go}/share/go
+            mkdir -p "$out"
+            ${outWritableProbe}
+            jq -s '.[0] * .[1]' ${vetStdCfg} "$vetCfgPath" > vet.cfg
+            ${toolExe} vet.cfg
+            [ -e vet.out ] || : > vet.out
+            mv vet.out "$out/vet.out"
+            ${lib.optionalString p.local ''echo "ok ${importPath}" > "$out/result"''}
+          ''
+      ) (lib.filterAttrs (ip: p: archiveBridgeOf ip == null && nl p.cgoFiles == [ ]) byImport);
+      local = lib.filterAttrs (ip: _: byImport.${ip}.local) drvs;
     in
-    runCommandLocal "godyn-vet-${sanitize importPath}"
-      {
-        nativeBuildInputs = [
-          go
-          jq
-        ];
-        vetCfg = builtins.toJSON {
-          ID = importPath;
-          Compiler = "gc";
-          ImportPath = importPath;
-          GoVersion = goVersion;
-          GoFiles = map (f: "${srcDir}/${f}") (nl p.goFiles);
-          NonGoFiles = map (f: "${srcDir}/${f}") (nl p.sFiles);
-          ImportMap = lib.genAttrs deps (d: d);
-          PackageFile = lib.genAttrs deps archiveOf;
-          PackageVetx = lib.genAttrs (builtins.filter (d: vetDrvs ? ${d}) deps) (
-            d: "${vetDrvs.${d}}/vet.out"
-          );
-          VetxOnly = !p.local;
-          VetxOutput = "vet.out";
-        };
-        passAsFile = [ "vetCfg" ];
-        __contentAddressed = true;
-        outputHashMode = "recursive";
-        outputHashAlgo = "sha256";
-      }
-      ''
-        export GOROOT=${go}/share/go
-        mkdir -p "$out"
-        ${outWritableProbe}
-        jq -s '.[0] * .[1]' ${vetStdCfg} "$vetCfgPath" > vet.cfg
-        ${vetToolExe} vet.cfg
-        [ -e vet.out ] || : > vet.out
-        mv vet.out "$out/vet.out"
-        ${lib.optionalString p.local ''echo "ok ${importPath}" > "$out/result"''}
-      ''
-  ) (lib.filterAttrs (ip: p: archiveBridgeOf ip == null && nl p.cgoFiles == [ ]) byImport);
+    {
+      inherit local;
+      all = runCommandLocal "godyn-${pname}-${lane}" { } (
+        ": > $out\n"
+        + lib.concatMapStringsSep "\n" (ip: "cat ${local.${ip}}/result >> $out") (builtins.attrNames local)
+      );
+    };
 
-  localVet = lib.filterAttrs (ip: _: byImport.${ip}.local) vetDrvs;
-
-  # One manifest realising every local package's vet run — the flake-checks hook.
-  vetAll = runCommandLocal "godyn-${pname}-vet" { } (
-    ": > $out\n"
-    + lib.concatMapStringsSep "\n" (ip: "cat ${localVet.${ip}}/result >> $out") (
-      builtins.attrNames localVet
-    )
+  vetLane = analysisLane "vet" (
+    if vetTool != null then lib.getExe vetTool else ''"$(go env GOTOOLDIR)/vet"''
   );
+  lintLane = analysisLane "lint" (lib.getExe lintTool);
 
   mainPkg = lib.findFirst (p: p.isMain) null graph;
 
@@ -839,10 +852,12 @@ installed.overrideAttrs (old: {
     # all-tests manifest for flake checks. Empty when no test graph was passed.
     tests = testRuns;
     inherit testBins checkAll;
-    # per-package vet: run derivations for the local packages by import path (a
-    # finding fails the build), and the all-packages manifest for flake checks.
-    vet = localVet;
-    inherit vetAll;
+    # per-package vet and lint: run derivations for the local packages by import
+    # path (a finding fails the build), and each lane's manifest for flake checks.
+    vet = vetLane.local;
+    vetAll = vetLane.all;
+    lint = lintLane.local;
+    lintAll = lintLane.all;
   };
   meta = (old.meta or { }) // lib.optionalAttrs (mainPkg != null) { mainProgram = pname; };
 })
