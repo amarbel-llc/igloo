@@ -12,10 +12,18 @@ let
   gomod2nixInternals = import ../gomod2nix/internals.nix { };
 in
 rec {
-  # The systems godyn is validated (and gated) on. buildGoAuto's default strategy
-  # picks godyn here and buildGoApplication elsewhere, and consumers' gates can key
-  # off passthru.backend — so adding a system (igloo#33) flips the fleet in one bump.
-  godynSystems = [ "x86_64-linux" ];
+  # The systems where godyn is the default Go builder: every system igloo
+  # supports (FDR 0007: godyn replaces buildGoApplication's output everywhere).
+  # buildGoAuto's default strategy picks godyn here and buildGoApplication only
+  # elsewhere; consumers never hard-code a system and key gates off
+  # passthru.backend. Gated builds still run on x86_64-linux only — validating the
+  # other systems on real builders is igloo#33.
+  godynSystems = [
+    "x86_64-linux"
+    "aarch64-linux"
+    "x86_64-darwin"
+    "aarch64-darwin"
+  ];
   godynStdlib = callPackage ./stdlib.nix { };
   godyn-gen = callPackage ./gen { };
   godyn-lint = callPackage ./lint { };

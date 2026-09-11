@@ -112,11 +112,12 @@ pkgs.buildGoAuto {
 }
 ```
 
-With no *strategy*, *buildGoAuto* picks godyn on the systems in *godynSystems*
-(igloo's list of systems godyn is validated on; today x86_64-linux) and
-buildGoApplication elsewhere. Consumers should not hard-code a system: select test
-lanes and gates by *passthru.backend*, so extending *godynSystems* (igloo#33)
-switches every consumer's builds and gates in one igloo bump.
+With no *strategy*, *buildGoAuto* picks godyn on the systems in *godynSystems* —
+every system igloo supports (x86_64-linux, aarch64-linux, x86_64-darwin,
+aarch64-darwin) — and buildGoApplication only elsewhere: godyn replaces
+buildGoApplication's output everywhere (FDR 0007), which stays reachable as
+*passthru.bga*. Consumers must not hard-code a system or pin a strategy: select
+test lanes and gates by *passthru.backend*.
 
 Both backends are always reachable via *passthru.native* / *passthru.bga* (force
 either without re-plumbing); *passthru.backend* records the choice.
@@ -469,9 +470,11 @@ supported (igloo#32 tracks the remainder).
 A committed graph is platform-specific (see *graphFiles* above); building a module
 with platform-dependent deps from a single graphFile on another system fails in the
 per-package compiles (linux-only files on darwin, igloo#33). The builder is
-routinely exercised on x86_64-linux; darwin validation is tracked in igloo#33 —
-until it lands, multi-platform consumers should gate the godyn backend per system
-(e.g. buildGoAuto strategy native on x86_64-linux, bga elsewhere).
+routinely exercised on x86_64-linux. It is the default on every supported system,
+but building and gating on darwin and aarch64 awaits real builders (igloo#33);
+consumers still do not gate the backend per system. Derived graphs are per-system
+by construction; evaluating another system's godyn packages needs a builder for
+that system (import-from-derivation, igloo#75).
 
 # SEE ALSO
 

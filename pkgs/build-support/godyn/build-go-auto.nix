@@ -56,9 +56,9 @@
   buildInputs ? [ ],
   CGO_CFLAGS ? "",
   CGO_LDFLAGS ? "",
-  # Default: godyn ("native") on the systems igloo validates it on (godynSystems),
-  # buildGoApplication elsewhere — so extending godynSystems flips every consumer
-  # that doesn't pin a strategy. Gates should key off passthru.backend, not a system.
+  # Default: godyn ("native") on every system in godynSystems — all systems igloo
+  # supports — and buildGoApplication only elsewhere. Consumers don't pin a strategy
+  # or hard-code a system; gates key off passthru.backend.
   strategy ? if lib.elem stdenv.hostPlatform.system godynSystems then "native" else "bga",
   # Escape hatches for backend-specific args that don't overlap:
   #   nativeArgs — extra buildGodynModule args (vendorEnv, cc, bridges, pwd, ...)

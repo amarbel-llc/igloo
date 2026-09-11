@@ -98,7 +98,7 @@ be authoritative is recorded in FDR 0006 § *Why not fix the devshell?*).
 | Per-package `go test` | `testGraphFile` → `tests` / `checkAll` | cgo/asm tests, test-only third-party deps, `-race`, test-only embeds (igloo#32); no `nativeCheckInputs`-style tools on the test PATH (unverified) |
 | Per-package vet | `vetAll` (toolchain vet, or `vetTool`) | cgo packages and test sources not analyzed |
 | Per-package lint | `buildGodynLint` (godyn-lint: vet + staticcheck defaults, `//nolint`) | `.golangci.yml` not read; x/tools pinned below the type-bearing vetx protocol (igloo#71) |
-| Platforms | x86_64-linux proven (two fleet hosts) | darwin / aarch64 unvalidated (igloo#33) |
+| Platforms | default on every supported system (`godynSystems`); x86_64-linux proven (two fleet hosts) | darwin / aarch64 builds unvalidated on real builders (igloo#33) |
 | Package graph | committed graph, or derived at eval time from go.mod + gomod2nix.toml when no `graphFile` is given (build and test graphs; igloo#72) | derivation from the nix manifest instead of go.mod (FDR 0008); consumers still committing graphs migrate |
 | Workspace consumers | `-gomod` takes a merged go.mod | go.work consumers (igloo#73) |
 | Nix features | content-addressed derivations | `ca-derivations` on every building host — eng-managed hosts declare it today; circus will own it fleet-wide |
@@ -113,8 +113,10 @@ be authoritative is recorded in FDR 0006 § *Why not fix the devshell?*).
    (spinclass's planned `.#spinclass-build_go_application`).
 3. **Godyn checks** — the consumer's tests, vet and lint move to godyn's lanes;
    the whole-module lanes are retired.
-4. **Default everywhere** — once igloo#33 lands, per-system graphs replace the
-   per-system backend gate.
+4. **Default everywhere** — configured: `godynSystems` lists every supported
+   system, so godyn is `packages.default` on all of them and consumers carry no
+   per-system backend gate (derived graphs are per-system by construction).
+   Building and gating on darwin / aarch64 awaits real builders (igloo#33).
 5. **Single path** — the escape hatch is removed; the consumer declares no
    other Go build.
 
