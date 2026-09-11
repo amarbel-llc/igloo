@@ -386,6 +386,16 @@
             tests = true;
             testEnv.GODYN_TEST_ENV = "set";
           };
+          # test-only link flags: testLdflagsX burns a value into the package main's
+          # TEST binary (full import path, as the variant is -p <importpath>).
+          godyn-testldflags-test = pkgs.buildGodynModule {
+            pname = "godyn-testldflags-test";
+            src = ./pkgs/build-support/godyn/tests/testldflags;
+            modules = ./pkgs/build-support/godyn/tests/testldflags/gomod2nix.toml;
+            version = "0.0.0";
+            tests = true;
+            testLdflagsX."example.com/testld.fixture" = "burned";
+          };
           # go test's recompiled dependents: a's external test imports b, which
           # imports a, so b must be recompiled against a's test variant.
           godyn-fortest-test = pkgs.buildGodynModule {
@@ -782,6 +792,17 @@
               for p in example.com/tags/lib example.com/tags/user; do
                 grep -qx "ok $p" ${tagged.passthru.checkAll} || { echo "missing tagged test result for $p" >&2; exit 1; }
               done
+              echo OK > $out
+            '';
+          # testLdflagsX reaches the test binary (its test passes) but not the release
+          # binary (still prints the default).
+          godyn-testldflags-test =
+            let
+              drv = self.packages.${system}.godyn-testldflags-test;
+            in
+            pkgs.runCommandLocal "godyn-testldflags-test-check" { } ''
+              [ "$(${drv}/bin/godyn-testldflags-test)" = unset ] || { echo "testLdflagsX leaked into the release link" >&2; exit 1; }
+              grep -qx "ok example.com/testld" ${drv.passthru.checkAll} || { echo "test binary did not get the -X value" >&2; exit 1; }
               echo OK > $out
             '';
           # recompiled dependents: the derived test graph records b as recompiled

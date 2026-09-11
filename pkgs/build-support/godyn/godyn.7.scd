@@ -185,6 +185,12 @@ Arguments:
   tests = true;*, as *go test -tags test* would; untouched packages are shared (CA).
   *buildGoAuto* forwards *tags* to both backends.
 - *testEnv* — environment variables (an attrset) set for every per-package test run.
+- *testLdflags*, *testLdflagsX* — link flags for the per-package test binaries only
+  (same shapes as *ldflags* / *ldflagsX*), e.g. to burn a fixture's store path into a
+  test so *passthru.testBins.<ip>* runs standalone; release links never see them. A
+  package's own variable is named by its FULL import path (*-X
+  example.com/cmd/foo.fixture=...*), even for package main, because the test
+  variant is compiled as *-p <importpath>*.
 - *dontStrip* — keep DWARF in linked binaries; by default they link with *-w*, the
   equivalent of buildGoApplication's *strip -S*. Each binary's Go build ID — and the
   GNU build ID the linker derives from it — is a hash of its link inputs, so it is

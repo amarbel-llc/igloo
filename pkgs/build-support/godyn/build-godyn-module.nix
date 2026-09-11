@@ -80,6 +80,13 @@
   ldflags ? [ ],
   ldflagsX ? { },
   overwriteLdflagsX ? false,
+  # testLdflags / testLdflagsX: link flags for the per-package TEST binaries only
+  # (same shapes as ldflags / ldflagsX), e.g. burning a fixture's store path into a
+  # test so passthru.testBins.<ip> runs standalone. Release links never see them.
+  # For a package's own variables -X takes its full import path — the test variant
+  # is compiled as `-p <importpath>`, even for package main.
+  testLdflags ? [ ],
+  testLdflagsX ? { },
   # dontStrip: keep DWARF in linked binaries. By default they link with -w, the
   # equivalent of the `strip -S` buildGoApplication's fixup applies.
   dontStrip ? false,
@@ -250,6 +257,9 @@ let
       map (m: unquote (builtins.head m)) (builtins.filter builtins.isList parts);
   cgoCFlagsEnv = goEnvList "CGO_CFLAGS" CGO_CFLAGS;
   cgoLDFlagsEnv = goEnvList "CGO_LDFLAGS" CGO_LDFLAGS;
+  testLdflagsStr = lib.concatStringsSep " " (
+    testLdflags ++ lib.mapAttrsToList (name: value: "-X ${name}=${value}") testLdflagsX
+  );
 
   # Resolve one of (single, per-system) graph file args; null when neither is set —
   # an error for the build graph, "no tests" for the test graph.
@@ -1070,8 +1080,12 @@ let
               ${testCfg ''"$CFG"''}
               GOTOOLDIR="$(go env GOTOOLDIR)"
               export GOROOT=
-              bid=$( { cat "$CFG"; sha256sum "$W"/*.a; } | sha256sum | cut -d' ' -f1)
-              "$GOTOOLDIR/link" -buildid="$bid" -buildmode=exe ${lib.optionalString testCgo "-extld ${cc}/bin/cc"} -importcfg "$CFG" \
+              bid=$( { cat "$CFG"; sha256sum "$W"/*.a;${
+                lib.optionalString (testLdflagsStr != "") " echo ${lib.escapeShellArg testLdflagsStr};"
+              } } | sha256sum | cut -d' ' -f1)
+              "$GOTOOLDIR/link" -buildid="$bid" -buildmode=exe ${lib.optionalString testCgo "-extld ${cc}/bin/cc"} ${
+                lib.optionalString (testLdflagsStr != "") "${testLdflagsStr} "
+              }-importcfg "$CFG" \
                 -o "$out/${binName}" "$W/testmain.a"
             '';
 
