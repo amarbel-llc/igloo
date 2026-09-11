@@ -185,6 +185,10 @@ Arguments:
   tests = true;*, as *go test -tags test* would; untouched packages are shared (CA).
   *buildGoAuto* forwards *tags* to both backends.
 - *testEnv* — environment variables (an attrset) set for every per-package test run.
+- *dontStrip* — keep DWARF in linked binaries; by default they link with *-w*, the
+  equivalent of buildGoApplication's *strip -S*. Each binary's Go build ID — and the
+  GNU build ID the linker derives from it — is a hash of its link inputs, so it is
+  reproducible and distinct binaries never share one.
 - *bridges* — modpath -> go-pkgs SOURCE store path; the bridged module's packages are
   compiled in THIS graph (cross-module composition, approach 2). See CROSS-MODULE.
 - *goFlakeInputs* — the RFC 0001 declaration buildGoApplication takes, resolved the

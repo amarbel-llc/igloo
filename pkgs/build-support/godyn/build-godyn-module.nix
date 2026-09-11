@@ -80,6 +80,9 @@
   ldflags ? [ ],
   ldflagsX ? { },
   overwriteLdflagsX ? false,
+  # dontStrip: keep DWARF in linked binaries. By default they link with -w, the
+  # equivalent of the `strip -S` buildGoApplication's fixup applies.
+  dontStrip ? false,
   # cc: a stdenv cc-wrapper, required iff any package is cgo (zstd etc.).
   cc ? null,
   # cgo inputs, parity with buildGoApplication: buildInputs are the C libraries
@@ -223,6 +226,30 @@ let
   # Joined into the `go tool link` argv (unquoted in the script -> word-split, so
   # each `-X a.b=c` becomes the two tokens the linker wants).
   effectiveLdflagsStr = lib.concatStringsSep " " (versionLdflags ++ ldflags ++ ldflagsXFlags);
+
+  # CGO_CFLAGS / CGO_LDFLAGS split like cmd/go's envList (cmd/internal/quoted.Split):
+  # whitespace-separated fields; a field STARTING with ' or " runs to the next same
+  # quote, which is dropped (no unescaping), while a quote elsewhere stays literal —
+  # so -DX="v" keeps its quotes and reaches cc as a C string, as under
+  # buildGoApplication, and '-DX="a b"' is one field.
+  goEnvList =
+    what: s:
+    let
+      parts = builtins.split "('[^']*'|\"[^\"]*\"|[^'\" \t\n\r][^ \t\n\r]*)" s;
+      stray = builtins.filter (p: builtins.isString p && builtins.match "[ \t\n\r]*" p == null) parts;
+      unquote =
+        f:
+        let
+          q = builtins.substring 0 1 f;
+        in
+        if q == "'" || q == "\"" then builtins.substring 1 (builtins.stringLength f - 2) f else f;
+    in
+    if stray != [ ] then
+      throw "buildGodynModule(${pname}): ${what} has an unterminated quote: ${builtins.toJSON s}"
+    else
+      map (m: unquote (builtins.head m)) (builtins.filter builtins.isList parts);
+  cgoCFlagsEnv = goEnvList "CGO_CFLAGS" CGO_CFLAGS;
+  cgoLDFlagsEnv = goEnvList "CGO_LDFLAGS" CGO_LDFLAGS;
 
   # Resolve one of (single, per-system) graph file args; null when neither is set —
   # an error for the build graph, "no tests" for the test graph.
@@ -556,8 +583,8 @@ let
         ${cfg}
         RF=(-ffile-prefix-map="$work=/tmp/go-build" -ffile-prefix-map=${srcDir}=. -gno-record-gcc-switches)
         # the flags cmd/go hands cgo: #cgo directives, pkg-config, CGO_CFLAGS/LDFLAGS
-        CF=(${lib.escapeShellArgs (nl (p.cgoCFLAGS or null))} ${CGO_CFLAGS})
-        LF=(${lib.escapeShellArgs (nl (p.cgoLDFLAGS or null))} ${CGO_LDFLAGS})
+        CF=(${lib.escapeShellArgs (nl (p.cgoCFLAGS or null) ++ cgoCFlagsEnv)})
+        LF=(${lib.escapeShellArgs (nl (p.cgoLDFLAGS or null) ++ cgoLDFlagsEnv)})
         ${lib.optionalString (nl (p.cgoPkgConfig or null) != [ ]) ''
           CF+=($(pkg-config --cflags ${lib.escapeShellArgs p.cgoPkgConfig}))
           LF+=($(pkg-config --libs ${lib.escapeShellArgs p.cgoPkgConfig}))
@@ -615,7 +642,13 @@ let
         ${cfgFor importPath "importcfg.link"}
         GOTOOLDIR="$(go env GOTOOLDIR)"
         export GOROOT=
-        "$GOTOOLDIR/link" -buildid=redacted -buildmode=exe ${lib.optionalString mainCgo "-extld ${cc}/bin/cc"} ${effectiveLdflagsStr} -importcfg importcfg.link \
+        # The Go build ID (and the GNU one the linker derives from it) must differ
+        # between binaries yet stay reproducible: hash the link's inputs — the
+        # importcfg (content-addressed archive paths), this archive and the flags.
+        bid=$( { cat importcfg.link; sha256sum < "$out/pkg.a"; echo ${lib.escapeShellArg effectiveLdflagsStr}; } | sha256sum | cut -d' ' -f1)
+        "$GOTOOLDIR/link" -buildid="$bid" -buildmode=exe ${
+          lib.optionalString (!dontStrip) "-w"
+        } ${lib.optionalString mainCgo "-extld ${cc}/bin/cc"} ${effectiveLdflagsStr} -importcfg importcfg.link \
           -o "$out/bin/${binNameOf p}" "$out/pkg.a"
       '';
     in
@@ -988,7 +1021,8 @@ let
               ${testCfg ''"$CFG"''}
               GOTOOLDIR="$(go env GOTOOLDIR)"
               export GOROOT=
-              "$GOTOOLDIR/link" -buildid=redacted -buildmode=exe -importcfg "$CFG" \
+              bid=$( { cat "$CFG"; sha256sum "$W"/*.a; } | sha256sum | cut -d' ' -f1)
+              "$GOTOOLDIR/link" -buildid="$bid" -buildmode=exe -importcfg "$CFG" \
                 -o "$out/${binName}" "$W/testmain.a"
             '';
 

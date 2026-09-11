@@ -8,6 +8,7 @@ package zv
 #include <zlib.h>
 
 static const char *mark(void) { return GODYN_MARK; }
+static const char *mark2(void) { return GODYN_MARK2; }
 */
 import "C"
 
@@ -16,3 +17,6 @@ func Version() string { return C.GoString(C.zlibVersion()) }
 
 // Mark is the GODYN_MARK value CGO_CFLAGS defined.
 func Mark() string { return C.GoString(C.mark()) }
+
+// Mark2 is GODYN_MARK2, defined by a quoted CGO_CFLAGS field containing a space.
+func Mark2() string { return C.GoString(C.mark2()) }

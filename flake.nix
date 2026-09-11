@@ -394,7 +394,9 @@
             modules = ./pkgs/build-support/godyn/tests/cgo-pkgconfig/gomod2nix.toml;
             cc = pkgs.stdenv.cc;
             buildInputs = [ pkgs.zlib ];
-            CGO_CFLAGS = "'-DGODYN_MARK=\"flag-ok\"'";
+            # split like cmd/go: the unquoted field keeps its literal quotes (the
+            # form buildGoApplication users write); a quoted field may hold a space.
+            CGO_CFLAGS = "-DGODYN_MARK=\"flag-ok\" '-DGODYN_MARK2=\"quoted ok\"'";
           };
           # Multi-binary module: two commands over a shared package, graph derived.
           # All mains link by default; subPackages selects.
@@ -775,21 +777,29 @@
           # via CGO_CFLAGS, and the binary links and runs; the lint lane analyzes it.
           godyn-cgo-pkgconfig-test = pkgs.runCommandLocal "godyn-cgo-pkgconfig-test-check" { } ''
             got=$(${self.packages.${system}.godyn-cgo-pkgconfig-test}/bin/godyn-cgo-pkgconfig-test)
-            [ "$got" = "flag-ok true" ] || { echo "cgo flags fixture printed [$got]" >&2; exit 1; }
+            [ "$got" = "flag-ok quoted ok true" ] || { echo "cgo flags fixture printed [$got]" >&2; exit 1; }
             echo OK > $out
           '';
           godyn-cgo-pkgconfig-lint-test = self.packages.${system}.godyn-cgo-pkgconfig-test.passthru.lintAll;
           # multi-binary: every main links (named like `go install`); subPackages
           # links only the selected one (named pname).
-          godyn-multi-test = pkgs.runCommandLocal "godyn-multi-test-check" { } ''
-            all=${self.packages.${system}.godyn-multi-test}
-            [ "$($all/bin/alpha)" = "hello from alpha" ] || { echo "alpha missing or wrong" >&2; ls -l $all/bin >&2; exit 1; }
-            [ "$($all/bin/beta)" = "hello from beta" ] || { echo "beta missing or wrong" >&2; ls -l $all/bin >&2; exit 1; }
-            sub=${self.packages.${system}.godyn-multi-sub-test}
-            [ "$(ls $sub/bin)" = "godyn-multi-sub-test" ] || { echo "subPackages linked: $(ls $sub/bin)" >&2; exit 1; }
-            [ "$($sub/bin/godyn-multi-sub-test)" = "hello from beta" ] || { echo "subPackages picked the wrong main" >&2; exit 1; }
-            echo OK > $out
-          '';
+          # Every binary gets its own reproducible build ID (the GNU note the linker
+          # derives from the Go one), and ships without DWARF (-w, bga's strip -S).
+          godyn-multi-test =
+            pkgs.runCommandLocal "godyn-multi-test-check" { nativeBuildInputs = [ pkgs.binutils ]; }
+              ''
+                all=${self.packages.${system}.godyn-multi-test}
+                [ "$($all/bin/alpha)" = "hello from alpha" ] || { echo "alpha missing or wrong" >&2; ls -l $all/bin >&2; exit 1; }
+                [ "$($all/bin/beta)" = "hello from beta" ] || { echo "beta missing or wrong" >&2; ls -l $all/bin >&2; exit 1; }
+                ida=$(readelf -n $all/bin/alpha | sed -n 's/.*Build ID: //p')
+                idb=$(readelf -n $all/bin/beta | sed -n 's/.*Build ID: //p')
+                [ -n "$ida" ] && [ "$ida" != "$idb" ] || { echo "GNU build IDs not distinct: alpha=[$ida] beta=[$idb]" >&2; exit 1; }
+                if readelf -S --wide $all/bin/alpha | grep -q 'debug_info'; then echo "alpha still carries DWARF" >&2; exit 1; fi
+                sub=${self.packages.${system}.godyn-multi-sub-test}
+                [ "$(ls $sub/bin)" = "godyn-multi-sub-test" ] || { echo "subPackages linked: $(ls $sub/bin)" >&2; exit 1; }
+                [ "$($sub/bin/godyn-multi-sub-test)" = "hello from beta" ] || { echo "subPackages picked the wrong main" >&2; exit 1; }
+                echo OK > $out
+              '';
           # godyn must compile a module at the language version its go.mod
           # declares, like `go build`: go 1.21 closures share the loop variable.
           godyn-lang-test =

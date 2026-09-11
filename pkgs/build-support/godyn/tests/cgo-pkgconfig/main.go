@@ -7,5 +7,5 @@ import (
 )
 
 func main() {
-	fmt.Println(zv.Mark(), zv.Version() != "")
+	fmt.Println(zv.Mark(), zv.Mark2(), zv.Version() != "")
 }
