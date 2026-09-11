@@ -202,6 +202,16 @@ Arguments:
   package's own variable is named by its FULL import path (*-X
   example.com/cmd/foo.fixture=...*), even for package main, because the test
   variant is compiled as *-p <importpath>*.
+- *testFiles* — the golden path for tests that read module files outside their
+  package (*../../docs/x*): tested package dir (as in *subPackages*) -> list of
+  module-relative files or dirs, placed at those paths in that package's test run
+  tree, so the relative path resolves as under *go test*. Only the listed files join
+  the run's inputs, so per-package incrementality stays. A key naming no tested
+  package throws. *buildGoAuto* forwards it to godyn (bga's *go test* already runs in
+  the module tree).
+- *testModuleTree* — DISCOURAGED last resort: run tests inside the whole module
+  source, exactly like *go test*. Every run then depends on every file, so any edit
+  re-runs all of the module's tests; evaluation warns. Prefer *testFiles*.
 - *nativeCheckInputs* — tools on PATH for every per-package test run (e.g. git),
   as in buildGoApplication's check phase; *buildGoAuto* forwards it to both
   backends.

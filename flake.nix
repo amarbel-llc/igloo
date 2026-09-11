@@ -465,6 +465,24 @@
             version = "0.0.0";
             binaryNames."." = "renamed-app";
           };
+          # a test reading ../../docs/vec.txt: testFiles (the golden path) places the
+          # file in the run tree; testModuleTree (discouraged) runs in the module.
+          godyn-testfiles-test = pkgs.buildGodynModule {
+            pname = "godyn-testfiles-test";
+            src = ./pkgs/build-support/godyn/tests/testfiles;
+            modules = ./pkgs/build-support/godyn/tests/testfiles/gomod2nix.toml;
+            version = "0.0.0";
+            tests = true;
+            testFiles."inner/p" = [ "docs/vec.txt" ];
+          };
+          godyn-testmoduletree-test = pkgs.buildGodynModule {
+            pname = "godyn-testmoduletree-test";
+            src = ./pkgs/build-support/godyn/tests/testfiles;
+            modules = ./pkgs/build-support/godyn/tests/testfiles/gomod2nix.toml;
+            version = "0.0.0";
+            tests = true;
+            testModuleTree = true;
+          };
           # cgo flags cmd/go resolves before cgo runs: `#cgo pkg-config: zlib` plus a
           # -D define that only CGO_CFLAGS supplies (maneater's shape).
           godyn-cgo-pkgconfig-test = pkgs.buildGodynModule {
@@ -935,6 +953,15 @@
                 || { echo "a single main is not named like go install" >&2; exit 1; }
               echo OK > $out
             '';
+          # a test reading a module file outside its package passes via testFiles and
+          # via testModuleTree.
+          godyn-testfiles-test = pkgs.runCommandLocal "godyn-testfiles-test-check" { } ''
+            for m in ${self.packages.${system}.godyn-testfiles-test.passthru.checkAll} \
+                     ${self.packages.${system}.godyn-testmoduletree-test.passthru.checkAll}; do
+              grep -qx "ok example.com/tf/inner/p" "$m" || { echo "$m: the out-of-package read failed" >&2; exit 1; }
+            done
+            echo OK > $out
+          '';
           # cgo flags: the zlib headers/lib arrive via `#cgo pkg-config`, the define
           # via CGO_CFLAGS, and the binary links and runs; the lint lane analyzes it.
           godyn-cgo-pkgconfig-test = pkgs.runCommandLocal "godyn-cgo-pkgconfig-test-check" { } ''

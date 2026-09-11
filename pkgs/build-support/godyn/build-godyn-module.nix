@@ -151,6 +151,16 @@
   # nativeCheckInputs: tools on PATH for every per-package test run (git, …), as
   # in buildGoApplication's check phase.
   nativeCheckInputs ? [ ],
+  # testFiles (the golden path for tests that read files outside their package):
+  # tested package dir (as in subPackages) -> module-relative files or dirs placed
+  # at those paths in the package's test run tree, so relative reads like
+  # ../../docs/x resolve as under `go test`. Each is its own store path, so only
+  # the listed files join the run's inputs. A key naming no tested package throws.
+  testFiles ? { },
+  # testModuleTree: DISCOURAGED last resort — run tests inside the whole module
+  # source, exactly like `go test`. Every test run then depends on every file, so
+  # any edit re-runs all of this module's tests; prefer testFiles.
+  testModuleTree ? false,
   # Install step, parity with buildGoApplication: postInstall runs after the link
   # with $out/bin/<name> in place and cwd = a writable copy of src (as bga runs it
   # from the unpacked source); nativeBuildInputs are available to it. Main-package
@@ -999,6 +1009,32 @@ let
           || builtins.hasAttr (relTo path) compileFileSet
           || lib.hasPrefix "testdata/" (relTo path);
       };
+      # testFiles: a module-shaped run tree — this package's run files at its dir,
+      # plus each declared file at its module-relative path — so relative reads out
+      # of the package resolve. testModuleTree runs from the whole module instead.
+      extraTestFiles = nl (testFilesByDir.${t.dir} or null);
+      runTree = runCommandLocal "godyn-testtree-${sanitize importPath}" { } (
+        ''
+          mkdir -p "$out/${t.dir}"
+          cp -r ${runSrc}/. "$out/${t.dir}/"
+        ''
+        + lib.concatMapStrings (f: ''
+          mkdir -p "$(dirname "$out/${f}")"
+          cp -r ${
+            builtins.path {
+              path = src + "/${f}";
+              name = "godyn-testfile-${sanitize f}";
+            }
+          } "$out/${f}"
+        '') extraTestFiles
+      );
+      runDir =
+        if testModuleTree then
+          "${src}/${t.dir}"
+        else if extraTestFiles != [ ] then
+          "${runTree}/${t.dir}"
+        else
+          runSrc;
 
       # Dep closure for the variant/external/link importcfgs. Direct deps come from
       # the test graph (the variant's imports INCLUDE test-only deps); expand
@@ -1142,7 +1178,7 @@ let
           ''
             mkdir -p "$out"
             ${outWritableProbe}
-            cd ${runSrc}
+            cd ${runDir}
             if ${bin}/${binName} > "$NIX_BUILD_TOP/test.log" 2>&1; then
               echo "ok ${importPath}" > "$out/result"
             else
@@ -1156,7 +1192,19 @@ let
       inherit bin run;
     };
 
-  testPairs = lib.listToAttrs (map (t: lib.nameValuePair t.importPath (testDrvsFor t)) testGraph);
+  testFilesByDir = lib.mapAttrs' (
+    d: fs: lib.nameValuePair (lib.removeSuffix "/" (lib.removePrefix "./" d)) fs
+  ) testFiles;
+  unknownTestFiles = builtins.filter (d: !(lib.any (t: t.dir == d) testGraph)) (
+    builtins.attrNames testFilesByDir
+  );
+  testPairs =
+    if unknownTestFiles != [ ] then
+      throw "buildGodynModule(${pname}): testFiles: no tested package in ${lib.concatStringsSep ", " unknownTestFiles}"
+    else
+      lib.warnIf testModuleTree
+        "buildGodynModule(${pname}): testModuleTree = true runs every test inside the whole module, so any edit re-runs all of them; prefer testFiles"
+        (lib.listToAttrs (map (t: lib.nameValuePair t.importPath (testDrvsFor t)) testGraph));
   testBins = lib.mapAttrs (_: v: v.bin) testPairs;
   testRuns = lib.mapAttrs (_: v: v.run) testPairs;
 

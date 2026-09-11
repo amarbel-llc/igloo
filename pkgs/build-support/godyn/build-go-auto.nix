@@ -48,6 +48,10 @@
   tags ? [ ],
   # Tools on PATH for tests, declared once: bga's check phase, godyn's test runs.
   nativeCheckInputs ? [ ],
+  # godyn-only test run trees (see buildGodynModule): bga's `go test` already runs
+  # inside the module tree, so these only reach the godyn backend.
+  testFiles ? { },
+  testModuleTree ? false,
   # cgo inputs, declared once for both backends (see buildGodynModule).
   buildInputs ? [ ],
   CGO_CFLAGS ? "",
@@ -104,6 +108,8 @@ let
       inherit graphFile graphFiles;
     }
     // lib.optionalAttrs (binaryNames != { }) { inherit binaryNames; }
+    // lib.optionalAttrs (testFiles != { }) { inherit testFiles; }
+    // lib.optionalAttrs testModuleTree { inherit testModuleTree; }
     // nativeArgs
   );
   bga = buildGoApplication (
