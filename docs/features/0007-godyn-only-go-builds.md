@@ -148,6 +148,9 @@ CLI use buildGoApplication, godyn-gen buildGoModule).
 - FDR 0006 (`docs/features/0006-hermetic-go-check-lanes.md`) — the
   whole-module check lanes this supersedes once consumers are godyn-native.
 - FDR 0003 / FDR 0004 — the bridge's journey (superseded by RFC 0001).
+- FDR 0008 (`docs/features/0008-nix-authoritative-go-modules.md`) — a nix
+  manifest replacing go.mod as the source of truth, with a bidirectional
+  go.mod ↔ manifest escape hatch for editors.
 - Issues: igloo#32 (tests), igloo#33 (platforms), igloo#70 (bga eval),
   igloo#71 (vetx protocol), igloo#72 (graph drift check), igloo#73 (go.work
   consumers).
