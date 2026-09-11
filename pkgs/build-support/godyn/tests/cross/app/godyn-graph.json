@@ -16,7 +16,8 @@
     "embedPatterns": null,
     "imports": [
       "example.com/dep/greet"
-    ]
+    ],
+    "goVersion": "1.26"
   },
   {
     "importPath": "example.com/dep/greet",
@@ -33,6 +34,7 @@
     "sFiles": null,
     "embedFiles": null,
     "embedPatterns": null,
-    "imports": null
+    "imports": null,
+    "goVersion": "1.26"
   }
 ]
