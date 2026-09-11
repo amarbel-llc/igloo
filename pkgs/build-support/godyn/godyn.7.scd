@@ -170,6 +170,13 @@ Arguments:
   "value"; }* rendered to *-X* tokens, appended last (Go's *-X* is last-wins). A key
   colliding with an already-set *-X* throws unless *overwriteLdflagsX = true*.
 - *cc* — a stdenv cc-wrapper, required iff any package is cgo.
+- *buildInputs*, *CGO_CFLAGS*, *CGO_LDFLAGS* — cgo inputs, as for
+  buildGoApplication: the C libraries cgo packages compile and link against
+  (headers, libraries, *.pc* files), and flags appended to every cgo package's,
+  split the way *cmd/go* splits them. A package's own *#cgo* directives —
+  *CFLAGS*, *CPPFLAGS*, *LDFLAGS* and *pkg-config* — are recorded in the graph and
+  resolved at build time (*pkg-config* runs over *buildInputs*), as *cmd/go* does
+  before invoking cgo. *buildGoAuto* forwards all three to both backends.
 - *bridges* — modpath -> go-pkgs SOURCE store path; the bridged module's packages are
   compiled in THIS graph (cross-module composition, approach 2). See CROSS-MODULE.
 - *goFlakeInputs* — the RFC 0001 declaration buildGoApplication takes, resolved the

@@ -55,6 +55,10 @@ type goListPkg struct {
 	FFiles        []string
 	SwigFiles     []string
 	SwigCXXFile   []string `json:"SwigCXXFiles"`
+	CgoCFLAGS     []string // from #cgo directives; cmd/go adds them when invoking cgo
+	CgoCPPFLAGS   []string
+	CgoLDFLAGS    []string
+	CgoPkgConfig  []string // #cgo pkg-config names; cmd/go resolves them at build time
 	Imports       []string
 	Module        *moduleInfo
 }
@@ -144,6 +148,9 @@ type genPkg struct {
 	Imports           []string            `json:"imports"`                     // direct, in-graph (non-stdlib) imports
 	GoVersion         string              `json:"goVersion,omitempty"`         // the package's module's language version (-lang)
 	StdImports        []string            `json:"stdImports"`                  // direct stdlib imports (always present: absent = an older gen)
+	CgoCFlags         []string            `json:"cgoCFLAGS,omitempty"`         // #cgo CPPFLAGS + CFLAGS
+	CgoLDFlags        []string            `json:"cgoLDFLAGS,omitempty"`        // #cgo LDFLAGS
+	CgoPkgConfig      []string            `json:"cgoPkgConfig,omitempty"`      // #cgo pkg-config names
 }
 
 // genTestPkg is one node in the emitted TEST graph: one per tested package.
@@ -324,6 +331,9 @@ func buildGraph(pkgs []goListPkg) any {
 			Imports:           imps,
 			GoVersion:         goVersionOf(p),
 			StdImports:        stdImps,
+			CgoCFlags:         append(append([]string(nil), p.CgoCPPFLAGS...), p.CgoCFLAGS...),
+			CgoLDFlags:        p.CgoLDFLAGS,
+			CgoPkgConfig:      p.CgoPkgConfig,
 		})
 	}
 	sort.Slice(graph, func(i, j int) bool { return graph[i].ImportPath < graph[j].ImportPath })

@@ -325,6 +325,16 @@
             modules = ./pkgs/build-support/godyn/tests/gotest/gomod2nix.toml;
             tests = true;
           };
+          # cgo flags cmd/go resolves before cgo runs: `#cgo pkg-config: zlib` plus a
+          # -D define that only CGO_CFLAGS supplies (maneater's shape).
+          godyn-cgo-pkgconfig-test = pkgs.buildGodynModule {
+            pname = "godyn-cgo-pkgconfig-test";
+            src = ./pkgs/build-support/godyn/tests/cgo-pkgconfig;
+            modules = ./pkgs/build-support/godyn/tests/cgo-pkgconfig/gomod2nix.toml;
+            cc = pkgs.stdenv.cc;
+            buildInputs = [ pkgs.zlib ];
+            CGO_CFLAGS = "'-DGODYN_MARK=\"flag-ok\"'";
+          };
           # Multi-binary module: two commands over a shared package, graph derived.
           # All mains link by default; subPackages selects.
           godyn-multi-test = pkgs.buildGodynModule {
@@ -675,6 +685,14 @@
               diff -u committed-tests.json derived-tests.json
               echo OK > $out
             '';
+          # cgo flags: the zlib headers/lib arrive via `#cgo pkg-config`, the define
+          # via CGO_CFLAGS, and the binary links and runs; the lint lane analyzes it.
+          godyn-cgo-pkgconfig-test = pkgs.runCommandLocal "godyn-cgo-pkgconfig-test-check" { } ''
+            got=$(${self.packages.${system}.godyn-cgo-pkgconfig-test}/bin/godyn-cgo-pkgconfig-test)
+            [ "$got" = "flag-ok true" ] || { echo "cgo flags fixture printed [$got]" >&2; exit 1; }
+            echo OK > $out
+          '';
+          godyn-cgo-pkgconfig-lint-test = self.packages.${system}.godyn-cgo-pkgconfig-test.passthru.lintAll;
           # multi-binary: every main links (named like `go install`); subPackages
           # links only the selected one (named pname).
           godyn-multi-test = pkgs.runCommandLocal "godyn-multi-test-check" { } ''

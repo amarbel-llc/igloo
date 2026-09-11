@@ -19,6 +19,7 @@
   buildGoApplication,
   stdenv,
   jq,
+  pkg-config,
   godyn-lint,
   godyn-gen,
   buildGoCheck,
@@ -81,6 +82,14 @@
   overwriteLdflagsX ? false,
   # cc: a stdenv cc-wrapper, required iff any package is cgo (zstd etc.).
   cc ? null,
+  # cgo inputs, parity with buildGoApplication: buildInputs are the C libraries
+  # cgo packages compile and link against (their headers, libs and .pc files);
+  # CGO_CFLAGS / CGO_LDFLAGS are appended to every cgo package's flags, split like
+  # cmd/go splits them. #cgo directives (incl. `#cgo pkg-config:`) come from the
+  # graph and are resolved at build time, as cmd/go does.
+  buildInputs ? [ ],
+  CGO_CFLAGS ? "",
+  CGO_LDFLAGS ? "",
   # bridges: modpath -> go-pkgs SOURCE store path; a package whose module is bridged
   # is sourced from there instead of vendorEnv and COMPILED in this graph (RFC 0001
   # cross-flake go-pkgs). This is the godyn→godyn "source" composition (approach 2).
@@ -532,18 +541,26 @@ let
         cat ${stdlib}/importcfg > importcfg
         ${cfg}
         RF=(-ffile-prefix-map="$work=/tmp/go-build" -ffile-prefix-map=${srcDir}=. -gno-record-gcc-switches)
-        ( cd ${srcDir} && go tool cgo -objdir "$work" -importpath '${importPath}' -- -I "$work" "''${RF[@]}" ${cgoFilesStr} )
+        # the flags cmd/go hands cgo: #cgo directives, pkg-config, CGO_CFLAGS/LDFLAGS
+        CF=(${lib.escapeShellArgs (nl (p.cgoCFLAGS or null))} ${CGO_CFLAGS})
+        LF=(${lib.escapeShellArgs (nl (p.cgoLDFLAGS or null))} ${CGO_LDFLAGS})
+        ${lib.optionalString (nl (p.cgoPkgConfig or null) != [ ]) ''
+          CF+=($(pkg-config --cflags ${lib.escapeShellArgs p.cgoPkgConfig}))
+          LF+=($(pkg-config --libs ${lib.escapeShellArgs p.cgoPkgConfig}))
+        ''}
+        ( cd ${srcDir} && go tool cgo -objdir "$work" -importpath '${importPath}' -ldflags "''${LF[*]}" \
+          -- -I "$work" "''${RF[@]}" "''${CF[@]}" ${cgoFilesStr} )
         declare -a OFILES=()
         n=0
         for cf in "$work/_cgo_export.c" "$work"/*.cgo2.c ${cFilesStr}; do
           [ -e "$cf" ] || continue
           o="$work/c$n.o"; n=$((n+1))
-          "$CC" -c -I "$work" -I ${srcDir} -fPIC -pthread "''${RF[@]}" "$cf" -o "$o"
+          "$CC" -c -I "$work" -I ${srcDir} -fPIC -pthread "''${RF[@]}" "''${CF[@]}" "$cf" -o "$o"
           OFILES+=("$o")
         done
-        "$CC" -c -I "$work" -I ${srcDir} -fPIC -pthread "''${RF[@]}" "$work/_cgo_main.c" -o "$work/_cgo_main.o"
+        "$CC" -c -I "$work" -I ${srcDir} -fPIC -pthread "''${RF[@]}" "''${CF[@]}" "$work/_cgo_main.c" -o "$work/_cgo_main.o"
         DYN=""
-        if "$CC" -o "$work/_cgo_.o" "$work/_cgo_main.o" "''${OFILES[@]}" -lpthread 2>"$work/tl.err"; then
+        if "$CC" -o "$work/_cgo_.o" "$work/_cgo_main.o" "''${OFILES[@]}" "''${LF[@]}" -lpthread 2>"$work/tl.err"; then
           ( cd ${srcDir} && go tool cgo -dynimport "$work/_cgo_.o" -dynout "$work/_cgo_import.go" -dynpackage '${p.name}' )
           DYN="$work/_cgo_import.go"
         else
@@ -589,7 +606,13 @@ let
       '';
     in
     runCommandLocal "godyn-compile-${sanitize importPath}" {
-      nativeBuildInputs = [ go ] ++ lib.optional (isCgo || mainCgo) cc;
+      nativeBuildInputs = [
+        go
+      ]
+      ++ lib.optional (isCgo || mainCgo) cc
+      ++ lib.optional (isCgo && nl (p.cgoPkgConfig or null) != [ ]) pkg-config;
+      # the C libraries cgo compiles and the external link resolve against
+      buildInputs = lib.optionals (isCgo || mainCgo) buildInputs;
       # Content-addressed: a byte-identical pkg.a after an edit keeps its store
       # hash, so dependents stay cached (early cutoff) — the merkle-delta.
       __contentAddressed = true;

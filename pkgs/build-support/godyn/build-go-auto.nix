@@ -38,6 +38,10 @@
   # subPackages: the main packages to build, declared once for both backends
   # (module-relative dirs); null = all of them.
   subPackages ? null,
+  # cgo inputs, declared once for both backends (see buildGodynModule).
+  buildInputs ? [ ],
+  CGO_CFLAGS ? "",
+  CGO_LDFLAGS ? "",
   strategy ? "native",
   # Escape hatches for backend-specific args that don't overlap:
   #   nativeArgs — extra buildGodynModule args (vendorEnv, cc, bridges, pwd, ...)
@@ -59,7 +63,10 @@ let
   // lib.optionalAttrs (modules != null) { inherit modules; }
   // lib.optionalAttrs (postInstall != "") { inherit postInstall; }
   // lib.optionalAttrs (nativeBuildInputs != [ ]) { inherit nativeBuildInputs; }
-  // lib.optionalAttrs (subPackages != null) { inherit subPackages; };
+  // lib.optionalAttrs (subPackages != null) { inherit subPackages; }
+  // lib.optionalAttrs (buildInputs != [ ]) { inherit buildInputs; }
+  // lib.optionalAttrs (CGO_CFLAGS != "") { inherit CGO_CFLAGS; }
+  // lib.optionalAttrs (CGO_LDFLAGS != "") { inherit CGO_LDFLAGS; };
 
   native = buildGodynModule (common // { inherit graphFile graphFiles; } // nativeArgs);
   bga = buildGoApplication (common // bgaArgs);
