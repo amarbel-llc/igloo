@@ -279,7 +279,10 @@ let
     let
       g = resolveGraphFile "graphFiles" graphFile graphFiles;
     in
-    if g != null then g else deriveGraph "" "-godyn-graph";
+    # With tests, the build graph also holds the packages only tests import
+    # (godyn-gen -test-deps), so test binaries find them; release links never
+    # reference those nodes.
+    if g != null then g else deriveGraph (lib.optionalString tests "-test-deps") "-godyn-graph";
 
   # No committed graph (FDR 0008, igloo#72): derive it at eval time by running
   # godyn-gen inside the buildGoApplication sandbox — merged go.mod for
@@ -1147,13 +1150,21 @@ let
     else if mainPkg == null then
       throw "buildGodynModule: postInstall/nativeBuildInputs need a main package; ${pname}'s graph has none"
     else
-      runCommandLocal "${pname}-${effectiveVersion}" { inherit nativeBuildInputs postInstall; } ''
-        mkdir -p "$out/bin"
-        cp -L ${terminal}/bin/* "$out/bin/"
-        cp -r --no-preserve=mode ${src} source
-        cd source
-        runHook postInstall
-      '';
+      # stdenv's fixup follows postInstall, as under buildGoApplication (man-page
+      # compression, patchShebangs, …); no strip — the link already used -w.
+      runCommandLocal "${pname}-${effectiveVersion}"
+        {
+          inherit nativeBuildInputs postInstall;
+          dontStrip = true;
+        }
+        ''
+          mkdir -p "$out/bin"
+          cp -L ${terminal}/bin/* "$out/bin/"
+          cp -r --no-preserve=mode ${src} source
+          cd source
+          runHook postInstall
+          fixupPhase
+        '';
 in
 # Surface the resolved version + assembled ldflags (parity with buildGoApplication,
 # and so eval-time tests can assert without building); set mainProgram for `nix run`.

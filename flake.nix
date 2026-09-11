@@ -297,6 +297,7 @@
             version = "0.0.0";
             nativeBuildInputs = [ pkgs.jq ];
             postInstall = ''
+              mkdir -p $out/share/man/man1 && echo '.TH GODYN-CROSS-APP 1' > $out/share/man/man1/godyn-cross-app.1
               mkdir -p "$out/share"
               for b in "$out"/bin/*; do "$b" > "$out/share/greeting"; done
               cp go.mod "$out/share/go.mod"
@@ -405,6 +406,23 @@
             version = "0.0.0";
             tests = true;
           };
+          # test-only bridged dependency: only t's test imports q (a producer's
+          # go-pkgs), so q enters the build graph only via godyn-gen -test-deps.
+          godyn-testonly-bridge-test =
+            let
+              q = pkgs.mkGoPkgs {
+                src = ./pkgs/build-support/godyn/tests/producer/q;
+                name = "q";
+              };
+            in
+            pkgs.buildGodynModule {
+              pname = "godyn-testonly-bridge-test";
+              src = ./pkgs/build-support/godyn/tests/producer/t;
+              modules = ./pkgs/build-support/godyn/tests/producer/t/gomod2nix.toml;
+              goFlakeInputs."example.com/q" = q.go-pkgs;
+              version = "0.0.0";
+              tests = true;
+            };
           # cgo flags cmd/go resolves before cgo runs: `#cgo pkg-config: zlib` plus a
           # -D define that only CGO_CFLAGS supplies (maneater's shape).
           godyn-cgo-pkgconfig-test = pkgs.buildGodynModule {
@@ -721,6 +739,7 @@
                 grep -q '^module example.com/app' "$pkg/share/go.mod" || { echo "$pkg: postInstall cwd is not the source tree" >&2; exit 1; }
                 [ "$(cat "$pkg/share/jq")" = '"ok"' ] || { echo "$pkg: nativeBuildInputs not on PATH" >&2; exit 1; }
                 "$pkg/bin/alias" > /dev/null || { echo "$pkg: alias symlink broken" >&2; exit 1; }
+                [ -e "$pkg/share/man/man1/godyn-cross-app.1.gz" ] || { echo "$pkg: stdenv fixup did not compress the man page" >&2; ls -R "$pkg/share" >&2; exit 1; }
               done
               echo OK > $out
             '';
@@ -817,6 +836,15 @@
               grep -qx "ok example.com/fortest/a" ${drv.passthru.checkAll} || { echo "a's tests did not pass" >&2; exit 1; }
               echo OK > $out
             '';
+          # a package only a test imports (from a bridged producer) is in the build
+          # graph, so t's test links and passes.
+          godyn-testonly-bridge-test = pkgs.runCommandLocal "godyn-testonly-bridge-test-check" { } ''
+            grep -qx "ok example.com/t" ${
+              self.packages.${system}.godyn-testonly-bridge-test.passthru.checkAll
+            } \
+              || { echo "t's test (test-only bridged dep) did not pass" >&2; exit 1; }
+            echo OK > $out
+          '';
           # cgo flags: the zlib headers/lib arrive via `#cgo pkg-config`, the define
           # via CGO_CFLAGS, and the binary links and runs; the lint lane analyzes it.
           godyn-cgo-pkgconfig-test = pkgs.runCommandLocal "godyn-cgo-pkgconfig-test-check" { } ''

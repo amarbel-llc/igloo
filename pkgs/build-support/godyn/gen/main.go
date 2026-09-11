@@ -170,10 +170,11 @@ type genTestPkg struct {
 	Recompiled []string `json:"recompiled,omitempty"`
 }
 
-const usage = "usage: godyn-gen [-tests] [-tags <t1,t2>] [-gomod <go.mod>] <module-dir> <out-graph.json> [packages...]"
+const usage = "usage: godyn-gen [-tests | -test-deps] [-tags <t1,t2>] [-gomod <go.mod>] <module-dir> <out-graph.json> [packages...]"
 
 func main() {
 	testsMode := flag.Bool("tests", false, "emit the TEST graph (go list -test) instead of the build graph")
+	testDeps := flag.Bool("test-deps", false, "build graph that also holds the packages only tests import (go list -test, test packages dropped)")
 	tags := flag.String("tags", "", "comma-separated build tags selecting files, as `go build -tags`")
 	gomod := flag.String("gomod", "", "resolve against this go.mod instead of <module-dir>/go.mod (e.g. passthru.mergedGoMod); the tracked go.mod is not touched")
 	flag.Usage = func() {
@@ -192,7 +193,7 @@ func main() {
 	}
 
 	listArgs := []string{"list"}
-	if *testsMode {
+	if *testsMode || *testDeps {
 		listArgs = append(listArgs, "-test")
 	}
 	if *tags != "" {
@@ -243,7 +244,57 @@ func main() {
 		writeJSON(outPath, testGraph(pkgs))
 		return
 	}
+	if *testDeps {
+		pkgs = withoutTestPackages(pkgs)
+	}
 	writeJSON(outPath, buildGraph(pkgs))
+}
+
+// withoutTestPackages turns `go list -test -deps` output into build-graph input:
+// it drops the synthesized test packages (the "P [P.test]" variant, the external
+// "P_test [P.test]" and the "P.test" testmain) but keeps every ordinary package,
+// including those only tests import. A package seen only as recompiled for a test
+// ("X [P.test]") is kept once, under its plain import path.
+func withoutTestPackages(pkgs []goListPkg) []goListPkg {
+	clean := func(ip string) string {
+		if i := strings.Index(ip, " ["); i >= 0 {
+			return ip[:i]
+		}
+		return ip
+	}
+	isTestMain := func(p goListPkg) bool {
+		return p.ForTest == "" && p.Name == "main" && strings.HasSuffix(p.ImportPath, ".test")
+	}
+	plain := map[string]bool{}
+	for _, p := range pkgs {
+		if p.ForTest == "" && !isTestMain(p) {
+			plain[p.ImportPath] = true
+		}
+	}
+	var out []goListPkg
+	seen := map[string]bool{}
+	for _, p := range pkgs {
+		ip := clean(p.ImportPath)
+		switch {
+		case isTestMain(p):
+			continue
+		case p.ForTest != "" && (ip == p.ForTest || ip == p.ForTest+"_test"):
+			continue // the test variant / external test package itself
+		case p.ForTest != "" && plain[ip]:
+			continue // its plain build is listed too
+		case seen[ip]:
+			continue
+		}
+		seen[ip] = true
+		p.ImportPath, p.ForTest = ip, ""
+		imports := make([]string, len(p.Imports))
+		for i, imp := range p.Imports {
+			imports[i] = clean(imp)
+		}
+		p.Imports = imports
+		out = append(out, p)
+	}
+	return out
 }
 
 // stageModfile copies an alternate go.mod, plus the module's go.sum (which

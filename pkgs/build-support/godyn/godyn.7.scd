@@ -119,7 +119,9 @@ A bridged consumer declares *goFlakeInputs* once on *buildGoAuto*, which hands i
 both backends (see *goFlakeInputs* under buildGodynModule). Generate the graph with
 *godyn-gen -gomod* against *passthru.bga.passthru.mergedGoMod* (see above).
 
-The install step (*postInstall*, *nativeBuildInputs*) is likewise declared once on
+The install step (*postInstall*, *nativeBuildInputs*) — which godyn follows with
+stdenv's fixup (man-page compression, patchShebangs; no strip, the link already
+used *-w*), as buildGoApplication does — is likewise declared once on
 *buildGoAuto* and handed to both backends. The script sees each backend's own
 binary name under *$out/bin* (godyn: *pname*; buildGoApplication: the main
 package's directory name), so a script meant for both should use a name the two
@@ -149,7 +151,10 @@ Arguments:
   *godyn-gen -tests* (single platform / per-system attrset). Optional; enables
   per-package go test. See TESTS below.
 - *tests* — with no committed test graph, derive it at evaluation time and enable
-  per-package go test (see DERIVED GRAPHS).
+  per-package go test (see DERIVED GRAPHS). The derived build graph then also holds
+  the packages only tests import (*godyn-gen -test-deps*), e.g. a bridged module's
+  package no production code uses; a committed build graph for a tested module
+  must be generated with *-test-deps* too.
 - *graphFiles* — per-system graphs as an attrset *{ "<system>" =
   ./godyn-graph.<system>.json; ... }*, selected by *system* at eval time. *go list*'s
   file/import selection honors GOOS/GOARCH build constraints, so a graph is only
