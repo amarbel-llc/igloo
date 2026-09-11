@@ -156,6 +156,11 @@ test-godyn:
     fi
     mapfile -t names < <(nix eval --raw ".#checks.${system}" \
         --apply 'cs: builtins.concatStringsSep "\n" (builtins.filter (n: builtins.substring 0 6 n == "godyn-") (builtins.attrNames cs))')
+    # an empty list would make `nix build` fall back to the flake's default package
+    if [[ ${#names[@]} -eq 0 ]]; then
+        gum log --level error "no checks.${system}.godyn-* found — the name query is broken"
+        exit 1
+    fi
     gum log --level info "building ${#names[@]} godyn checks"
     nix build --no-link --print-build-logs "${names[@]/#/.#checks.${system}.}"
 
