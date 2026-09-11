@@ -406,6 +406,8 @@
             # split like cmd/go: the unquoted field keeps its literal quotes (the
             # form buildGoApplication users write); a quoted field may hold a space.
             CGO_CFLAGS = "-DGODYN_MARK=\"flag-ok\" '-DGODYN_MARK2=\"quoted ok\"'";
+            # use/'s test binary links over the cgo zv: external link with cc.
+            tests = true;
           };
           # Multi-binary module: two commands over a shared package, graph derived.
           # All mains link by default; subPackages selects.
@@ -799,6 +801,10 @@
           godyn-cgo-pkgconfig-test = pkgs.runCommandLocal "godyn-cgo-pkgconfig-test-check" { } ''
             got=$(${self.packages.${system}.godyn-cgo-pkgconfig-test}/bin/godyn-cgo-pkgconfig-test)
             [ "$got" = "flag-ok quoted ok true" ] || { echo "cgo flags fixture printed [$got]" >&2; exit 1; }
+            grep -qx "ok example.com/cgopc/use" ${
+              self.packages.${system}.godyn-cgo-pkgconfig-test.passthru.checkAll
+            } \
+              || { echo "use's test (links over cgo zv) did not pass" >&2; exit 1; }
             echo OK > $out
           '';
           godyn-cgo-pkgconfig-lint-test = self.packages.${system}.godyn-cgo-pkgconfig-test.passthru.lintAll;

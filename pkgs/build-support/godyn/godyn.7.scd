@@ -410,6 +410,11 @@ vetx protocol) skips cgo packages; the lint lane analyzes them from cgo's
 translated sources. Under a type-bearing vetx tool (see LINT), archive-bridged
 packages cannot be analyzed — there are no sources — so their importers fail.
 
+Tests: a cgo or asm package's own tests are not yet supported (igloo#32), nor is
+recompiling a cgo, asm or archive-bridged package against a test variant. A pure-Go
+package whose tests reach cgo packages is supported: its test binary links
+externally with *cc*, like a cgo main.
+
 go:embed patterns resolve per pattern only in graphs from a current godyn-gen; older
 graphs support literal and trailing-*\** patterns (see above).
 

@@ -532,17 +532,25 @@ let
         p.isMain
         && lib.any (d: nl byImport.${d}.cgoFiles != [ ]) (transitiveDeps importPath ++ [ importPath ]);
 
-      pureScript = ''
-        export GOROOT=${go}/share/go
-        mkdir -p "$out"
-        ${outWritableProbe}
-        cat ${stdlib}/importcfg > importcfg
-        ${cfg}
-        ${embedSetup}go tool compile -importcfg importcfg ${embedFlag}-p '${pflag}' -buildid "" \
-          -trimpath="${srcDir}=>${rewrite};$NIX_BUILD_TOP=>" \
-          -nolocalimports -pack -lang=${lang} \
-          -o "$out/pkg.a" ${goFilesStr}
-      '';
+      # A package whose every file is excluded (a cgo-only dep without `cc`) fails
+      # with a clear message instead of `go tool compile`'s bare usage dump. Prepended
+      # only when needed, so every other package's script text stays byte-identical.
+      pureScript =
+        lib.optionalString (nl p.goFiles == [ ]) ''
+          echo "godyn: ${importPath} has no Go files to compile for this build: every file is excluded by build constraints. A cgo-only package (e.g. github.com/DataDog/zstd) needs 'cc', which turns cgo on when the graph is derived; otherwise check tags, GOOS and GOARCH." >&2
+          exit 1
+        ''
+        + ''
+          export GOROOT=${go}/share/go
+          mkdir -p "$out"
+          ${outWritableProbe}
+          cat ${stdlib}/importcfg > importcfg
+          ${cfg}
+          ${embedSetup}go tool compile -importcfg importcfg ${embedFlag}-p '${pflag}' -buildid "" \
+            -trimpath="${srcDir}=>${rewrite};$NIX_BUILD_TOP=>" \
+            -nolocalimports -pack -lang=${lang} \
+            -o "$out/pkg.a" ${goFilesStr}
+        '';
 
       asmList = lib.concatMapStringsSep " " (f: "${srcDir}/${f}") plan9Asm;
       asmScript = ''
@@ -1005,13 +1013,18 @@ let
       variantEmbedSetup = lib.optionalString hasEmbed "printf '%s' ${lib.escapeShellArg (embedCfgJSON compileSrc base)} > \"$W/embedcfg.json\"\n";
       variantEmbedFlag = lib.optionalString hasEmbed ''-embedcfg "$W/embedcfg.json" '';
 
+      # A test binary whose closure holds a cgo package links externally, like a
+      # cgo main: cc (+ the C libraries) on PATH and -extld.
+      testCgo = cc != null && lib.any (d: byImport ? ${d} && nl byImport.${d}.cgoFiles != [ ]) testDeps;
+
       bin =
         if nl base.cgoFiles != [ ] || nl base.sFiles != [ ] then
           throw "buildGodynModule(${pname}): tests for cgo/asm package ${importPath} are not yet supported (igloo#32)"
         else
           runCommandLocal "godyn-testbin-${sanitize importPath}"
             {
-              nativeBuildInputs = [ go ];
+              nativeBuildInputs = [ go ] ++ lib.optional testCgo cc;
+              buildInputs = lib.optionals testCgo buildInputs;
               __contentAddressed = true;
               outputHashMode = "recursive";
               outputHashAlgo = "sha256";
@@ -1058,7 +1071,7 @@ let
               GOTOOLDIR="$(go env GOTOOLDIR)"
               export GOROOT=
               bid=$( { cat "$CFG"; sha256sum "$W"/*.a; } | sha256sum | cut -d' ' -f1)
-              "$GOTOOLDIR/link" -buildid="$bid" -buildmode=exe -importcfg "$CFG" \
+              "$GOTOOLDIR/link" -buildid="$bid" -buildmode=exe ${lib.optionalString testCgo "-extld ${cc}/bin/cc"} -importcfg "$CFG" \
                 -o "$out/${binName}" "$W/testmain.a"
             '';
 
@@ -1132,6 +1145,9 @@ in
 # and so eval-time tests can assert without building); set mainProgram for `nix run`.
 installed.overrideAttrs (old: {
   passthru = (old.passthru or { }) // {
+    # pname/version as attributes (parity with buildGoApplication, e.g. bats'
+    # batsLane reads base.pname) without re-deriving the CA link output.
+    inherit pname;
     version = effectiveVersion;
     ldflags = versionLdflags ++ ldflags ++ ldflagsXFlags;
     # For downstream godyn→godyn composition: archiveGoPkgs feeds a consumer's
