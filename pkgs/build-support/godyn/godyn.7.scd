@@ -226,9 +226,16 @@ Arguments:
 - *system* — target tuning.
 - *subPackages* — which main packages to link, as module-relative dirs
   (*[ "cmd/foo" ]*, *"."*), like buildGoApplication's; default: every main package
-  in the graph, as *go install ./...*. One linked binary is named *pname*; several
-  are each named after their import path's last element (*cmd/foo* → *foo*) and
-  gathered into one *bin/*. *buildGoAuto* forwards it to both backends.
+  in the graph, as *go install ./...*. Every linked binary is named as *go install*
+  (and buildGoApplication) names it — the import path's last element (*cmd/foo* →
+  *foo*; a major-version suffix is skipped, *…/foo/v2* → *foo*), even for a single
+  main — and all are gathered into one *bin/*. *buildGoAuto* forwards it to both
+  backends.
+- *binaryNames* — explicit binary names keyed by the main package's module-relative
+  dir, as in *subPackages* (*{ "cmd/foo" = "bar"; "." = "tool"; }*); a key naming no
+  main package throws. Through *buildGoAuto* it applies to both backends (bga's
+  binaries are renamed before *postInstall* runs), so names never differ between
+  them.
 - *goVersion* — the fallback language version. godyn-gen records each package's
   module *go* directive in the graph (1.16 for a module without one), and every
   package compiles at its own module's version (*-lang*, truncated to
@@ -238,7 +245,7 @@ Arguments:
   *goVersion* applies only to graphs from an older godyn-gen that lack the field;
   regenerate them to get per-module versions.
 - *postInstall*, *nativeBuildInputs* — the install step, parity with
-  buildGoApplication: *postInstall* runs after the link with *$out/bin/<pname>* in
+  buildGoApplication: *postInstall* runs after the link with *$out/bin/<name>* in
   place and the working directory set to a writable copy of *src*, with
   *nativeBuildInputs* (and their setup hooks) available — e.g. running the binary
   to generate manpages or completions, installing extra files, adding symlinks.
@@ -249,7 +256,8 @@ Arguments:
   derivations, out of the result and its runtime closure.
   Requires a main package.
 
-A module with a *package main* links a binary at *$out/bin/<pname>*; a library
+A module with a *package main* links a binary at *$out/bin/<name>* (named as *go
+install* names it, or by *binaryNames*); a library
 graph (no main) produces a compile-only manifest realising every archive.
 *passthru.archiveGoPkgs* exposes this module's per-package archives (laid out as
 *<importpath>/pkg.a*) for a downstream consumer's *archiveBridges*.

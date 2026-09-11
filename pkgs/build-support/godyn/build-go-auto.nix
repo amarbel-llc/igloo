@@ -40,6 +40,10 @@
   # subPackages: the main packages to build, declared once for both backends
   # (module-relative dirs); null = all of them.
   subPackages ? null,
+  # Explicit binary names keyed by main-package dir ("cmd/foo", "."), declared once
+  # and applied on BOTH backends (godyn natively, bga by renaming ahead of
+  # postInstall); unnamed mains are named like `go install` on both.
+  binaryNames ? { },
   # Go build tags, declared once for both backends (see buildGodynModule).
   tags ? [ ],
   # Tools on PATH for tests, declared once: bga's check phase, godyn's test runs.
@@ -79,8 +83,34 @@ let
   // lib.optionalAttrs (CGO_CFLAGS != "") { inherit CGO_CFLAGS; }
   // lib.optionalAttrs (CGO_LDFLAGS != "") { inherit CGO_LDFLAGS; };
 
-  native = buildGodynModule (common // { inherit graphFile graphFiles; } // nativeArgs);
-  bga = buildGoApplication (common // bgaArgs);
+  # bga names binaries like `go install`; rename the overridden ones first so the
+  # caller's postInstall sees the final names, as it does under godyn.
+  bgaRenames = lib.concatStringsSep "\n" (
+    lib.mapAttrsToList (
+      d: name:
+      let
+        dir = lib.removeSuffix "/" (lib.removePrefix "./" d);
+      in
+      if dir == "." then
+        ''mv "$out/bin/$(awk '$1 == "module" { n = split($2, p, "/"); print p[n]; exit }' go.mod)" "$out/bin/${name}"''
+      else
+        ''mv "$out/bin/${baseNameOf dir}" "$out/bin/${name}"''
+    ) binaryNames
+  );
+
+  native = buildGodynModule (
+    common
+    // {
+      inherit graphFile graphFiles;
+    }
+    // lib.optionalAttrs (binaryNames != { }) { inherit binaryNames; }
+    // nativeArgs
+  );
+  bga = buildGoApplication (
+    common
+    // lib.optionalAttrs (binaryNames != { }) { postInstall = bgaRenames + "\n" + postInstall; }
+    // bgaArgs
+  );
 
   backend =
     if

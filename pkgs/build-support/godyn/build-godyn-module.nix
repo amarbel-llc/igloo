@@ -129,9 +129,13 @@
   lintTool ? godyn-lint,
   # subPackages: which main packages to link, as module-relative dirs ("cmd/foo",
   # "." — like buildGoApplication's). null = every main package in the graph, as
-  # `go install ./...` would. One binary is named pname; several are each named
-  # after their import path's last element, as `go install` names them.
+  # `go install ./...` would. Each binary is named like `go install` names it (the
+  # import path's last element, major-version suffix skipped), as buildGoApplication
+  # does, unless binaryNames overrides it.
   subPackages ? null,
+  # binaryNames: explicit binary names keyed by the main package's module-relative
+  # dir (as in subPackages: "cmd/foo", "."); a key naming no main package throws.
+  binaryNames ? { },
   # tags: Go build tags, as `go build -tags` / buildGoApplication's `tags`. They
   # select files when the graph is derived (godyn-gen -tags), so every package —
   # including the deps a test compiles against — builds under them; a committed
@@ -148,7 +152,7 @@
   # in buildGoApplication's check phase.
   nativeCheckInputs ? [ ],
   # Install step, parity with buildGoApplication: postInstall runs after the link
-  # with $out/bin/<pname> in place and cwd = a writable copy of src (as bga runs it
+  # with $out/bin/<name> in place and cwd = a writable copy of src (as bga runs it
   # from the unpacked source); nativeBuildInputs are available to it. Main-package
   # graphs only. Set either and the result is a separate install derivation
   # layered on the CA link output, so editing the install script never re-links.
@@ -895,8 +899,30 @@ let
           p: p.dir == dir
         ) (throw "buildGodynModule(${pname}): subPackages: no main package in ${d}") allMains
       ) subPackages;
-  singleBinary = builtins.length mainPkgs == 1;
-  binNameOf = p: if singleBinary then pname else baseNameOf p.importPath;
+  # Binary names, like `go install` / buildGoApplication: the import path's last
+  # element, skipping a major-version suffix (…/foo/v2 → foo) — unless binaryNames
+  # names the main package's dir explicitly.
+  goExecName =
+    ip:
+    let
+      parts = lib.splitString "/" ip;
+      n = builtins.length parts;
+    in
+    if n > 1 && builtins.match "v([2-9]|[1-9][0-9]+)" (lib.last parts) != null then
+      builtins.elemAt parts (n - 2)
+    else
+      lib.last parts;
+  binaryNamesByDir = lib.mapAttrs' (
+    d: name: lib.nameValuePair (lib.removeSuffix "/" (lib.removePrefix "./" d)) name
+  ) binaryNames;
+  unknownBinaryNames = builtins.filter (d: !(lib.any (m: m.dir == d) allMains)) (
+    builtins.attrNames binaryNamesByDir
+  );
+  binNameOf =
+    if unknownBinaryNames != [ ] then
+      throw "buildGodynModule(${pname}): binaryNames: no main package in ${lib.concatStringsSep ", " unknownBinaryNames}"
+    else
+      p: binaryNamesByDir.${p.dir} or (goExecName p.importPath);
   mainPkg = if mainPkgs == [ ] then null else builtins.head mainPkgs;
 
   # Packages this graph actually compiles (archive-bridged ones are linked, not built).

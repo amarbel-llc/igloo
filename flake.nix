@@ -439,6 +439,32 @@
             tests = true;
             nativeCheckInputs = [ pkgs.hello ];
           };
+          # binary naming: like `go install` on both backends by default; binaryNames
+          # overrides it on both, for a subdir main and for the module-root main.
+          godyn-binary-name-test = pkgs.buildGoAuto {
+            pname = "godyn-binary-name-test";
+            src = ./pkgs/build-support/godyn/tests/multi;
+            modules = ./pkgs/build-support/godyn/tests/multi/gomod2nix.toml;
+            subPackages = [
+              "cmd/alpha"
+              "cmd/beta"
+            ];
+            binaryNames."cmd/beta" = "custom-beta";
+            version = "0.0.0";
+          };
+          godyn-binary-name-root-test = pkgs.buildGoAuto {
+            pname = "godyn-binary-name-root-test";
+            src = ./pkgs/build-support/godyn/tests/cross/app;
+            graphFile = ./pkgs/build-support/godyn/tests/cross/app/godyn-graph.json;
+            goFlakeInputs = {
+              "example.com/dep" = {
+                src = ./pkgs/build-support/godyn/tests/cross;
+                subPath = "dep";
+              };
+            };
+            version = "0.0.0";
+            binaryNames."." = "renamed-app";
+          };
           # cgo flags cmd/go resolves before cgo runs: `#cgo pkg-config: zlib` plus a
           # -D define that only CGO_CFLAGS supplies (maneater's shape).
           godyn-cgo-pkgconfig-test = pkgs.buildGodynModule {
@@ -627,13 +653,13 @@
           # godyn: run the fixture binaries and assert their output, so a regression
           # in the go:embed (-embedcfg) or ldflags (-X) path fails the pre-merge hook.
           godyn-embed-test = pkgs.runCommandLocal "godyn-embed-test-check" { } ''
-            got=$(${self.packages.${system}.godyn-embed-test}/bin/godyn-embed-test)
+            got=$(${pkgs.lib.getExe self.packages.${system}.godyn-embed-test})
             want="godyn embed works"
             [ "$got" = "$want" ] || { echo "embed mismatch: got [$got] want [$want]" >&2; exit 1; }
             echo OK > $out
           '';
           godyn-ldflags-test = pkgs.runCommandLocal "godyn-ldflags-test-check" { } ''
-            got=$(${self.packages.${system}.godyn-ldflags-test}/bin/godyn-ldflags-test)
+            got=$(${pkgs.lib.getExe self.packages.${system}.godyn-ldflags-test})
             want="version=9.9.9 commit=unknown channel=stable"
             [ "$got" = "$want" ] || { echo "ldflags mismatch: got [$got] want [$want]" >&2; exit 1; }
             echo OK > $out
@@ -641,7 +667,7 @@
           # igloo#68: every pattern embeds its files — the templates glob (not
           # ignore.txt) and the static tree minus its dot-file.
           godyn-embed-glob-test = pkgs.runCommandLocal "godyn-embed-glob-test-check" { } ''
-            got=$(${self.packages.${system}.godyn-embed-glob-test}/bin/godyn-embed-glob-test)
+            got=$(${pkgs.lib.getExe self.packages.${system}.godyn-embed-glob-test})
             want=$(printf 'alpha\nbeta\nstatic/sub/y.txt\nstatic/x.txt')
             [ "$got" = "$want" ] || { echo "embed-glob mismatch: got [$got] want [$want]" >&2; exit 1; }
             echo OK > $out
@@ -700,14 +726,14 @@
               '';
           # buildGoAuto picked the native (godyn) backend; its binary runs.
           godyn-selector-test = pkgs.runCommandLocal "godyn-selector-test-check" { } ''
-            got=$(${self.packages.${system}.godyn-selector-test}/bin/godyn-embed-test)
+            got=$(${pkgs.lib.getExe self.packages.${system}.godyn-selector-test})
             [ "$got" = "godyn embed works" ] || { echo "selector native mismatch: [$got]" >&2; exit 1; }
             echo OK > $out
           '';
           # per-system graph selection (graphFiles, igloo#33): the graph resolved via
           # graphFiles.''${system} builds a working binary.
           godyn-graphfiles-test = pkgs.runCommandLocal "godyn-graphfiles-test-check" { } ''
-            got=$(${self.packages.${system}.godyn-graphfiles-test}/bin/godyn-embed-test)
+            got=$(${pkgs.lib.getExe self.packages.${system}.godyn-graphfiles-test})
             [ "$got" = "godyn embed works" ] || { echo "graphFiles mismatch: [$got]" >&2; exit 1; }
             echo OK > $out
           '';
@@ -731,17 +757,17 @@
           # godyn→godyn composition: both consumption modes must produce a working
           # binary from the same app graph. (Source = bridges; archive = archiveBridges.)
           godyn-cross-source = pkgs.runCommandLocal "godyn-cross-source-check" { } ''
-            got=$(${self.packages.${system}.godyn-cross-source}/bin/godyn-cross-app)
+            got=$(${pkgs.lib.getExe self.packages.${system}.godyn-cross-source})
             [ "$got" = "hello from dep/greet" ] || { echo "bridges (source) mismatch: [$got]" >&2; exit 1; }
             echo OK > $out
           '';
           godyn-cross-archive = pkgs.runCommandLocal "godyn-cross-archive-check" { } ''
-            got=$(${self.packages.${system}.godyn-cross-archive}/bin/godyn-cross-app)
+            got=$(${pkgs.lib.getExe self.packages.${system}.godyn-cross-archive})
             [ "$got" = "hello from dep/greet" ] || { echo "archiveBridges (output) mismatch: [$got]" >&2; exit 1; }
             echo OK > $out
           '';
           godyn-auto-goflakeinputs-test = pkgs.runCommandLocal "godyn-auto-goflakeinputs-test-check" { } ''
-            got=$(${self.packages.${system}.godyn-auto-goflakeinputs-test}/bin/godyn-cross-app)
+            got=$(${pkgs.lib.getExe self.packages.${system}.godyn-auto-goflakeinputs-test})
             [ "$got" = "hello from dep/greet" ] || { echo "buildGoAuto goFlakeInputs mismatch: [$got]" >&2; exit 1; }
             echo OK > $out
           '';
@@ -777,7 +803,7 @@
               derived = self.packages.${system}.godyn-derived-graph-test;
             in
             pkgs.runCommandLocal "godyn-derived-graph-test-check" { nativeBuildInputs = [ pkgs.jq ]; } ''
-              got=$(${derived}/bin/godyn-cross-app)
+              got=$(${pkgs.lib.getExe derived})
               [ "$got" = "hello from dep/greet" ] || { echo "derived-graph build mismatch: [$got]" >&2; exit 1; }
               jq -S . ${./pkgs/build-support/godyn/tests/cross/app/godyn-graph.json} > committed.json
               jq -S . ${derived.passthru.graphFile} > derived.json
@@ -807,7 +833,7 @@
           # producers: the consumer links p and the INHERITED q; p's own tests pass
           # when godyn builds it from its published go-pkgs-test.
           godyn-producer-test = pkgs.runCommandLocal "godyn-producer-test-check" { } ''
-            got=$(${self.packages.${system}.godyn-producer-consumer-test}/bin/godyn-producer-consumer-test)
+            got=$(${pkgs.lib.getExe self.packages.${system}.godyn-producer-consumer-test})
             [ "$got" = "p wraps q" ] || { echo "consumer printed [$got]" >&2; exit 1; }
             grep -qx "ok example.com/p" ${self.packages.${system}.godyn-producer-self-test.passthru.checkAll} \
               || { echo "p's tests did not run from go-pkgs-test" >&2; exit 1; }
@@ -822,8 +848,8 @@
               tagged = self.packages.${system}.godyn-tags-test;
             in
             pkgs.runCommandLocal "godyn-tags-test-check" { } ''
-              [ "$(${plain}/bin/godyn-tags-plain)" = default ] || { echo "untagged build did not select mode_default.go" >&2; exit 1; }
-              [ "$(${tagged}/bin/godyn-tags-test)" = tagged ] || { echo "tagged build did not select mode_tagged.go" >&2; exit 1; }
+              [ "$(${pkgs.lib.getExe plain})" = default ] || { echo "untagged build did not select mode_default.go" >&2; exit 1; }
+              [ "$(${pkgs.lib.getExe tagged})" = tagged ] || { echo "tagged build did not select mode_tagged.go" >&2; exit 1; }
               for p in example.com/tags/lib example.com/tags/user; do
                 grep -qx "ok $p" ${tagged.passthru.checkAll} || { echo "missing tagged test result for $p" >&2; exit 1; }
               done
@@ -836,7 +862,7 @@
               drv = self.packages.${system}.godyn-testldflags-test;
             in
             pkgs.runCommandLocal "godyn-testldflags-test-check" { } ''
-              [ "$(${drv}/bin/godyn-testldflags-test)" = unset ] || { echo "testLdflagsX leaked into the release link" >&2; exit 1; }
+              [ "$(${pkgs.lib.getExe drv})" = unset ] || { echo "testLdflagsX leaked into the release link" >&2; exit 1; }
               grep -qx "ok example.com/testld" ${drv.passthru.checkAll} || { echo "test binary did not get the -X value" >&2; exit 1; }
               echo OK > $out
             '';
@@ -863,7 +889,7 @@
           '';
           # subPackages reaches a main under testdata/, like buildGoApplication.
           godyn-testdata-main-test = pkgs.runCommandLocal "godyn-testdata-main-test-check" { } ''
-            got=$(${self.packages.${system}.godyn-testdata-main-test}/bin/godyn-testdata-main-test)
+            got=$(${pkgs.lib.getExe self.packages.${system}.godyn-testdata-main-test})
             [ "$got" = "hello from testdata fixture" ] || { echo "testdata main printed [$got]" >&2; exit 1; }
             echo OK > $out
           '';
@@ -891,10 +917,28 @@
             pkgs.runCommandLocal "godyn-auto-default-strategy-test-check" { } ''
               echo ${backend} > $out
             '';
+          # godyn and bga name binaries alike: `go install` names by default (a single
+          # main too), binaryNames overrides on both backends.
+          godyn-binary-name-test =
+            let
+              sub = self.packages.${system}.godyn-binary-name-test;
+              root = self.packages.${system}.godyn-binary-name-root-test;
+            in
+            pkgs.runCommandLocal "godyn-binary-name-test-check" { } ''
+              for pkg in ${sub.passthru.native} ${sub.passthru.bga}; do
+                [ "$(ls $pkg/bin | sort | tr '\n' ' ')" = "alpha custom-beta " ] || { echo "$pkg/bin: $(ls $pkg/bin)" >&2; exit 1; }
+              done
+              for pkg in ${root.passthru.native} ${root.passthru.bga}; do
+                [ "$(ls $pkg/bin)" = renamed-app ] || { echo "$pkg/bin: $(ls $pkg/bin)" >&2; exit 1; }
+              done
+              [ "$(ls ${self.packages.${system}.godyn-multi-sub-test}/bin)" = beta ] \
+                || { echo "a single main is not named like go install" >&2; exit 1; }
+              echo OK > $out
+            '';
           # cgo flags: the zlib headers/lib arrive via `#cgo pkg-config`, the define
           # via CGO_CFLAGS, and the binary links and runs; the lint lane analyzes it.
           godyn-cgo-pkgconfig-test = pkgs.runCommandLocal "godyn-cgo-pkgconfig-test-check" { } ''
-            got=$(${self.packages.${system}.godyn-cgo-pkgconfig-test}/bin/godyn-cgo-pkgconfig-test)
+            got=$(${pkgs.lib.getExe self.packages.${system}.godyn-cgo-pkgconfig-test})
             [ "$got" = "flag-ok quoted ok true" ] || { echo "cgo flags fixture printed [$got]" >&2; exit 1; }
             grep -qx "ok example.com/cgopc/use" ${
               self.packages.${system}.godyn-cgo-pkgconfig-test.passthru.checkAll
@@ -923,8 +967,8 @@
                   [ "$(ls -A $r)" = bin ] || { echo "$r holds more than bin/: $(ls -A $r)" >&2; exit 1; }
                 done
                     sub=${self.packages.${system}.godyn-multi-sub-test}
-                    [ "$(ls $sub/bin)" = "godyn-multi-sub-test" ] || { echo "subPackages linked: $(ls $sub/bin)" >&2; exit 1; }
-                    [ "$($sub/bin/godyn-multi-sub-test)" = "hello from beta" ] || { echo "subPackages picked the wrong main" >&2; exit 1; }
+                    [ "$(ls $sub/bin)" = "beta" ] || { echo "subPackages linked: $(ls $sub/bin)" >&2; exit 1; }
+                    [ "$($sub/bin/beta)" = "hello from beta" ] || { echo "subPackages picked the wrong main" >&2; exit 1; }
                     echo OK > $out
               '';
           # godyn must compile a module at the language version its go.mod
@@ -942,7 +986,7 @@
               echo OK > $out
             '';
           godyn-cgo-test = pkgs.runCommandLocal "godyn-cgo-test-check" { } ''
-            got=$(${self.packages.${system}.godyn-cgo-test}/bin/godyn-cgo-test)
+            got=$(${pkgs.lib.getExe self.packages.${system}.godyn-cgo-test})
             [ "$got" = 5 ] || { echo "cgo fixture printed [$got], want 5" >&2; exit 1; }
             echo OK > $out
           '';
