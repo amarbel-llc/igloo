@@ -213,6 +213,15 @@ Arguments:
 - *testModuleTree* — DISCOURAGED last resort: run tests inside the whole module
   source, exactly like *go test*. Every run then depends on every file, so any edit
   re-runs all of the module's tests; evaluation warns. Prefer *testFiles*.
+- *modes* — instrumented build modes as cmd/go names them (*[ "race" ]*,
+  *[ "msan" ]*, *[ "asan" ]*), each applied like *go build -<mode>*: a mode stdlib, a
+  *go list -<mode>* graph, *-<mode>* on every compile and link (external link through
+  *cc*, which is required), and for msan/asan *-fsanitize* on cgo C code. *race =
+  true* is shorthand for *[ "race" ]*. msan and asan are wired but not yet
+  fixture-verified.
+- *gcflags*, *asmflags* — extra *go tool compile* / *go tool asm* flags for every
+  package godyn compiles (local, third-party and bridged — like *-gcflags=all=…*,
+  except the stdlib, which is not recompiled).
 - *race* — a *-race* build, as *go build -race* / *go test -race*: the graph is
   derived with *go list -race* (the *race* build tag and *runtime/race*), every
   package and test variant compiles with *-race* against a race-instrumented stdlib,

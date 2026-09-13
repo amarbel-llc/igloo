@@ -11,16 +11,21 @@
   lib,
   runCommandCC,
   go,
-  # race: the -race instrumented stdlib (`go install -race std`), archived under
-  # pkg/<goos>_<goarch>_race, for godyn race builds (igloo#34).
-  race ? false,
+  # modes: instrumented build modes, e.g. [ "race" ] / [ "msan" ] / [ "asan" ]
+  # (`go install -race std`, …), for godyn mode builds (igloo#34). cmd/go archives
+  # them under pkg/<goos>_<goarch>_<mode>; the dir is located after the install.
+  modes ? [ ],
 }:
 let
   goEnv = { };
   envSuffix = builtins.substring 0 8 (builtins.hashString "sha256" (builtins.toJSON goEnv));
-  archSuffix = lib.optionalString race "_race";
+  modeFlags = lib.concatMapStrings (m: "-${m} ") modes;
+  modeSuffix = lib.concatMapStrings (m: "-${m}") modes;
+  # cmd/go's install suffix for a mode (pkg/linux_amd64_race); empty without modes,
+  # so the plain stdlib's script (and store path) is unchanged.
+  archSuffix = lib.concatMapStrings (m: "_${m}") modes;
 in
-runCommandCC "go-stdlib-${go.version}-${envSuffix}${lib.optionalString race "-race"}"
+runCommandCC "go-stdlib-${go.version}-${envSuffix}${modeSuffix}"
   {
     nativeBuildInputs = [ go ];
     inherit (go) GOOS GOARCH;
@@ -28,7 +33,7 @@ runCommandCC "go-stdlib-${go.version}-${envSuffix}${lib.optionalString race "-ra
     # net/os/user), which cgo consumer packages import. runCommandCC supplies the C
     # compiler. Pure-Go consumers ignore the extra importcfg entries.
     CGO_ENABLED = "1";
-    passthru = { inherit go goEnv race; };
+    passthru = { inherit go goEnv modes; };
   }
   ''
     export HOME=$TMPDIR
@@ -42,7 +47,7 @@ runCommandCC "go-stdlib-${go.version}-${envSuffix}${lib.optionalString race "-ra
     export GOROOT="$PWD/goroot"
 
     echo "building std into GOROOT/pkg ..."
-    GODEBUG=installgoroot=all go install -v --trimpath ${lib.optionalString race "-race "}std
+    GODEBUG=installgoroot=all go install -v --trimpath ${modeFlags}std
 
     archdir="$GOROOT/pkg/''${GOOS}_''${GOARCH}${archSuffix}"
     if [ ! -d "$archdir" ] || [ -z "$(find "$archdir" -name '*.a' -print -quit)" ]; then

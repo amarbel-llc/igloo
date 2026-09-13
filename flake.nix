@@ -561,6 +561,17 @@
             src = ./pkgs/build-support/godyn/tests/multi;
             modules = ./pkgs/build-support/godyn/tests/multi/gomod2nix.toml;
           };
+          # gcflags reach every compile: the same module with -N -l (no optimizing,
+          # no inlining) produces different package archives.
+          godyn-gcflags-test = pkgs.buildGodynModule {
+            pname = "godyn-gcflags-test";
+            src = ./pkgs/build-support/godyn/tests/multi;
+            modules = ./pkgs/build-support/godyn/tests/multi/gomod2nix.toml;
+            gcflags = [
+              "-N"
+              "-l"
+            ];
+          };
           godyn-multi-sub-test = pkgs.buildGodynModule {
             pname = "godyn-multi-sub-test";
             src = ./pkgs/build-support/godyn/tests/multi;
@@ -991,6 +1002,20 @@
             assert backend == want;
             pkgs.runCommandLocal "godyn-auto-default-strategy-test-check" { } ''
               echo ${backend} > $out
+            '';
+          # gcflags change what gets compiled (archives differ), and the flagged build
+          # still runs.
+          godyn-gcflags-test =
+            let
+              plain = self.packages.${system}.godyn-multi-test;
+              flagged = self.packages.${system}.godyn-gcflags-test;
+            in
+            pkgs.runCommandLocal "godyn-gcflags-test-check" { } ''
+              a=${plain.passthru.archiveGoPkgs}/example.com/multi/greet/pkg.a
+              b=${flagged.passthru.archiveGoPkgs}/example.com/multi/greet/pkg.a
+              if cmp -s "$a" "$b"; then echo "gcflags did not change the compiled archive" >&2; exit 1; fi
+              [ "$(${flagged}/bin/alpha)" = "hello from alpha" ] || { echo "gcflags build broke the binary" >&2; exit 1; }
+              echo OK > $out
             '';
           # godyn and bga name binaries alike: `go install` names by default (a single
           # main too), binaryNames overrides on both backends.

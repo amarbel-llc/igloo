@@ -58,6 +58,11 @@
   # -race on both backends: godyn natively (buildGodynModule race), bga through
   # buildGoRace (race binaries + `go test -race` checkPhase).
   race ? false,
+  # godyn-only mode layer (see buildGodynModule): msan/asan modes and extra
+  # compile/asm flags. bga gets race (buildGoRace) but not these.
+  modes ? [ ],
+  gcflags ? [ ],
+  asmflags ? [ ],
   # cgo inputs, declared once for both backends (see buildGodynModule).
   buildInputs ? [ ],
   CGO_CFLAGS ? "",
@@ -119,6 +124,9 @@ let
     // lib.optionalAttrs (testPreRun != "") { inherit testPreRun; }
     // lib.optionalAttrs (testFlags != [ ]) { inherit testFlags; }
     // lib.optionalAttrs race { inherit race; }
+    // lib.optionalAttrs (modes != [ ]) { inherit modes; }
+    // lib.optionalAttrs (gcflags != [ ]) { inherit gcflags; }
+    // lib.optionalAttrs (asmflags != [ ]) { inherit asmflags; }
     // nativeArgs
   );
   bgaBase = buildGoApplication (

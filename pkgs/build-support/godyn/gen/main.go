@@ -177,6 +177,8 @@ func main() {
 	testDeps := flag.Bool("test-deps", false, "build graph that also holds the packages only tests import (go list -test, test packages dropped)")
 	tags := flag.String("tags", "", "comma-separated build tags selecting files, as `go build -tags`")
 	race := flag.Bool("race", false, "resolve the graph as `go build -race` does (the race build tag, runtime/race deps)")
+	msan := flag.Bool("msan", false, "resolve the graph as `go build -msan` does")
+	asan := flag.Bool("asan", false, "resolve the graph as `go build -asan` does")
 	gomod := flag.String("gomod", "", "resolve against this go.mod instead of <module-dir>/go.mod (e.g. passthru.mergedGoMod); the tracked go.mod is not touched")
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, usage)
@@ -202,6 +204,12 @@ func main() {
 	}
 	if *race {
 		listArgs = append(listArgs, "-race")
+	}
+	if *msan {
+		listArgs = append(listArgs, "-msan")
+	}
+	if *asan {
+		listArgs = append(listArgs, "-asan")
 	}
 	cleanup := func() {}
 	if *gomod != "" {
