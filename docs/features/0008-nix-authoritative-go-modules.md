@@ -191,6 +191,19 @@ directives into a go.mod.
 - **Third-party Go versions** have to be recorded per module (from each
   module's own go.mod, at ingest time) to fix per-package `-lang`.
 
+## Future Work
+
+- **Optional Nix evaluator plugin for godyn (flagged 2026-09-13).** The
+  eval-time graph stays import-from-derivation by default. A plugin (as numtide
+  go2nix's `builtins.resolveGoPackages`) could later resolve the graph inside
+  the evaluator — faster evaluation and no cross-system IFD limit (igloo#75) —
+  for hosts that opt in. It cannot be the default: a flake or overlay cannot
+  load it (`plugin-files` is host config) and it is bound to one Nix version
+  (FDR 0001). Keeping `godyn-gen`'s graph JSON as the interface lets the
+  derivation and a plugin share one resolver.
+- **Building Nix-version-bound plugins** is shared with rustdyn: see FDR 0009
+  § Future Work.
+
 ## More Information
 
 - FDR 0007 (`docs/features/0007-godyn-only-go-builds.md`) — godyn as the only
