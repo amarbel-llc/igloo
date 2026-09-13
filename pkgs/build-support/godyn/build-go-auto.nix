@@ -18,6 +18,7 @@
   stdenv,
   buildGodynModule,
   buildGoApplication,
+  buildGoRace,
   godynSystems,
 }:
 {
@@ -54,6 +55,9 @@
   testModuleTree ? false,
   testPreRun ? "",
   testFlags ? [ ],
+  # -race on both backends: godyn natively (buildGodynModule race), bga through
+  # buildGoRace (race binaries + `go test -race` checkPhase).
+  race ? false,
   # cgo inputs, declared once for both backends (see buildGodynModule).
   buildInputs ? [ ],
   CGO_CFLAGS ? "",
@@ -114,13 +118,22 @@ let
     // lib.optionalAttrs testModuleTree { inherit testModuleTree; }
     // lib.optionalAttrs (testPreRun != "") { inherit testPreRun; }
     // lib.optionalAttrs (testFlags != [ ]) { inherit testFlags; }
+    // lib.optionalAttrs race { inherit race; }
     // nativeArgs
   );
-  bga = buildGoApplication (
+  bgaBase = buildGoApplication (
     common
     // lib.optionalAttrs (binaryNames != { }) { postInstall = bgaRenames + "\n" + postInstall; }
     // bgaArgs
   );
+  bga =
+    if race then
+      buildGoRace {
+        base = bgaBase;
+        inherit tags;
+      }
+    else
+      bgaBase;
 
   backend =
     if

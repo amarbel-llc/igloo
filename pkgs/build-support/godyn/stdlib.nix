@@ -11,12 +11,16 @@
   lib,
   runCommandCC,
   go,
+  # race: the -race instrumented stdlib (`go install -race std`), archived under
+  # pkg/<goos>_<goarch>_race, for godyn race builds (igloo#34).
+  race ? false,
 }:
 let
   goEnv = { };
   envSuffix = builtins.substring 0 8 (builtins.hashString "sha256" (builtins.toJSON goEnv));
+  archSuffix = lib.optionalString race "_race";
 in
-runCommandCC "go-stdlib-${go.version}-${envSuffix}"
+runCommandCC "go-stdlib-${go.version}-${envSuffix}${lib.optionalString race "-race"}"
   {
     nativeBuildInputs = [ go ];
     inherit (go) GOOS GOARCH;
@@ -24,7 +28,7 @@ runCommandCC "go-stdlib-${go.version}-${envSuffix}"
     # net/os/user), which cgo consumer packages import. runCommandCC supplies the C
     # compiler. Pure-Go consumers ignore the extra importcfg entries.
     CGO_ENABLED = "1";
-    passthru = { inherit go goEnv; };
+    passthru = { inherit go goEnv race; };
   }
   ''
     export HOME=$TMPDIR
@@ -38,24 +42,24 @@ runCommandCC "go-stdlib-${go.version}-${envSuffix}"
     export GOROOT="$PWD/goroot"
 
     echo "building std into GOROOT/pkg ..."
-    GODEBUG=installgoroot=all go install -v --trimpath std
+    GODEBUG=installgoroot=all go install -v --trimpath ${lib.optionalString race "-race "}std
 
-    archdir="$GOROOT/pkg/''${GOOS}_''${GOARCH}"
+    archdir="$GOROOT/pkg/''${GOOS}_''${GOARCH}${archSuffix}"
     if [ ! -d "$archdir" ] || [ -z "$(find "$archdir" -name '*.a' -print -quit)" ]; then
       echo "ERROR: no stdlib .a files found under $archdir" >&2
       echo "(installgoroot=all did not populate GOROOT/pkg — see stdlib.nix note)" >&2
       exit 1
     fi
 
-    mkdir -p "$out/pkg/''${GOOS}_''${GOARCH}"
-    cp -r "$archdir"/. "$out/pkg/''${GOOS}_''${GOARCH}/"
+    mkdir -p "$out/pkg/''${GOOS}_''${GOARCH}${archSuffix}"
+    cp -r "$archdir"/. "$out/pkg/''${GOOS}_''${GOARCH}${archSuffix}/"
 
     # importcfg: one `packagefile <importpath>=<abs .a path>` per archive.
     : > "$out/importcfg"
-    ( cd "$out/pkg/''${GOOS}_''${GOARCH}"
+    ( cd "$out/pkg/''${GOOS}_''${GOARCH}${archSuffix}"
       find . -name '*.a' | sed 's,^\./,,' | sort | while read -r rel; do
         imp="''${rel%.a}"
-        echo "packagefile $imp=$out/pkg/''${GOOS}_''${GOARCH}/$rel"
+        echo "packagefile $imp=$out/pkg/''${GOOS}_''${GOARCH}${archSuffix}/$rel"
       done
     ) > "$out/importcfg"
 

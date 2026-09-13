@@ -480,6 +480,34 @@
             version = "0.0.0";
             binaryNames."." = "renamed-app";
           };
+          # race = true: race stdlib, race-tagged graph, -race compiles/links, incl.
+          # test binaries; the plain build of the same module for contrast.
+          godyn-race-test = pkgs.buildGodynModule {
+            pname = "godyn-race-test";
+            src = ./pkgs/build-support/godyn/tests/race;
+            modules = ./pkgs/build-support/godyn/tests/race/gomod2nix.toml;
+            version = "0.0.0";
+            race = true;
+            cc = pkgs.stdenv.cc; # -race requires cgo
+            tests = true;
+          };
+          # buildGoAuto race = true: godyn natively, bga through buildGoRace.
+          godyn-race-auto-test = pkgs.buildGoAuto {
+            pname = "godyn-race-auto-test";
+            src = ./pkgs/build-support/godyn/tests/race;
+            modules = ./pkgs/build-support/godyn/tests/race/gomod2nix.toml;
+            version = "0.0.0";
+            subPackages = [ "." ];
+            race = true;
+            nativeArgs.cc = pkgs.stdenv.cc;
+          };
+          godyn-race-plain-test = pkgs.buildGodynModule {
+            pname = "godyn-race-plain-test";
+            src = ./pkgs/build-support/godyn/tests/race;
+            modules = ./pkgs/build-support/godyn/tests/race/gomod2nix.toml;
+            version = "0.0.0";
+            tests = true;
+          };
           # testPreRun prepares a writable HOME before the test binary; testFlags
           # filters which tests it runs.
           godyn-testhooks-test = pkgs.buildGodynModule {
@@ -982,6 +1010,37 @@
                 || { echo "a single main is not named like go install" >&2; exit 1; }
               echo OK > $out
             '';
+          # race builds select the race-tagged file and link; the plain module's test
+          # passes; the race test binary reports the deliberate data race.
+          godyn-race-test = pkgs.runCommandLocal "godyn-race-test-check" { } ''
+            [ "$(${pkgs.lib.getExe self.packages.${system}.godyn-race-test})" = race ] \
+              || { echo "race build did not select mode_race.go" >&2; exit 1; }
+            [ "$(${pkgs.lib.getExe self.packages.${system}.godyn-race-plain-test})" = norace ] \
+              || { echo "plain build selected the race file" >&2; exit 1; }
+            grep -qx "ok example.com/racefix/racy" ${
+              self.packages.${system}.godyn-race-plain-test.passthru.checkAll
+            } \
+              || { echo "the racy test should pass without -race" >&2; exit 1; }
+            echo OK > $out
+          '';
+          # buildGoAuto forwards race: the godyn result is a race build, and the bga
+          # escape hatch is the buildGoRace variant (evaluated, not built — the
+          # fixture's racy test would fail its `go test -race` checkPhase by design).
+          godyn-race-auto-test =
+            let
+              auto = self.packages.${system}.godyn-race-auto-test;
+            in
+            assert auto.passthru.native.passthru.race;
+            assert pkgs.lib.hasSuffix "-race" auto.passthru.bga.pname;
+            pkgs.runCommandLocal "godyn-race-auto-test-check" { } ''
+              [ "$(${pkgs.lib.getExe auto.passthru.native})" = race ] \
+                || { echo "buildGoAuto race did not produce a race build" >&2; exit 1; }
+              echo OK > $out
+            '';
+          godyn-race-detects-test = pkgs.testers.testBuildFailure' {
+            drv = self.packages.${system}.godyn-race-test.passthru.tests."example.com/racefix/racy";
+            expectedBuilderLogEntries = [ "WARNING: DATA RACE" ];
+          };
           # testPreRun runs before the binary (writable HOME, env) and testFlags reach
           # it (an always-failing test is filtered out); passthru.vendorEnv exists.
           godyn-testhooks-test =

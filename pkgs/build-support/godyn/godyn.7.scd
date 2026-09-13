@@ -213,6 +213,12 @@ Arguments:
 - *testModuleTree* — DISCOURAGED last resort: run tests inside the whole module
   source, exactly like *go test*. Every run then depends on every file, so any edit
   re-runs all of the module's tests; evaluation warns. Prefer *testFiles*.
+- *race* — a *-race* build, as *go build -race* / *go test -race*: the graph is
+  derived with *go list -race* (the *race* build tag and *runtime/race*), every
+  package and test variant compiles with *-race* against a race-instrumented stdlib,
+  and every link — binaries and per-package test binaries — uses *-race*. A
+  detected data race fails the test run. *buildGoAuto* forwards it to both backends
+  (buildGoApplication via buildGoRace).
 - *testPreRun* — shell run in every per-package test run right before the test
   binary (the preCheck analog), with the run tree as the working directory: e.g.
   *export HOME=$TMPDIR* or copying a read-only module cache for tests that shell
@@ -473,9 +479,9 @@ externally with *cc*, like a cgo main.
 go:embed patterns resolve per pattern only in graphs from a current godyn-gen; older
 graphs support literal and trailing-*\** patterns (see above).
 
-Tests: cgo and asm packages' tests, test-only THIRD-PARTY deps, the -race
-stdlib variant, and embeds referenced only by \_test.go files are not yet
-supported (igloo#32 tracks the remainder).
+Tests: cgo and asm packages' own tests and embeds referenced only by \_test.go
+files are not yet supported (igloo#34). *race* is supported; coverage (*-cover*)
+is not.
 
 A committed graph is platform-specific (see *graphFiles* above); building a module
 with platform-dependent deps from a single graphFile on another system fails in the

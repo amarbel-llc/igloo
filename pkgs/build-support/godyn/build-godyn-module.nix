@@ -156,6 +156,11 @@
   # testFlags: arguments for every test binary run, as `go test` passes them (use
   # the binary's spelling: [ "-test.run=^TestFoo$" "-test.count=1" ]).
   testFlags ? [ ],
+  # race: a -race build (igloo#34), like `go build -race` / `go test -race`: the
+  # graph is derived with `go list -race` (race build tag, runtime/race), every
+  # package and test variant compiles with -race against the race stdlib, and every
+  # link (binaries and test binaries) uses -race.
+  race ? false,
   # nativeCheckInputs: tools on PATH for every per-package test run (git, …), as
   # in buildGoApplication's check phase.
   nativeCheckInputs ? [ ],
@@ -282,6 +287,16 @@ let
       map (m: unquote (builtins.head m)) (builtins.filter builtins.isList parts);
   cgoCFlagsEnv = goEnvList "CGO_CFLAGS" CGO_CFLAGS;
   cgoLDFlagsEnv = goEnvList "CGO_LDFLAGS" CGO_LDFLAGS;
+  # -race: the race-instrumented stdlib and a compile/link flag (empty otherwise,
+  # so non-race scripts stay byte-identical).
+  buildStdlib =
+    if !race then
+      stdlib
+    else if cc == null then
+      throw "buildGodynModule(${pname}): race = true needs cgo — pass `cc` (e.g. stdenv.cc); `go build -race` requires CGO_ENABLED=1"
+    else
+      stdlib.override { race = true; };
+  raceFlag = lib.optionalString race "-race ";
   testLdflagsStr = lib.concatStringsSep " " (
     testLdflags ++ lib.mapAttrsToList (name: value: "-X ${name}=${value}") testLdflagsX
   );
@@ -332,7 +347,9 @@ let
         };
         inherit pnameSuffix;
         extraNativeBuildInputs = [ godyn-gen ];
-        command = ''CGO_ENABLED=${if cc != null then "1" else "0"} godyn-gen ${genFlags} ${
+        command = ''CGO_ENABLED=${
+          if cc != null || race then "1" else "0"
+        } godyn-gen ${genFlags} ${lib.optionalString race "-race "}${
           lib.optionalString (tags != [ ]) "-tags ${lib.escapeShellArg (lib.concatStringsSep "," tags)}"
         } . "$out"${
           # subPackages are listed explicitly too, so a main under testdata/ (which
@@ -572,10 +589,13 @@ let
       embedFlag = lib.optionalString hasEmbed "-embedcfg embedcfg.json ";
 
       # A cgo main links externally: -extld cc + cc on PATH when any package in the
-      # (incl. self) closure is cgo. Libraries (no main) never link.
+      # (incl. self) closure is cgo, or for -race (the race runtime's syso needs
+      # libgcc symbols the internal linker cannot resolve). Libraries never link.
       mainCgo =
         p.isMain
-        && lib.any (d: nl byImport.${d}.cgoFiles != [ ]) (transitiveDeps importPath ++ [ importPath ]);
+        && (
+          race || lib.any (d: nl byImport.${d}.cgoFiles != [ ]) (transitiveDeps importPath ++ [ importPath ])
+        );
 
       # A package whose every file is excluded (a cgo-only dep without `cc`) fails
       # with a clear message instead of `go tool compile`'s bare usage dump. Prepended
@@ -589,9 +609,9 @@ let
           export GOROOT=${go}/share/go
           mkdir -p "$out"
           ${outWritableProbe}
-          cat ${stdlib}/importcfg > importcfg
+          cat ${buildStdlib}/importcfg > importcfg
           ${cfg}
-          ${embedSetup}go tool compile -importcfg importcfg ${embedFlag}-p '${pflag}' -buildid "" \
+          ${embedSetup}go tool compile ${raceFlag}-importcfg importcfg ${embedFlag}-p '${pflag}' -buildid "" \
             -trimpath="${srcDir}=>${rewrite};$NIX_BUILD_TOP=>" \
             -nolocalimports -pack -lang=${lang} \
             -o "$out/pkg.a" ${goFilesStr}
@@ -604,12 +624,12 @@ let
         export HOME="$W" GOCACHE="$W/gocache"
         mkdir -p "$out"
         ${outWritableProbe}
-        cat ${stdlib}/importcfg > importcfg
+        cat ${buildStdlib}/importcfg > importcfg
         ${cfg}
         : > "$W/go_asm.h"
         ASM=(-p '${pflag}' -trimpath "${srcDir}=>${rewrite}" -I "$W/" -I ${go}/share/go/pkg/include -D GOOS_${goos} -D GOARCH_${goarch}${goamd64})
         go tool asm "''${ASM[@]}" -gensymabis -o "$W/symabis" ${asmList}
-        ${embedSetup}go tool compile -importcfg importcfg ${embedFlag}-p '${pflag}' -buildid "" \
+        ${embedSetup}go tool compile ${raceFlag}-importcfg importcfg ${embedFlag}-p '${pflag}' -buildid "" \
           -trimpath="${srcDir}=>${rewrite};$NIX_BUILD_TOP=>" -nolocalimports -pack -lang=${lang} \
           -symabis "$W/symabis" -asmhdr "$W/go_asm.h" \
           -o "$out/pkg.a" ${goFilesStr}
@@ -632,7 +652,7 @@ let
         mkdir -p "$out"
         ${outWritableProbe}
         work="$NIX_BUILD_TOP/cgo-${sanitize importPath}"; rm -rf "$work"; mkdir -p "$work"
-        cat ${stdlib}/importcfg > importcfg
+        cat ${buildStdlib}/importcfg > importcfg
         ${cfg}
         RF=(-ffile-prefix-map="$work=/tmp/go-build" -ffile-prefix-map=${srcDir}=. -gno-record-gcc-switches)
         # the flags cmd/go hands cgo: #cgo directives, pkg-config, CGO_CFLAGS/LDFLAGS
@@ -669,7 +689,7 @@ let
             LDF="$work/_cgo_ldflag.go"
           fi
         fi
-        ${embedSetup}go tool compile -importcfg importcfg ${embedFlag}-p '${pflag}' -buildid "" \
+        ${embedSetup}go tool compile ${raceFlag}-importcfg importcfg ${embedFlag}-p '${pflag}' -buildid "" \
           -trimpath="$work=>;${srcDir}=>${rewrite};$NIX_BUILD_TOP=>" -nolocalimports -pack -lang=${lang} \
           -o "$out/pkg.a" ${goFilesStr} "$work/_cgo_gotypes.go" "$work"/*.cgo1.go ''${DYN:+"$DYN"} ''${LDF:+"$LDF"}
         go tool pack r "$out/pkg.a" "''${OFILES[@]}"
@@ -691,7 +711,7 @@ let
       link = lib.optionalString p.isMain ''
         mkdir -p "$out/bin"
         ${lib.optionalString mainCgo "export PATH=${cc}/bin:$PATH"}
-        cat ${stdlib}/importcfg > importcfg.link
+        cat ${buildStdlib}/importcfg > importcfg.link
         ${cfgFor importPath "importcfg.link"}
         GOTOOLDIR="$(go env GOTOOLDIR)"
         export GOROOT=
@@ -699,7 +719,7 @@ let
         # between binaries yet stay reproducible: hash the link's inputs — the
         # importcfg (content-addressed archive paths), this archive and the flags.
         bid=$( { cat importcfg.link; sha256sum < "$out/pkg.a"; echo ${lib.escapeShellArg effectiveLdflagsStr}; } | sha256sum | cut -d' ' -f1)
-        "$GOTOOLDIR/link" -buildid="$bid" -buildmode=exe ${
+        "$GOTOOLDIR/link" -buildid="$bid" -buildmode=exe${lib.optionalString race " -race -linkmode=external"} ${
           lib.optionalString (!dontStrip) "-w"
         } ${lib.optionalString mainCgo "-extld ${cc}/bin/cc"} ${effectiveLdflagsStr} -importcfg importcfg.link \
           -o "$out/bin/${binNameOf p}" "$out/pkg.a"
@@ -1090,10 +1110,10 @@ let
           throw "buildGodynModule(${pname}): recompiling cgo/asm package ${r} for ${importPath}'s tests is not yet supported (igloo#32)"
         else
           ''
-            CFG="$W/ic.rc"; cat ${stdlib}/importcfg > "$CFG"
+            CFG="$W/ic.rc"; cat ${buildStdlib}/importcfg > "$CFG"
             ${lib.concatMapStringsSep "\n" (depLine ''"$CFG"'') (transitiveDeps r)}
             ${lib.optionalString rEmbed "printf '%s' ${lib.escapeShellArg (embedCfgJSON rDir node)} > \"$W/rc-embedcfg.json\""}
-            go tool compile -importcfg "$CFG" ${lib.optionalString rEmbed ''-embedcfg "$W/rc-embedcfg.json" ''}-p '${r}' -buildid "" \
+            go tool compile ${raceFlag}-importcfg "$CFG" ${lib.optionalString rEmbed ''-embedcfg "$W/rc-embedcfg.json" ''}-p '${r}' -buildid "" \
               -trimpath="${rDir}=>${r};$W=>" -nolocalimports -pack -lang=${langOf node} \
               -o "${rcArchive r}" ${lib.concatMapStringsSep " " (f: "${rDir}/${f}") (nl node.goFiles)}
           ''
@@ -1108,7 +1128,8 @@ let
 
       # A test binary whose closure holds a cgo package links externally, like a
       # cgo main: cc (+ the C libraries) on PATH and -extld.
-      testCgo = cc != null && lib.any (d: byImport ? ${d} && nl byImport.${d}.cgoFiles != [ ]) testDeps;
+      testCgo =
+        cc != null && (race || lib.any (d: byImport ? ${d} && nl byImport.${d}.cgoFiles != [ ]) testDeps);
 
       bin =
         if nl base.cgoFiles != [ ] || nl base.sFiles != [ ] then
@@ -1129,9 +1150,9 @@ let
               W="$NIX_BUILD_TOP"
 
               # 1. the test VARIANT: package + in-package test sources, same import path.
-              CFG="$W/ic.variant"; cat ${stdlib}/importcfg > "$CFG"
+              CFG="$W/ic.variant"; cat ${buildStdlib}/importcfg > "$CFG"
               ${testCfg ''"$CFG"''}
-              ${variantEmbedSetup}go tool compile -importcfg "$CFG" ${variantEmbedFlag}-p '${importPath}' -buildid "" \
+              ${variantEmbedSetup}go tool compile ${raceFlag}-importcfg "$CFG" ${variantEmbedFlag}-p '${importPath}' -buildid "" \
                 -trimpath="${compileSrc}=>${importPath};$W=>" -nolocalimports -pack -lang=${lang} \
                 -o "$W/variant.a" ${files (goFiles ++ testGoFiles)}
 
@@ -1140,24 +1161,24 @@ let
 
               ${lib.optionalString hasExt ''
                 # 2. the external test package <ip>_test, against the VARIANT's archive.
-                CFG="$W/ic.ext"; cat ${stdlib}/importcfg > "$CFG"
+                CFG="$W/ic.ext"; cat ${buildStdlib}/importcfg > "$CFG"
                 ${testCfg ''"$CFG"''}
                 echo "packagefile ${importPath}=$W/variant.a" >> "$CFG"
-                go tool compile -importcfg "$CFG" -p '${importPath}_test' -buildid "" \
+                go tool compile ${raceFlag}-importcfg "$CFG" -p '${importPath}_test' -buildid "" \
                   -trimpath="${compileSrc}=>${importPath}_test;$W=>" -nolocalimports -pack -lang=${lang} \
                   -o "$W/xtest.a" ${files xTestGoFiles}
               ''}
 
               # 3. the captured go-generated testmain.
-              CFG="$W/ic.main"; cat ${stdlib}/importcfg > "$CFG"
+              CFG="$W/ic.main"; cat ${buildStdlib}/importcfg > "$CFG"
               echo "packagefile ${importPath}=$W/variant.a" >> "$CFG"
               ${lib.optionalString hasExt ''echo "packagefile ${importPath}_test=$W/xtest.a" >> "$CFG"''}
-              go tool compile -importcfg "$CFG" -p main -buildid "" \
+              go tool compile ${raceFlag}-importcfg "$CFG" -p main -buildid "" \
                 -trimpath="$W=>" -nolocalimports -pack -lang=${lang} \
                 -o "$W/testmain.a" ${testmainSrc}
 
               # 4. link the test binary.
-              CFG="$W/ic.link"; cat ${stdlib}/importcfg > "$CFG"
+              CFG="$W/ic.link"; cat ${buildStdlib}/importcfg > "$CFG"
               echo "packagefile ${importPath}=$W/variant.a" >> "$CFG"
               ${lib.optionalString hasExt ''echo "packagefile ${importPath}_test=$W/xtest.a" >> "$CFG"''}
               ${testCfg ''"$CFG"''}
@@ -1166,7 +1187,7 @@ let
               bid=$( { cat "$CFG"; sha256sum "$W"/*.a;${
                 lib.optionalString (testLdflagsStr != "") " echo ${lib.escapeShellArg testLdflagsStr};"
               } } | sha256sum | cut -d' ' -f1)
-              "$GOTOOLDIR/link" -buildid="$bid" -buildmode=exe ${lib.optionalString testCgo "-extld ${cc}/bin/cc"} ${
+              "$GOTOOLDIR/link" -buildid="$bid" -buildmode=exe${lib.optionalString race " -race -linkmode=external"} ${lib.optionalString testCgo "-extld ${cc}/bin/cc"} ${
                 lib.optionalString (testLdflagsStr != "") "${testLdflagsStr} "
               }-importcfg "$CFG" \
                 -o "$out/${binName}" "$W/testmain.a"
@@ -1268,7 +1289,7 @@ installed.overrideAttrs (old: {
   passthru = (old.passthru or { }) // {
     # pname/version as attributes (parity with buildGoApplication, e.g. bats'
     # batsLane reads base.pname) without re-deriving the CA link output.
-    inherit pname;
+    inherit pname race;
     # The vendored third-party tree godyn builds from (null for an all-local
     # module), for fixtures that need the same vendor/ (e.g. bats lanes).
     vendorEnv = resolvedVendorEnv;

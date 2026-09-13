@@ -176,6 +176,7 @@ func main() {
 	testsMode := flag.Bool("tests", false, "emit the TEST graph (go list -test) instead of the build graph")
 	testDeps := flag.Bool("test-deps", false, "build graph that also holds the packages only tests import (go list -test, test packages dropped)")
 	tags := flag.String("tags", "", "comma-separated build tags selecting files, as `go build -tags`")
+	race := flag.Bool("race", false, "resolve the graph as `go build -race` does (the race build tag, runtime/race deps)")
 	gomod := flag.String("gomod", "", "resolve against this go.mod instead of <module-dir>/go.mod (e.g. passthru.mergedGoMod); the tracked go.mod is not touched")
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, usage)
@@ -198,6 +199,9 @@ func main() {
 	}
 	if *tags != "" {
 		listArgs = append(listArgs, "-tags", *tags)
+	}
+	if *race {
+		listArgs = append(listArgs, "-race")
 	}
 	cleanup := func() {}
 	if *gomod != "" {
