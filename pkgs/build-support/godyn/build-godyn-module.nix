@@ -171,6 +171,16 @@
   # minus the stdlib, which is not recompiled).
   gcflags ? [ ],
   asmflags ? [ ],
+  # cover: coverage instrumentation, as `go build -cover` / `go test -cover`:
+  # covered packages go through `go tool cover` and compile with -coveragecfg;
+  # binaries write counters under $GOCOVERDIR; test runs write them to
+  # $out/covdata, merged into passthru.coverage (covdata, coverage.out,
+  # percent.txt). coverMode: set | count | atomic (default set, atomic under
+  # -race). coverPackages: import paths to instrument (default: every local
+  # package). cgo and Plan 9 asm packages are not instrumented yet.
+  cover ? false,
+  coverMode ? null,
+  coverPackages ? null,
   # nativeCheckInputs: tools on PATH for every per-package test run (git, …), as
   # in buildGoApplication's check phase.
   nativeCheckInputs ? [ ],
@@ -313,6 +323,86 @@ let
     lib.concatMapStrings (m: "-${m} ") effectiveModes
     + lib.concatMapStrings (f: "${lib.escapeShellArg f} ") gcflags;
   asmFlagsStr = lib.concatMapStrings (f: "${lib.escapeShellArg f} ") asmflags;
+
+  # -cover, as cmd/go runs it (Go 1.26 exec.go): a per-package `go tool cover`
+  # pass writing covervars.go + one <file>.cover.go per source, then a compile of
+  # those with -coveragecfg. Every splice is empty for an uncovered package.
+  effectiveCoverMode =
+    if coverMode != null then
+      coverMode
+    else if lib.elem "race" effectiveModes then
+      "atomic"
+    else
+      "set";
+  coverVar = ip: "goCover_${builtins.substring 0 12 (builtins.hashString "sha256" ip)}_";
+  modulePathOf = ip: dir: if dir == "." || dir == "" then ip else lib.removeSuffix "/${dir}" ip;
+  coverDirFor = ip: "$NIX_BUILD_TOP/cover-${sanitize ip}";
+  # the rewritten files a covered compile takes instead of `paths` (quoted shell words)
+  coverOutFiles =
+    ip: paths:
+    let
+      cw = coverDirFor ip;
+    in
+    lib.concatMapStringsSep " " (f: ''"${f}"'') (
+      [ "${cw}/covervars.go" ] ++ map (f: "${cw}/${lib.removeSuffix ".go" (baseNameOf f)}.cover.go") paths
+    );
+  # shell: the cover pass for `paths` (absolute sources) of package `ip`.
+  coverShell =
+    {
+      ip,
+      name,
+      modulePath,
+      paths,
+      mode,
+    }:
+    let
+      cw = coverDirFor ip;
+    in
+    ''
+      mkdir -p "${cw}"
+      printf '{"OutConfig":"%s/coveragecfg","PkgPath":%s,"PkgName":%s,"Granularity":"perblock","ModulePath":%s,"Local":false,"EmitMetaFile":""}' "${cw}" ${lib.escapeShellArg (builtins.toJSON ip)} ${lib.escapeShellArg (builtins.toJSON name)} ${lib.escapeShellArg (builtins.toJSON modulePath)} > "${cw}/pkgcfg.txt"
+      printf '%s\n' ${coverOutFiles ip paths} > "${cw}/outfiles.txt"
+      go tool cover -pkgcfg "${cw}/pkgcfg.txt" -mode ${mode} -var ${coverVar ip} -outfilelist "${cw}/outfiles.txt" ${lib.concatStringsSep " " paths}
+    '';
+  # `go list -test` renders the testmain without cover (it passes no cover config),
+  # so splice in the `{{if .Cover}}` blocks of cmd/go's testmain template (load/test.go)
+  # as `go test -cover` renders them for per-package cover: Covered "" and the
+  # package itself as the selected set.
+  coveredTestmain =
+    ip: src:
+    let
+      importAnchor = "\t\"testing/internal/testdeps\"\n";
+      initAnchor = "\ttestdeps.ModulePath = ";
+      initBlock =
+        lib.concatMapStrings (l: "\t${l}\n") [
+          "testdeps.CoverMode = ${builtins.toJSON effectiveCoverMode}"
+          "testdeps.Covered = \"\""
+          "testdeps.CoverSelectedPackages = []string{${builtins.toJSON ip}}"
+          "testdeps.CoverSnapshotFunc = cfile.Snapshot"
+          "testdeps.CoverProcessTestDirFunc = cfile.ProcessCoverTestDir"
+          "testdeps.CoverMarkProfileEmittedFunc = cfile.MarkProfileEmitted"
+        ]
+        + "\n";
+    in
+    if !(lib.hasInfix importAnchor src && lib.hasInfix initAnchor src) then
+      throw "buildGodynModule: cover: ${ip}'s captured testmain lacks the testdeps anchors cmd/go's template renders"
+    else
+      builtins.replaceStrings
+        [ importAnchor initAnchor ]
+        [
+          (importAnchor + "\t\"internal/coverage/cfile\"\n")
+          (initBlock + initAnchor)
+        ]
+        src;
+  unknownCoverPackages = builtins.filter (ip: !(byImport ? ${ip} && byImport.${ip}.local)) (
+    if coverPackages == null then [ ] else coverPackages
+  );
+  coveredPkg =
+    ip: p:
+    if unknownCoverPackages != [ ] then
+      throw "buildGodynModule(${pname}): coverPackages: not a local package in the graph: ${lib.concatStringsSep ", " unknownCoverPackages}"
+    else
+      cover && p.local && (coverPackages == null || lib.elem ip coverPackages);
   # cgo C code under msan/asan is instrumented too, as cmd/go does.
   sanitizerCFlags =
     lib.optionals (lib.elem "msan" effectiveModes) [
@@ -614,6 +704,19 @@ let
       embedSetup = lib.optionalString hasEmbed "printf '%s' ${lib.escapeShellArg embedcfgJSON} > embedcfg.json\n";
       embedFlag = lib.optionalString hasEmbed "-embedcfg embedcfg.json ";
 
+      # -cover (pure packages): the cover pass and the rewritten files to compile.
+      pkgCovered = coveredPkg importPath p && !isCgo && !isAsm && nl p.goFiles != [ ];
+      pkgSources = map (f: "${srcDir}/${f}") (nl p.goFiles);
+      pkgCoverSetup = lib.optionalString pkgCovered (coverShell {
+        ip = importPath;
+        inherit (p) name;
+        modulePath = modulePathOf importPath p.dir;
+        paths = pkgSources;
+        mode = effectiveCoverMode;
+      });
+      pkgCoverFlag = lib.optionalString pkgCovered ''-coveragecfg="${coverDirFor importPath}/coveragecfg" '';
+      pkgCompileFiles = if pkgCovered then coverOutFiles importPath pkgSources else goFilesStr;
+
       # A cgo main links externally: -extld cc + cc on PATH when any package in the
       # (incl. self) closure is cgo, or for -race (the race runtime's syso needs
       # libgcc symbols the internal linker cannot resolve). Libraries never link.
@@ -638,10 +741,10 @@ let
           ${outWritableProbe}
           cat ${buildStdlib}/importcfg > importcfg
           ${cfg}
-          ${embedSetup}go tool compile ${compileFlags}-importcfg importcfg ${embedFlag}-p '${pflag}' -buildid "" \
+          ${pkgCoverSetup}${embedSetup}go tool compile ${compileFlags}${pkgCoverFlag}-importcfg importcfg ${embedFlag}-p '${pflag}' -buildid "" \
             -trimpath="${srcDir}=>${rewrite};$NIX_BUILD_TOP=>" \
             -nolocalimports -pack -lang=${lang} \
-            -o "$out/pkg.a" ${goFilesStr}
+            -o "$out/pkg.a" ${pkgCompileFiles}
         '';
 
       asmList = lib.concatMapStringsSep " " (f: "${srcDir}/${f}") plan9Asm;
@@ -1151,10 +1254,46 @@ let
 
       files = fs: lib.concatMapStringsSep " " (f: "${compileSrc}/${f}") fs;
       lang = langOf t;
-      testmainSrc = builtins.toFile "godyn-testmain-${sanitize importPath}.go" t.testmain;
+      testmainSrc = builtins.toFile "godyn-testmain-${sanitize importPath}.go" (
+        if testCovered then coveredTestmain importPath t.testmain else t.testmain
+      );
 
       variantEmbedSetup = lib.optionalString hasEmbed "printf '%s' ${lib.escapeShellArg (embedCfgJSON compileSrc base)} > \"$W/embedcfg.json\"\n";
       variantEmbedFlag = lib.optionalString hasEmbed ''-embedcfg "$W/embedcfg.json" '';
+
+      # -cover: the variant covers the package's own sources (test files compile
+      # as-is), the testmain gets cmd/go's `-mode testmain` pass, and the run
+      # writes counters to $out/covdata.
+      testCovered = coveredPkg importPath base && goFiles != [ ];
+      variantSources = map (f: "${compileSrc}/${f}") goFiles;
+      variantCoverSetup = lib.optionalString testCovered (coverShell {
+        ip = importPath;
+        inherit (base) name;
+        modulePath = modulePathOf importPath t.dir;
+        paths = variantSources;
+        mode = effectiveCoverMode;
+      });
+      variantCoverFlag = lib.optionalString testCovered ''-coveragecfg="${coverDirFor importPath}/coveragecfg" '';
+      variantCompileFiles =
+        if testCovered then
+          coverOutFiles importPath variantSources + " " + files testGoFiles
+        else
+          files (goFiles ++ testGoFiles);
+      testmainIp = "${importPath}.test";
+      testmainCoverSetup = lib.optionalString testCovered (coverShell {
+        ip = testmainIp;
+        name = "main";
+        modulePath = modulePathOf importPath t.dir;
+        paths = [ "${testmainSrc}" ];
+        mode = "testmain";
+      });
+      testmainCoverFlag = lib.optionalString testCovered ''-coveragecfg="${coverDirFor testmainIp}/coveragecfg" '';
+      testmainCompileFiles =
+        if testCovered then coverOutFiles testmainIp [ "${testmainSrc}" ] else "${testmainSrc}";
+      runCoverSetup = lib.optionalString testCovered ''
+        mkdir -p "$out/covdata"
+      '';
+      runCoverFlag = lib.optionalString testCovered " -test.gocoverdir=\"$out/covdata\"";
 
       # A test binary whose closure holds a cgo package links externally, like a
       # cgo main: cc (+ the C libraries) on PATH and -extld.
@@ -1185,9 +1324,9 @@ let
               # 1. the test VARIANT: package + in-package test sources, same import path.
               CFG="$W/ic.variant"; cat ${buildStdlib}/importcfg > "$CFG"
               ${testCfg ''"$CFG"''}
-              ${variantEmbedSetup}go tool compile ${compileFlags}-importcfg "$CFG" ${variantEmbedFlag}-p '${importPath}' -buildid "" \
+              ${variantCoverSetup}${variantEmbedSetup}go tool compile ${compileFlags}${variantCoverFlag}-importcfg "$CFG" ${variantEmbedFlag}-p '${importPath}' -buildid "" \
                 -trimpath="${compileSrc}=>${importPath};$W=>" -nolocalimports -pack -lang=${lang} \
-                -o "$W/variant.a" ${files (goFiles ++ testGoFiles)}
+                -o "$W/variant.a" ${variantCompileFiles}
 
               # 1b. dependents the external test imports, recompiled against the variant.
               ${recompileStep}
@@ -1206,9 +1345,9 @@ let
               CFG="$W/ic.main"; cat ${buildStdlib}/importcfg > "$CFG"
               echo "packagefile ${importPath}=$W/variant.a" >> "$CFG"
               ${lib.optionalString hasExt ''echo "packagefile ${importPath}_test=$W/xtest.a" >> "$CFG"''}
-              go tool compile ${compileFlags}-importcfg "$CFG" -p main -buildid "" \
+              ${testmainCoverSetup}go tool compile ${compileFlags}${testmainCoverFlag}-importcfg "$CFG" -p main -buildid "" \
                 -trimpath="$W=>" -nolocalimports -pack -lang=${lang} \
-                -o "$W/testmain.a" ${testmainSrc}
+                -o "$W/testmain.a" ${testmainCompileFiles}
 
               # 4. link the test binary.
               CFG="$W/ic.link"; cat ${buildStdlib}/importcfg > "$CFG"
@@ -1244,7 +1383,9 @@ let
             mkdir -p "$out"
             ${outWritableProbe}
             cd ${runDir}
-            ${lib.optionalString (testPreRun != "") "${testPreRun}\n"}if ${bin}/${binName}${
+            ${runCoverSetup}${
+              lib.optionalString (testPreRun != "") "${testPreRun}\n"
+            }if ${bin}/${binName}${runCoverFlag}${
               lib.optionalString (testFlags != [ ]) " ${lib.escapeShellArgs testFlags}"
             } > "$NIX_BUILD_TOP/test.log" 2>&1; then
               echo "ok ${importPath}" > "$out/result"
@@ -1280,6 +1421,33 @@ let
     ": > $out\n"
     + lib.concatMapStringsSep "\n" (t: "cat ${testRuns.${t.importPath}}/result >> $out") testGraph
   );
+
+  # -cover: every test run's counters merged, as `go test -cover` reports them —
+  # $out/covdata (mergeable), $out/coverage.out (textfmt), $out/percent.txt.
+  coverage =
+    if !cover then
+      null
+    else
+      runCommandLocal "godyn-${pname}-coverage" { nativeBuildInputs = [ go ]; } (
+        ''
+          export HOME="$TMPDIR" GOROOT=${go}/share/go
+          mkdir -p "$out/covdata"
+          dirs=()
+        ''
+        + lib.concatMapStrings (t: ''
+          d=${testRuns.${t.importPath}}/covdata
+          if [ -d "$d" ] && [ -n "$(ls -A "$d")" ]; then dirs+=("$d"); fi
+        '') testGraph
+        + ''
+          if [ ''${#dirs[@]} -eq 0 ]; then
+            echo "godyn: no coverage data — cover = true needs tests = true (or a test graph) and covered packages with tests" >&2
+            exit 1
+          fi
+          go tool covdata merge -i="$(IFS=,; echo "''${dirs[*]}")" -o "$out/covdata"
+          go tool covdata textfmt -i "$out/covdata" -o "$out/coverage.out"
+          go tool covdata percent -i "$out/covdata" > "$out/percent.txt"
+        ''
+      );
 
   # A main package's CA compile output also holds its pkg.a, so the result is a
   # bin/-only copy of each linked binary, like buildGoApplication's output: a
@@ -1327,6 +1495,8 @@ installed.overrideAttrs (old: {
     # batsLane reads base.pname) without re-deriving the CA link output.
     inherit pname race;
     modes = effectiveModes;
+    # -cover: merged test coverage (null without cover).
+    inherit cover coverage;
     # The vendored third-party tree godyn builds from (null for an all-local
     # module), for fixtures that need the same vendor/ (e.g. bats lanes).
     vendorEnv = resolvedVendorEnv;

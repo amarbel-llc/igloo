@@ -63,6 +63,10 @@
   modes ? [ ],
   gcflags ? [ ],
   asmflags ? [ ],
+  # -cover (godyn only; bga's coverage lane stays buildGoCover): see buildGodynModule.
+  cover ? false,
+  coverMode ? null,
+  coverPackages ? null,
   # cgo inputs, declared once for both backends (see buildGodynModule).
   buildInputs ? [ ],
   CGO_CFLAGS ? "",
@@ -127,6 +131,7 @@ let
     // lib.optionalAttrs (modes != [ ]) { inherit modes; }
     // lib.optionalAttrs (gcflags != [ ]) { inherit gcflags; }
     // lib.optionalAttrs (asmflags != [ ]) { inherit asmflags; }
+    // lib.optionalAttrs cover { inherit cover coverMode coverPackages; }
     // nativeArgs
   );
   bgaBase = buildGoApplication (

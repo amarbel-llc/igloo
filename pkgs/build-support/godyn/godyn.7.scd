@@ -219,6 +219,16 @@ Arguments:
   *cc*, which is required), and for msan/asan *-fsanitize* on cgo C code. *race =
   true* is shorthand for *[ "race" ]*. msan and asan are wired but not yet
   fixture-verified.
+- *cover*, *coverMode*, *coverPackages* — coverage instrumentation, as *go build
+  -cover* / *go test -cover*: each covered package goes through *go tool cover* and
+  compiles with *-coveragecfg*. Covered binaries write counters under *$GOCOVERDIR*.
+  With tests, each run writes *$out/covdata* and *passthru.coverage* merges them into
+  *covdata/*, *coverage.out* (textfmt) and *percent.txt*. *coverMode* is *set*,
+  *count* or *atomic* (default *set*, *atomic* under *race*); *coverPackages* lists
+  local import paths (default: every local package). Not yet: cgo and Plan 9 asm
+  packages are not instrumented, packages without tests do not appear in
+  *percent.txt*, and dependents recompiled for a test are not instrumented.
+  *buildGoAuto* forwards these to godyn only.
 - *gcflags*, *asmflags* — extra *go tool compile* / *go tool asm* flags for every
   package godyn compiles (local, third-party and bridged — like *-gcflags=all=…*,
   except the stdlib, which is not recompiled).
@@ -489,8 +499,8 @@ go:embed patterns resolve per pattern only in graphs from a current godyn-gen; o
 graphs support literal and trailing-*\** patterns (see above).
 
 Tests: cgo and asm packages' own tests and embeds referenced only by \_test.go
-files are not yet supported (igloo#34). *race* is supported; coverage (*-cover*)
-is not.
+files are not yet supported (igloo#34). *race* and coverage (*cover*) are
+supported, with the coverage gaps listed under *cover*.
 
 A committed graph is platform-specific (see *graphFiles* above); building a module
 with platform-dependent deps from a single graphFile on another system fails in the

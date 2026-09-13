@@ -561,6 +561,21 @@
             src = ./pkgs/build-support/godyn/tests/multi;
             modules = ./pkgs/build-support/godyn/tests/multi/gomod2nix.toml;
           };
+          # -cover: the gotest fixture's packages instrumented (incl. an embed
+          # package) with per-package test runs; and a covered binary.
+          godyn-cover-test = pkgs.buildGodynModule {
+            pname = "godyn-cover-test";
+            src = ./pkgs/build-support/godyn/tests/gotest;
+            modules = ./pkgs/build-support/godyn/tests/gotest/gomod2nix.toml;
+            tests = true;
+            cover = true;
+          };
+          godyn-cover-bin-test = pkgs.buildGodynModule {
+            pname = "godyn-cover-bin-test";
+            src = ./pkgs/build-support/godyn/tests/multi;
+            modules = ./pkgs/build-support/godyn/tests/multi/gomod2nix.toml;
+            cover = true;
+          };
           # gcflags reach every compile: the same module with -N -l (no optimizing,
           # no inlining) produces different package archives.
           godyn-gcflags-test = pkgs.buildGodynModule {
@@ -1002,6 +1017,28 @@
             assert backend == want;
             pkgs.runCommandLocal "godyn-auto-default-strategy-test-check" { } ''
               echo ${backend} > $out
+            '';
+          # -cover: tests pass instrumented, their counters merge into coverage.out
+          # with per-package percentages; a covered binary writes coverage metadata
+          # under GOCOVERDIR.
+          godyn-cover-test =
+            let
+              cov = self.packages.${system}.godyn-cover-test;
+              bin = self.packages.${system}.godyn-cover-bin-test;
+            in
+            pkgs.runCommandLocal "godyn-cover-test-check" { } ''
+              for p in example.com/gotest/leaf example.com/gotest/mid example.com/gotest; do
+                grep -qx "ok $p" ${cov.passthru.checkAll} || { echo "covered test run failed for $p" >&2; exit 1; }
+              done
+              grep -q '^mode: set' ${cov.passthru.coverage}/coverage.out || { echo "coverage.out has no mode line" >&2; exit 1; }
+              grep -q 'example.com/gotest/leaf/leaf.go:' ${cov.passthru.coverage}/coverage.out \
+                || { echo "leaf.go missing from coverage.out" >&2; cat ${cov.passthru.coverage}/coverage.out >&2; exit 1; }
+              grep -q 'example.com/gotest/leaf' ${cov.passthru.coverage}/percent.txt \
+                || { echo "leaf missing from percent.txt" >&2; cat ${cov.passthru.coverage}/percent.txt >&2; exit 1; }
+              mkdir cd
+              GOCOVERDIR=$PWD/cd ${bin}/bin/alpha > /dev/null
+              ls cd | grep -q '^covmeta\.' || { echo "covered binary wrote no coverage metadata" >&2; ls -la cd >&2; exit 1; }
+              echo OK > $out
             '';
           # gcflags change what gets compiled (archives differ), and the flagged build
           # still runs.
