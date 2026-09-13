@@ -150,8 +150,23 @@
             claude-code
             gomod2nix
             gomod2nix-man
+            go-toolchain-man
+            godyn-man
+            nixgc-man
             update-zx-deps
             ;
+          # Every igloo man page in one share/man root (godyn(7), gomod2nix(7),
+          # mkGoPkgs(7), goSourceFilter(7), go-toolchain(7), nixgc(1)), for a
+          # consumer's profile or first-party manpath to install by name.
+          manpages = pkgs.symlinkJoin {
+            name = "igloo-manpages";
+            paths = [
+              pkgs.godyn-man
+              pkgs.gomod2nix-man
+              pkgs.go-toolchain-man
+              pkgs.nixgc-man
+            ];
+          };
           nix-man = pkgs.nix.man;
           default = pkgs.claude-code;
 

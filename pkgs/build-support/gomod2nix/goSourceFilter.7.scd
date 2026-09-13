@@ -2,7 +2,7 @@ goSourceFilter(7) ["amarbel-llc/igloo"]
 
 # NAME
 
-goSourceFilter - Go source-tree filter for the go-pkgs producer convention
+goSourceFilter - Go source-tree filter for go-pkgs producers
 
 # SYNOPSIS
 

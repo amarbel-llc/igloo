@@ -2,7 +2,7 @@ mkGoPkgs(7) ["amarbel-llc/igloo"]
 
 # NAME
 
-mkGoPkgs - canonical producer-side helper for the flake-input-go_mod protocol
+mkGoPkgs - producer-side helper for the flake-input-go_mod protocol
 
 # SYNOPSIS
 

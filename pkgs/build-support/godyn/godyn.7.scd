@@ -2,7 +2,7 @@ godyn(7) ["amarbel-llc/igloo"]
 
 # NAME
 
-godyn - per-package Go builder (eval-time package graph, no recursive-nix)
+godyn - per-package, content-addressed Go builder for Nix
 
 # DESCRIPTION
 
