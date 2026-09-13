@@ -480,6 +480,20 @@
             version = "0.0.0";
             binaryNames."." = "renamed-app";
           };
+          # testPreRun prepares a writable HOME before the test binary; testFlags
+          # filters which tests it runs.
+          godyn-testhooks-test = pkgs.buildGodynModule {
+            pname = "godyn-testhooks-test";
+            src = ./pkgs/build-support/godyn/tests/testhooks;
+            modules = ./pkgs/build-support/godyn/tests/testhooks/gomod2nix.toml;
+            version = "0.0.0";
+            tests = true;
+            testPreRun = ''
+              export HOME="$TMPDIR/home" GODYN_PRERUN=ran
+              mkdir -p "$HOME"
+            '';
+            testFlags = [ "-test.run=^TestWritableHome$" ];
+          };
           # a test reading ../../docs/vec.txt: testFiles (the golden path) places the
           # file in the run tree; testModuleTree (discouraged) runs in the module.
           godyn-testfiles-test = pkgs.buildGodynModule {
@@ -966,6 +980,18 @@
               done
               [ "$(ls ${self.packages.${system}.godyn-multi-sub-test}/bin)" = beta ] \
                 || { echo "a single main is not named like go install" >&2; exit 1; }
+              echo OK > $out
+            '';
+          # testPreRun runs before the binary (writable HOME, env) and testFlags reach
+          # it (an always-failing test is filtered out); passthru.vendorEnv exists.
+          godyn-testhooks-test =
+            let
+              drv = self.packages.${system}.godyn-testhooks-test;
+            in
+            assert drv.passthru ? vendorEnv;
+            pkgs.runCommandLocal "godyn-testhooks-test-check" { } ''
+              grep -qx "ok example.com/hooks" ${drv.passthru.checkAll} \
+                || { echo "testPreRun/testFlags run did not pass" >&2; exit 1; }
               echo OK > $out
             '';
           # a test reading a module file outside its package passes via testFiles and

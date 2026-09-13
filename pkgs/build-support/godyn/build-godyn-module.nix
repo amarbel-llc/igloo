@@ -148,6 +148,14 @@
   # testEnv: environment variables for every per-package test run, as an attrset
   # (store paths welcome, e.g. { FOO_BIN = "${foo}/bin/foo"; }).
   testEnv ? { },
+  # testPreRun: shell run in every per-package test run just before the test binary
+  # (cwd = the run tree), the preCheck analog — e.g. a writable HOME/GOCACHE
+  # (`export HOME=$TMPDIR`) or copying a read-only module cache for tests that
+  # shell out to `go`. Store paths interpolated here join the run's inputs.
+  testPreRun ? "",
+  # testFlags: arguments for every test binary run, as `go test` passes them (use
+  # the binary's spelling: [ "-test.run=^TestFoo$" "-test.count=1" ]).
+  testFlags ? [ ],
   # nativeCheckInputs: tools on PATH for every per-package test run (git, …), as
   # in buildGoApplication's check phase.
   nativeCheckInputs ? [ ],
@@ -1179,7 +1187,9 @@ let
             mkdir -p "$out"
             ${outWritableProbe}
             cd ${runDir}
-            if ${bin}/${binName} > "$NIX_BUILD_TOP/test.log" 2>&1; then
+            ${lib.optionalString (testPreRun != "") "${testPreRun}\n"}if ${bin}/${binName}${
+              lib.optionalString (testFlags != [ ]) " ${lib.escapeShellArgs testFlags}"
+            } > "$NIX_BUILD_TOP/test.log" 2>&1; then
               echo "ok ${importPath}" > "$out/result"
             else
               echo "godyn-test FAIL ${importPath}:" >&2
@@ -1259,6 +1269,9 @@ installed.overrideAttrs (old: {
     # pname/version as attributes (parity with buildGoApplication, e.g. bats'
     # batsLane reads base.pname) without re-deriving the CA link output.
     inherit pname;
+    # The vendored third-party tree godyn builds from (null for an all-local
+    # module), for fixtures that need the same vendor/ (e.g. bats lanes).
+    vendorEnv = resolvedVendorEnv;
     version = effectiveVersion;
     ldflags = versionLdflags ++ ldflags ++ ldflagsXFlags;
     # For downstream godyn→godyn composition: archiveGoPkgs feeds a consumer's

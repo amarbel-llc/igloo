@@ -52,6 +52,8 @@
   # inside the module tree, so these only reach the godyn backend.
   testFiles ? { },
   testModuleTree ? false,
+  testPreRun ? "",
+  testFlags ? [ ],
   # cgo inputs, declared once for both backends (see buildGodynModule).
   buildInputs ? [ ],
   CGO_CFLAGS ? "",
@@ -110,6 +112,8 @@ let
     // lib.optionalAttrs (binaryNames != { }) { inherit binaryNames; }
     // lib.optionalAttrs (testFiles != { }) { inherit testFiles; }
     // lib.optionalAttrs testModuleTree { inherit testModuleTree; }
+    // lib.optionalAttrs (testPreRun != "") { inherit testPreRun; }
+    // lib.optionalAttrs (testFlags != [ ]) { inherit testFlags; }
     // nativeArgs
   );
   bga = buildGoApplication (

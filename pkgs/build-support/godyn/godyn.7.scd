@@ -213,6 +213,16 @@ Arguments:
 - *testModuleTree* — DISCOURAGED last resort: run tests inside the whole module
   source, exactly like *go test*. Every run then depends on every file, so any edit
   re-runs all of the module's tests; evaluation warns. Prefer *testFiles*.
+- *testPreRun* — shell run in every per-package test run right before the test
+  binary (the preCheck analog), with the run tree as the working directory: e.g.
+  *export HOME=$TMPDIR* or copying a read-only module cache for tests that shell
+  out to *go*. *buildGoAuto* forwards it to godyn.
+- *testFlags* — arguments for every test binary run, in the binary's spelling
+  (*[ "-test.run=^TestFoo$" "-test.count=1" ]*). Several instances differing only
+  in *testEnv*/*testFlags* share their test binaries (content-addressed) and run
+  them separately, e.g. a fuzz seed sweep. *buildGoAuto* forwards it to godyn.
+- *passthru.vendorEnv* — the vendored third-party tree godyn builds from, for
+  fixtures that need the same *vendor/* (null for an all-local module).
 - *nativeCheckInputs* — tools on PATH for every per-package test run (e.g. git),
   as in buildGoApplication's check phase; *buildGoAuto* forwards it to both
   backends.
