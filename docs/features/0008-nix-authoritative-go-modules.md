@@ -1,6 +1,6 @@
 ---
-status: exploring
-date: 2026-09-11
+status: proposed
+date: 2026-09-14
 promotion-criteria: |
   exploring → proposed: the manifest shape below is settled on one
   fixture: igloo renders a go.mod from it inside a derivation, derives
