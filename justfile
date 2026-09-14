@@ -409,6 +409,29 @@ explore-godyn-test *args:
 # 0008 cost question): whether .git and the git-ignored .tmp are in the copy,
 # and the copy's size. godyn-go and godyn-test build from such a ref.
 #
+# [explore] Does igloo's nixpkgs input package a Go minor (go-toolchain(7)
+# registry entries need `go_<major>_<minor>` as their nixpkgs base)? Prints the
+# base's version, or the eval error if the attribute is missing.
+#
+# [explore] Build an overlay attribute of this tree's pkgs (default: `go`, the
+# newest registry toolchain) — the out-of-band compiler build go-toolchain(7)
+# keeps off the pre-merge gate; run it after `just update-go`.
+#
+# build an overlay attr from this tree's pkgs, e.g. the newest Go toolchain
+[group: 'explore']
+explore-build-overlay-attr attr="go":
+    nix-build --no-out-link -E "(import ./. { }).{{ attr }}"
+
+# print the version of nixpkgs-master's go_<major>_<minor> base for a Go minor
+[group: 'explore']
+explore-go-base minor="1.27":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    system=$(nix eval --impure --raw --expr builtins.currentSystem)
+    attr="go_$(printf '%s' "{{ minor }}" | tr . _)"
+    nix eval --impure --raw --expr "(builtins.getFlake \"path:$PWD\").inputs.nixpkgs-master.legacyPackages.$system.$attr.version"
+    echo
+
 # report whether a path: flake ref of this tree copies .git and .tmp
 [group: 'explore']
 explore-path-ref-contents:
