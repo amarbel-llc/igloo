@@ -1159,6 +1159,34 @@
             assert m.load ingested == expected;
             assert m.load (import (builtins.toFile "go.nix" rendered)) == expected;
             assert viaCli == rendered;
+            # An INHERITED bridge in the run's go.mod (a require replaced to a store
+            # path, not in flakeInputs, no toml entry): the manifest's existing entry
+            # is carried over verbatim, so ingest agrees with the migration and a
+            # codegen-only run leaves go.nix alone; nothing is carried for a module
+            # the manifest never had.
+            assert
+              (m.ingest {
+                manifest = expected // {
+                  require = expected.require // {
+                    "example.com/inherited" = {
+                      version = "v0.1.0";
+                      hash = "sha256-carried";
+                    };
+                  };
+                };
+                out = fixture + "/escape-hatch-inherited";
+              }).require == expected.require
+              // {
+                "example.com/inherited" = {
+                  version = "v0.1.0";
+                  hash = "sha256-carried";
+                };
+              };
+            assert
+              (m.ingest {
+                manifest = expected;
+                out = fixture + "/escape-hatch-inherited";
+              }).require == expected.require;
             # expected.go.nix is committed and therefore formatted by the repo's
             # nix formatter: a byte-equal render proves ingest's output is
             # nixfmt-stable, so consumers need not exclude go.nix from formatting.

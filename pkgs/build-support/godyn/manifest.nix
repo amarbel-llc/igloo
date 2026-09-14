@@ -186,14 +186,23 @@ let
       flakeInputs ? { },
       # module path -> its own Go language version (from gomod2nix.toml's goVersion)
       goVersions ? { },
+      # The previous manifest's require entries. A module replaced to a store path
+      # (an INHERITED bridge, RFC 0001 depth-N) has no hash in the toml — the
+      # vendor tree never fetches it — so its previous entry is carried over
+      # verbatim, keeping ingest's output identical to the migration's (which saw
+      # the organic go.mod without replaces). Absent from carry, it is dropped.
+      carry ? { },
     }:
     let
       g = parseGoMod text;
       # A module replaced to a store path is a bridged fleet module (declared or
-      # inherited, RFC 0001): never recorded — the flake input is its version.
+      # inherited, RFC 0001): never recorded from the go.mod — the flake input is
+      # its version — but an inherited one keeps its carried entry (dead data the
+      # merge shadows; FDR 0008).
       bridged = builtins.attrNames (
         lib.filterAttrs (_: r: r ? path && lib.hasPrefix builtins.storeDir r.path) (g.replace or { })
       );
+      carried = lib.filterAttrs (p: _: lib.elem p bridged && !(flakeInputs ? ${p})) carry;
       lines = lib.splitString "\n" text;
       indirectRe = ".*//[[:space:]]*indirect[[:space:]]*";
       indirect = lib.concatMap (
@@ -236,15 +245,17 @@ let
     else
       {
         inherit (g) module go;
-        require = lib.mapAttrs (
-          p: v:
-          {
-            version = v;
-            hash = hashes.${p};
-          }
-          // lib.optionalAttrs (goVersions ? ${p}) { go = goVersions.${p}; }
-          // lib.optionalAttrs (lib.elem p indirect) { indirect = true; }
-        ) require;
+        require =
+          lib.mapAttrs (
+            p: v:
+            {
+              version = v;
+              hash = hashes.${p};
+            }
+            // lib.optionalAttrs (goVersions ? ${p}) { go = goVersions.${p}; }
+            // lib.optionalAttrs (lib.elem p indirect) { indirect = true; }
+          ) require
+          // carried;
         replace = lib.mapAttrs replaceFrom (removeAttrs (g.replace or { }) fleetKeys);
       }
       // lib.optionalAttrs (flakeInputs != { }) { inherit flakeInputs; };
@@ -272,6 +283,7 @@ let
       hashes = lib.mapAttrs (_: v: v.hash) mods;
       inherit goVersions;
       inherit (m) flakeInputs;
+      carry = m.require;
     };
 
   # ingest rendered as go.nix text — what passthru.ingest returns (null manifest:

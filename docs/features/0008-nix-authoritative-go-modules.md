@@ -338,7 +338,14 @@ Rules the pair must keep:
   inherited bridge and strips it from the vendor table, so its version and
   hash are dead data and the bridge wins on both backends
   (`godyn-producer-manifest-test`, whose hash is bogus). This matches the
-  organic-require case before go.nix. A fleet module that **no** producer
+  organic-require case before go.nix. `ingest` keeps such an entry stable:
+  the escape hatch's go.mod carries a store-path replace for it and its toml
+  no hash, so the manifest's existing entry is carried over verbatim (found
+  on cutting-garden, where a codegen-only run otherwise dropped five
+  inherited requires that the migration had recorded; checked in
+  `godyn-manifest-ingest-test`). A `go` line the go command raises inside the
+  escape hatch (a module in the graph declares a newer minimum) is real and
+  is recorded. A fleet module that **no** producer
   bridges (spinclass's tap/go: tommy consumes tap only as a binary, not as a
   Go bridge) is simply a third-party require fetched from the proxy, before
   and after go.nix — declare it under `flakeInputs` only if the flake gains
