@@ -9,11 +9,13 @@ promotion-criteria: |
   tree; the round trip go.mod → manifest → go.mod is lossless for every
   field the manifest owns.
 
-  proposed → experimental: the bidirectional tool exists — `render`
-  writes a go.mod (and go.sum, if still needed) for editors, `ingest`
-  folds a go.mod edited by `go get` / `go mod tidy` back into the
+  proposed → experimental: the escape hatch exists — go commands
+  (`go get`, `go mod tidy`, `go generate`) run in an impure derivation
+  against the go.mod and go.sum rendered there, their changes are applied
+  back to the checkout, and `ingest` folds a changed go.mod into the
   manifest — and one fleet consumer (spinclass) builds, tests, vets and
-  lints from its manifest with its committed go.mod removed.
+  lints from its manifest with its committed go.mod removed. gopls and dlv
+  are out of scope.
 
   experimental → testing: dependency updates happen only through the
   manifest (directly or via ingest) on at least two consumers; each
@@ -158,22 +160,50 @@ lossless for module, go, requires (including `// indirect`), fleet
 require/replace pairs, and path, module and versioned replaces.
 Comments other than `// indirect`, and `toolchain`, `godebug`, `exclude`,
 `retract` and `tool`, are rejected by the go.mod → manifest direction.
-**go.sum:** builds do not need it (vendor mode with `GOSUMDB=off`);
-`mkGoEnv` (devshells) still copies one, which is gate-2 `render` work. Still
-to come: the `render`/`ingest` CLI and a fleet consumer.
+**go.sum:** builds do not need it (vendor mode with `GOSUMDB=off`). Still
+to come: the escape hatch (render into a derivation, `ingest`) and a fleet
+consumer.
 
-## Editor escape hatch: bidirectional go.mod ↔ manifest
+## Escape hatch: go commands against the rendered module
 
-The go toolchain outside nix is unsupported, but editors (gopls) and the
-occasional `go get` still need a go.mod on disk. The escape hatch is a
-**lossless, two-way conversion** between go.mod and the manifest:
+The go toolchain outside nix is unsupported, but dependency changes
+(`go get`, `go mod tidy`) and source generators still need a go.mod. The
+escape hatch runs those commands **inside nix**, against a go.mod and go.sum
+rendered into a derivation — never into the checkout — and moves results back
+with a **lossless, two-way conversion** between go.mod and the manifest:
 
-- **`render`** writes the manifest's go.mod (and go.sum, if needed) into the
-  checkout for gopls and ad-hoc `go` use. The written files are generated
-  artifacts: gitignored, never authoritative, safe to delete.
+- **`render`** produces the manifest's go.mod and go.sum inside a derivation
+  (fleet modules, declared and inherited, replaced to their go-pkgs store
+  paths). They are build inputs, never files in the checkout.
 - **`ingest`** reads a go.mod changed by `go get` / `go mod tidy` and writes
   the differences back into the manifest — new or bumped requires (with their
   hashes, fetched in nix), dropped requires, a changed `go` line.
+
+Tooling this has to serve (fleet survey, 2026-09-14):
+
+- **Dependency management** (network): `go get`, `go mod tidy`,
+  `go mod download`, `go work`; `gomod2nix generate` is replaced by `ingest`.
+- **Generators that rewrite checked-in source**: `go generate` driving
+  `tommy generate`, `dagnabit export`, `stringer`, `enumer`, and `go run`
+  generators (langlang).
+- **Ad-hoc `go test` / `go run` / `go build` / `go vet` / `go list`** in
+  justfile recipes, and **analysis needing network** (`govulncheck`).
+- **Lint and format hooks**: golangci-lint and goimports need package
+  loading; gofumpt works per file.
+- Out of scope: godyn-gen graph recipes, which the eval-time graph retires.
+
+**Direction (2026-09-14):** a consumer-exposed command
+(`nix run .#go -- <cmd>`) builds an **impure derivation** (`__impure = true`:
+network allowed, never cached) whose source is the checkout plus the rendered
+go.mod and go.sum, runs the command with the pinned toolchain and tools, and
+outputs a patch against the input source (plus the changed go.mod). The
+wrapper applies the patch to the checkout and runs `ingest`. `--impure` alone
+does not give a build network access. Costs: impure derivations are an
+experimental Nix feature every host must enable (`impure-derivations`,
+which needs `ca-derivations`); each run copies the checkout into
+the store and starts with an empty module cache; the build has no SSH agent
+or git credentials; generators that shell out to non-Go tools must declare
+them.
 
 Rules the pair must keep:
 
@@ -191,31 +221,43 @@ Both directions build on existing pieces: gomod2nix already parses go.mod in
 nix (the `parser-*-test.nix` fixtures), and RFC 0001's merge already renders
 directives into a go.mod.
 
+**Decided 2026-09-14:**
+
+- **The tool is a thin wrapper over nix** (`godyn-manifest`). The
+  conversion logic lives only in `manifest.nix` (`fromGoMod`, `renderGoMod`),
+  which the round-trip check covers. `ingest` takes hashes and per-module Go
+  versions from `gomod2nix generate`, then prints go.nix from nix.
+- **Nothing is rendered into the checkout.** go.mod and go.sum exist only in
+  derivations; `ingest` drops store-path replaces from a changed go.mod
+  (fleet bridges), never recording them.
+- **gopls and dlv are unsupported.** Interactive tools cannot run inside a
+  build, and nothing is rendered into the checkout for them. A POC for native
+  support may revisit this (Future Work).
+
 ## Open Questions
 
 - **Eval-time graph mechanics.** `godyn-gen` must run offline in the sandbox
   (against the vendor tree), per system (GOOS/GOARCH), and for the test graph
   (`-tests`); how the resulting JSON is imported at eval time is to be settled
   on the first fixture.
-- **Does go.sum survive?** If `godyn-gen` and every other in-nix go command run
-  against the vendored tree (`-mod=vendor`), the go command does not verify
-  go.sum, and the manifest can carry NAR hashes only. Unverified for
-  `go list -deps`; if it fails, the manifest carries `h1:` sums too and
-  renders a go.sum.
-- **Where does version selection run?** `go get` / `go mod tidy` perform
-  minimal version selection and need the network. Under the "no toolchain
-  outside nix" rule they run from a nix-provided command (a `just` recipe, or
-  part of `render`/`ingest`), not an ambient go.
+- **Does go.sum survive?** Answered for builds (2026-09-14): vendor-mode
+  builds and `godyn-gen` need none, so the manifest carries NAR hashes only.
+  The escape hatch renders a go.sum for module-mode commands; whether that
+  needs `h1:` sums recorded in the manifest or can be produced by
+  `go mod download` inside the impure derivation is open.
+- **Where does version selection run?** Answered: inside the escape hatch's
+  impure derivation, not an ambient go.
 - **Workspaces.** How a manifest expresses go.work-style multi-module setups
   (igloo#73).
-- **Name and location** of the manifest file, and whether it is plain nix or
-  a data format (TOML) nix reads.
+- **Escape-hatch output**: a patch, or changed files; and how the wrapper
+  handles checkout edits made while the command ran.
 
 ## Limitations
 
-- **Editors depend on `render`.** Without a rendered go.mod, gopls has no
-  module; that is the intended cost of "no toolchain outside nix", paid down
-  by the escape hatch.
+- **No editor or debugger support.** gopls and dlv are unsupported: the
+  checkout has no go.mod, and the escape hatch runs only batch commands. That
+  is the intended cost of "no toolchain outside nix" until a native-support
+  POC says otherwise.
 - **Migration**: every consumer converts its go.mod once (`ingest` is also the
   migration tool) and stops editing go.mod directly.
 - **Third-party Go versions** have to be recorded per module (from each
@@ -233,6 +275,10 @@ directives into a go.mod.
   derivation and a plugin share one resolver.
 - **Building Nix-version-bound plugins** is shared with rustdyn: see FDR 0009
   § Future Work.
+- **Native gopls and dlv support (descoped 2026-09-14).** A POC could find a
+  way to serve them without a checkout go.mod — for example the rendered
+  module plus `-modfile` (which still requires a placeholder go.mod to locate
+  the module root), or a gopls launched from a derivation.
 
 ## More Information
 
@@ -241,5 +287,6 @@ directives into a go.mod.
 - RFC 0001 (`docs/rfcs/0001-flake-input-go_mod.md`) — the fleet-module
   protocol; `flakeInputs` here is its consumer half without an organic go.mod.
 - FDR 0006 § *Why not fix the devshell?* — why a checkout-side go.mod cannot
-  be supplied purely; the render escape hatch accepts generated files instead.
+  be supplied purely; the escape hatch avoids one by running commands inside a
+  derivation.
 - Issues: igloo#72 (graph drift), igloo#73 (go.work consumers).
