@@ -340,6 +340,29 @@ explore-test-godyn rev="ccc91bed0accabf12f63abc00e583d78aa20183e":
         "github:amarbel-llc/conformist/{{rev}}#conformist-native" \
         --override-input igloo .
 
+# [explore] Time godyn's inner test loop (FDR 0008): build one package's
+# passthru.testWith run from a path: flake ref of this tree (uncommitted and
+# untracked files included), twice — the first pays evaluation, graph
+# derivation and any rebuilds, the second is the no-op floor — and print each
+# wall-clock time plus the run's result. flags are test-binary flags.
+#
+# time the godyn inner test loop (path: flake ref, one package)
+[group: 'explore']
+explore-godyn-test-loop attr="godyn-derived-tests-test" dir="leaf" flags="-test.run=. -test.v":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    system=$(nix eval --impure --raw --expr builtins.currentSystem)
+    nixflags=""
+    for f in {{ flags }}; do nixflags+="\"$f\" "; done
+    expr="(builtins.getFlake \"path:$PWD\").packages.$system.{{ attr }}.passthru.testWith { dir = \"{{ dir }}\"; testFlags = [ $nixflags]; }"
+    for pass in first second; do
+      start=$(date +%s.%N)
+      out=$(nix build --impure --no-link --print-out-paths --expr "$expr")
+      end=$(date +%s.%N)
+      printf '%s pass: %.2fs  %s\n' "$pass" "$(echo "$end - $start" | bc)" "$(cat "$out/result")"
+    done
+    du -sh --apparent-size . 2>/dev/null | sed 's/^/path: tree size: /'
+
 # [explore] Test the overlay-flake migration against amarbel-llc/maneater
 # Clones into .tmp/maneater (or reuses), bumps the nixpkgs input, runs
 # nix flake check + nix build .#default.

@@ -1368,8 +1368,18 @@ let
                 -o "$out/${binName}" "$W/testmain.a"
             '';
 
-      run =
-        runCommandLocal "godyn-test-${sanitize importPath}"
+      # runWith: the test run with extra test-binary flags. keepLog (the inner loop,
+      # FDR 0008) always succeeds, recording "ok"/"FAIL" in $out/result and the
+      # binary's output in $out/test.log; the default run fails the build instead.
+      runWith =
+        {
+          extraFlags ? [ ],
+          keepLog ? false,
+        }:
+        let
+          flags = testFlags ++ extraFlags;
+        in
+        runCommandLocal "godyn-test-${sanitize importPath}${lib.optionalString keepLog "-log"}"
           (
             testEnv
             // lib.optionalAttrs (nativeCheckInputs != [ ]) { nativeBuildInputs = nativeCheckInputs; }
@@ -1386,18 +1396,22 @@ let
             ${runCoverSetup}${
               lib.optionalString (testPreRun != "") "${testPreRun}\n"
             }if ${bin}/${binName}${runCoverFlag}${
-              lib.optionalString (testFlags != [ ]) " ${lib.escapeShellArgs testFlags}"
+              lib.optionalString (flags != [ ]) " ${lib.escapeShellArgs flags}"
             } > "$NIX_BUILD_TOP/test.log" 2>&1; then
               echo "ok ${importPath}" > "$out/result"
             else
-              echo "godyn-test FAIL ${importPath}:" >&2
-              cat "$NIX_BUILD_TOP/test.log" >&2
-              exit 1
-            fi
+              ${
+                if keepLog then
+                  "echo \"FAIL ${importPath}\" > \"$out/result\""
+                else
+                  "echo \"godyn-test FAIL ${importPath}:\" >&2\n  cat \"$NIX_BUILD_TOP/test.log\" >&2\n  exit 1"
+              }
+            fi${lib.optionalString keepLog "\ncp \"$NIX_BUILD_TOP/test.log\" \"$out/test.log\""}
           '';
+      run = runWith { };
     in
     {
-      inherit bin run;
+      inherit bin run runWith;
     };
 
   testFilesByDir = lib.mapAttrs' (
@@ -1511,6 +1525,28 @@ installed.overrideAttrs (old: {
     # all-tests manifest for flake checks. Empty when no test graph was passed.
     tests = testRuns;
     inherit testBins checkAll;
+    # The inner test loop (FDR 0008): one tested package's run, by module-relative
+    # dir, with extra test-binary flags (e.g. [ "-test.run=TestX" "-test.v" ]).
+    # Always builds; $out/result is "ok <ip>" or "FAIL <ip>", $out/test.log the output.
+    testWith =
+      {
+        dir,
+        testFlags ? [ ],
+      }:
+      let
+        d = lib.removeSuffix "/" (lib.removePrefix "./" dir);
+        key = if d == "" then "." else d;
+        t =
+          lib.findFirst (t: t.dir == key)
+            (throw "buildGodynModule(${pname}): testWith: no tested package in ${key} (have: ${
+              lib.concatMapStringsSep ", " (t: t.dir) testGraph
+            })")
+            testGraph;
+      in
+      testPairs.${t.importPath}.runWith {
+        extraFlags = testFlags;
+        keepLog = true;
+      };
     # per-package vet and lint: run derivations for the local packages by import
     # path (a finding fails the build), and each lane's manifest for flake checks.
     vet = vetLane.local;

@@ -985,6 +985,23 @@
               diff -u ${builtins.toFile "roundtrip.gomod" roundTrip} ${builtins.toFile "rendered.gomod" rendered}
               echo OK > $out
             '';
+          # inner test loop (FDR 0008): testWith runs one package's tests with extra
+          # flags and keeps the output — here verbose, filtered to leaf's tests.
+          godyn-test-with-test =
+            let
+              run = self.packages.${system}.godyn-derived-tests-test.passthru.testWith {
+                dir = "./leaf";
+                testFlags = [
+                  "-test.run=."
+                  "-test.v"
+                ];
+              };
+            in
+            pkgs.runCommandLocal "godyn-test-with-test-check" { } ''
+              grep -qx "ok example.com/gotest/leaf" ${run}/result || { echo "result: $(cat ${run}/result)" >&2; exit 1; }
+              grep -q '^=== RUN' ${run}/test.log || { echo "no verbose output in test.log:" >&2; cat ${run}/test.log >&2; exit 1; }
+              echo OK > $out
+            '';
           # producers: the consumer links p and the INHERITED q; p's own tests pass
           # when godyn builds it from its published go-pkgs-test.
           godyn-producer-test = pkgs.runCommandLocal "godyn-producer-test-check" { } ''
