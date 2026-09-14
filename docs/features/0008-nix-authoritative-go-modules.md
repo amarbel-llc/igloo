@@ -173,6 +173,13 @@ consumers bridge it unchanged whether or not they have cut over
 (`godyn-producer-gonix-test`: organic consumer, both backends, producer
 self-test; `godyn-producer-manifest-test`: go.nix consumer). This is what the
 second tracer, a producer, needs before it drops go.mod.
+**Rollout constraint (found bumping spinclass to tommy 3b9f688):** a
+consumer that pins the producer's igloo to its own (`<producer>.inputs.igloo.follows
+= "igloo"`, the fleet convention) evaluates the producer's `mkGoPkgs {
+manifest; inputs; }` against the consumer's igloo, so bumping a cut-over
+producer forces the consumer's igloo to at least the producer-capable rev
+(899189e). Not a bug: the go.nix bridge itself is consumer-transparent; the
+flake-level `follows` is not. Bump both together.
 
 ## Goal: drop gomod2nix (decided 2026-09-14)
 
