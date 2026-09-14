@@ -59,6 +59,9 @@ let
             imports = [ defaults ];
             virtualisation.memorySize = lib.mkDefault memorySize;
             virtualisation.cores = lib.mkDefault cores;
+            # Under TCG the guest's timer check against the emulated clock fails
+            # spuriously; every no-KVM lane set this by hand (piggy).
+            boot.kernelParams = lib.optionals (!kvm) [ "no_timer_check" ];
           };
         }
       ) tests

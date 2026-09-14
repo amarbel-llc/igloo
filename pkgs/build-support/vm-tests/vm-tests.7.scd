@@ -38,7 +38,14 @@ checks = pkgs.mkVmChecks {
 Merge the result into *checks.<system>* (it is *{ }* on non-Linux hosts, so
 no guard is needed at the call site). Every value is set with *mkDefault*, so
 a test module that states its own *globalTimeout* or a node's
-*virtualisation.memorySize* wins. *name* defaults to the attribute name.
+*virtualisation.memorySize* wins. *name* defaults to the attribute name. With
+*kvm = false* every node also gets *boot.kernelParams = [ "no_timer_check" ]*
+(the guest's timer check fails spuriously under TCG).
+
+*defaults* is one module for every test; a test that needs its own stack on
+top (a different daemon argv or seed per lane) adds it in the test module's
+own *defaults.imports* — the two merge, as piggy's per-lane stacks do — so
+one shared node module plus per-test additions is the expected shape.
 
 Keep repo-specific pieces in the repo: the stack module, the store or fixture
 setup a script needs, and the scenarios. Only the wrapper and the prelude are

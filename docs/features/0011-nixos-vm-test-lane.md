@@ -50,6 +50,15 @@ igloo's own `vm-tests-smoke` check boots a guest under TCG, exercises both
 helpers, proves `defaults` reached the node and that a test's own
 `globalTimeout` wins.
 
+**Second adopter (2026-09-14).** piggy fresh-beech `781466f` replaced its
+own wrapper with `mkVmChecks { defaults = sharedNode; tests = …; }`, each
+lane's stack in the test's own `defaults.imports`, and its bootstrap
+prefix with `vmTestPrelude`, on igloo `f235a1f`. Two observations fed back:
+per-test `defaults.imports` stacking (now documented), and the
+`no_timer_check` kernel parameter every TCG lane set by hand (now the
+library's no-KVM default). Promotion to testing waits on piggy's lanes
+merging green on those defaults.
+
 ## Limitations
 
 - **One VM boot per check, minutes each under TCG.** `nix flake check` boots
