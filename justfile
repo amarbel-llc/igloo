@@ -349,13 +349,13 @@ explore-test-godyn rev="ccc91bed0accabf12f63abc00e583d78aa20183e":
 #
 # time the godyn inner test loop (path: flake ref, one package)
 [group: 'explore']
-explore-godyn-test-loop attr="godyn-derived-tests-test" dir="leaf" flags="-test.run=. -test.v":
+explore-godyn-test-loop attr="godyn-derived-tests-test" dir="leaf" flags="-test.run=. -test.v" scheme="path":
     #!/usr/bin/env bash
     set -euo pipefail
     system=$(nix eval --impure --raw --expr builtins.currentSystem)
     nixflags=""
     for f in {{ flags }}; do nixflags+="\"$f\" "; done
-    expr="(builtins.getFlake \"path:$PWD\").packages.$system.{{ attr }}.passthru.testWith { dir = \"{{ dir }}\"; testFlags = [ $nixflags]; }"
+    expr="(builtins.getFlake \"{{ scheme }}:$PWD\").packages.$system.{{ attr }}.passthru.testWith { dir = \"{{ dir }}\"; testFlags = [ $nixflags]; }"
     for pass in first second; do
       start=$(date +%s%N)
       out=$(nix build --impure --no-link --print-out-paths --expr "$expr")
@@ -403,6 +403,23 @@ explore-godyn-go *args:
 [group: 'explore']
 explore-godyn-test *args:
     nix run --impure "path:.#godyn-test" -- {{ args }}
+
+# [explore] What a path: flake ref of this checkout copies into the store (FDR
+# 0008 cost question): whether .git and the git-ignored .tmp are in the copy,
+# and the copy's size. godyn-go and godyn-test build from such a ref.
+#
+# report whether a path: flake ref of this tree copies .git and .tmp
+[group: 'explore']
+explore-path-ref-contents:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out=$(nix eval --impure --raw --expr "(builtins.getFlake \"path:$PWD\").outPath")
+    echo "store copy: $out"
+    for d in .git .tmp; do
+      if [ -e "$out/$d" ]; then echo "$d: copied"; else echo "$d: not copied"; fi
+    done
+    du -sh "$out" | sed 's/^/copy size: /'
+    du -sh --apparent-size .tmp 2>/dev/null | sed 's/^/checkout .tmp size: /'
 
 # [explore] Test the overlay-flake migration against amarbel-llc/maneater
 # Clones into .tmp/maneater (or reuses), bumps the nixpkgs input, runs

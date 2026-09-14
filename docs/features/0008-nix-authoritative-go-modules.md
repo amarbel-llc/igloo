@@ -244,11 +244,17 @@ records the hashes and each module's Go version); `godyn-go` wraps both
 (godyn(7) § The escape hatch). On this host `go get` against the manifest
 fixture reached the proxy from inside the sandbox, wrote go.sum with the
 checksum database on, and the bump came back as a well-formed go.nix.
-Unverified: whether a `path:` flake ref of a repository root copies its
-`.git` (the fixture's `src` is a subdirectory). It does copy git-ignored
-directories — a parallel build failed when a transient `.tmp/nix-shell.*`
-vanished mid-copy — so a consumer's `.tmp` rides along in every run; that is
-the same cost the inner loop pays.
+**Measured (`explore-path-ref-contents`, `explore-godyn-test-loop`):** a
+`path:` flake ref of a checkout copies **everything** into the store —
+`.git` and the git-ignored `.tmp` included (igloo's worktree: 203 MB, 171 MB
+of it `.tmp`) — and re-copies on every edit; that copy is most of the inner
+loop's ~4.4 s no-op floor. A `git+file:` ref of the same dirty tree copies
+only tracked files (modified contents included) and floors at ~1.0 s on the
+same fixture; a new file is included once it is `git add -N`'d (verified).
+`godyn-go` and `godyn-test` use `path:` today. **Open decision:** switch them
+to `git+file:` (fast, `.tmp`-free, new files need intent-to-add — the fleet's
+existing `nix build` convention) or keep `path:` (no git step, 4× slower,
+`.tmp` in every escape-hatch tree).
 
 Rules the pair must keep:
 
