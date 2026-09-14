@@ -227,6 +227,22 @@ the toolchain change took ~1h50m, dominated by per-package vet across all
 dependencies in four lanes — accepted as amortised. Its consumers' bumps
 follow.
 
+**Rollout precondition found on cutting-garden's consumers (2026-09-14):**
+a fleet module consumed as a **versioned require** (a tag or pseudo-version
+fetched from the vanity host and hashed in the consumer's toml) keeps
+building on its current pin, whose module zip predates the cutover, but any
+bump to a rev at or after the producer's cutover fetches a tree with no
+go.mod and breaks. Only bridged consumers (`goFlakeInputs`, or `flakeInputs`
+in go.nix) are unaffected. Sweep of the fleet's go.mod files: versioned-only
+consumers of tommy — moxy, purse-first/libs/dewey, nebulous (indirect),
+circus/nix-cache (indirect); of crap/go-crap — papi, circus/nix-cache; of
+cutting-garden — nebulous. Decision (operator, 2026-09-14): fleet Go modules
+are consumed only through bridges; nebulous converts by cutting over
+(fifth tracer, cutting-garden as a `flakeInputs` entry). The remaining
+versioned consumers convert before they next bump the producer. A
+conformist linter flagging a fleet module required without a bridge would
+stop it recurring (conformist's lane).
+
 ## Goal: drop gomod2nix (decided 2026-09-14)
 
 go.nix replaces gomod2nix as a consumer-facing tool: no gomod2nix.toml, no
