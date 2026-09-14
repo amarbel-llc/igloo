@@ -66,6 +66,7 @@ final: _: {
     buildGodynLint
     buildGoAuto
     godyn-gen
+    godyn-go
     godyn-lint
     godynStdlib
     godynSystems

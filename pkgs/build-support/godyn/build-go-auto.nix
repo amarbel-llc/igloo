@@ -199,6 +199,10 @@ chosen.overrideAttrs (old: {
       ;
     # the codegen drift check (FDR 0008) is backend-independent: it runs in the
     # vendored module tree, never against a compiled package.
-    inherit (native.passthru) codegenCheck;
+    inherit (native.passthru) codegenCheck goRun;
+    # ingest (FDR 0008) from this call's manifest: the native backend is built
+    # from the manifest's rendered args, not the manifest itself.
+    inherit manifest;
+    ingest = out: godynManifest.ingestGoNix { inherit pname manifest out; };
   };
 })

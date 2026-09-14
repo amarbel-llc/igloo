@@ -32,8 +32,16 @@ rec {
   godynManifest = callPackage ./manifest.nix { };
   buildGodynModuleFromArgs = callPackage ./build-godyn-module.nix {
     stdlib = godynStdlib;
-    inherit gomod2nixInternals godyn-lint godyn-gen;
+    inherit
+      gomod2nixInternals
+      godyn-lint
+      godyn-gen
+      godynManifest
+      ;
   };
+  # godyn-go: the escape hatch CLI (FDR 0008) — runs a go command in
+  # passthru.goRun, applies its patch, and rewrites go.nix from passthru.ingest.
+  godyn-go = callPackage ./go-cli { };
   # A go.nix consumer passes manifest (+ inputs, goFlakeInputOverrides) instead of
   # modules, goFlakeInputs and a tracked go.mod; every other arg is unchanged.
   buildGodynModule = args: buildGodynModuleFromArgs (godynManifest.withManifest args);

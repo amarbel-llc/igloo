@@ -177,9 +177,16 @@ let
       text,
       hashes,
       flakeInputs ? { },
+      # module path -> its own Go language version (from gomod2nix.toml's goVersion)
+      goVersions ? { },
     }:
     let
       g = parseGoMod text;
+      # A module replaced to a store path is a bridged fleet module (declared or
+      # inherited, RFC 0001): never recorded — the flake input is its version.
+      bridged = builtins.attrNames (
+        lib.filterAttrs (_: r: r ? path && lib.hasPrefix builtins.storeDir r.path) (g.replace or { })
+      );
       lines = lib.splitString "\n" text;
       indirectRe = ".*//[[:space:]]*indirect[[:space:]]*";
       indirect = lib.concatMap (
@@ -197,7 +204,7 @@ let
         "retract"
         "tool"
       ];
-      fleetKeys = builtins.attrNames flakeInputs;
+      fleetKeys = builtins.attrNames flakeInputs ++ bridged;
       require = removeAttrs g.require fleetKeys;
       missingHash = builtins.filter (p: !(hashes ? ${p})) (builtins.attrNames require);
       replaceFrom =
@@ -228,11 +235,61 @@ let
             version = v;
             hash = hashes.${p};
           }
+          // lib.optionalAttrs (goVersions ? ${p}) { go = goVersions.${p}; }
           // lib.optionalAttrs (lib.elem p indirect) { indirect = true; }
         ) require;
-        replace = lib.mapAttrs replaceFrom (removeAttrs g.replace fleetKeys);
+        replace = lib.mapAttrs replaceFrom (removeAttrs (g.replace or { }) fleetKeys);
       }
       // lib.optionalAttrs (flakeInputs != { }) { inherit flakeInputs; };
+
+  # ingest: the manifest after an escape-hatch run (passthru.goRun's output —
+  # go.mod plus gomod2nix.toml). Hashes and Go versions come from the toml; the
+  # current manifest's flakeInputs are carried over (their require/replace pairs,
+  # and any inherited bridge, are dropped from the go.mod). Pure, given the
+  # output's path.
+  ingest =
+    {
+      manifest,
+      out,
+    }:
+    let
+      m = load manifest;
+      toml = builtins.fromTOML (builtins.readFile "${out}/gomod2nix.toml");
+      mods = toml.mod or { };
+      goVersions = lib.concatMapAttrs (
+        p: v: lib.optionalAttrs (v ? goVersion) { ${p} = v.goVersion; }
+      ) mods;
+    in
+    fromGoMod {
+      text = builtins.readFile "${out}/go.mod";
+      hashes = lib.mapAttrs (_: v: v.hash) mods;
+      inherit goVersions;
+      inherit (m) flakeInputs;
+    };
+
+  # ingest rendered as go.nix text — what passthru.ingest returns (null manifest:
+  # the module is not a go.nix module).
+  ingestGoNix =
+    {
+      pname,
+      manifest,
+      out,
+    }:
+    if manifest == null then
+      throw "${pname}: ingest needs a manifest (go.nix)"
+    else
+      renderGoNix (ingest {
+        inherit manifest out;
+      });
+
+  # go.nix source text for a manifest: plain data, sorted keys, ready to commit.
+  renderGoNix =
+    manifest:
+    "# go.nix — this module's dependencies (FDR 0008); go.mod, gomod2nix.toml and\n"
+    + "# the package graph are rendered or derived from it inside nix. Edit through\n"
+    + "# the escape hatch (godyn-go) or by hand.\n"
+    + lib.generators.toPretty { } (load manifest)
+    + "\n";
 
   # Builder args with manifest (+ inputs, goFlakeInputOverrides) turned into plain
   # ones: a source tree carrying the rendered go.mod (the tracked tree must have
@@ -251,8 +308,8 @@ let
       else if builtins.pathExists "${src}/go.mod" then
         throw "${pname}: a go.nix module must not track a go.mod (FDR 0008); remove it from ${toString src}"
       else
+        # manifest stays: the builder keeps it for passthru.ingest
         removeAttrs args [
-          "manifest"
           "inputs"
           "goFlakeInputOverrides"
         ]
@@ -282,6 +339,9 @@ in
     renderGomod2nixToml
     goFlakeInputsFor
     fromGoMod
+    ingest
+    ingestGoNix
+    renderGoNix
     withManifest
     ;
 }

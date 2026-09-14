@@ -24,9 +24,18 @@
   godyn-gen,
   buildGoCheck,
   gomod2nixInternals,
+  # the escape hatch's tools (FDR 0008): git for the patch, cacert for the
+  # network, gomod2nix for ingest's hashes
+  git,
+  cacert,
+  gomod2nix,
+  godynManifest,
 }:
 {
   pname,
+  # manifest: the module's go.nix (FDR 0008), left in place by withManifest (which
+  # turned it into src/modules/goFlakeInputs) so passthru.ingest can update it.
+  manifest ? null,
   # Version embedding (parity with buildGoApplication, eng-versioning(7)): an
   # explicit `version` wins; else a `version.env` (declaring <PKG>_VERSION) in the
   # module dir is auto-read; else "dev". Drives -X main.version.
@@ -526,6 +535,69 @@ let
           echo "godyn codegen drift (${pname}): the generated files above differ from the source tree; regenerate and commit them" >&2
           exit 1
         fi
+      '';
+    };
+
+  # The escape hatch (FDR 0008): run a go command that needs the network (go get,
+  # go mod tidy) or rewrites the tree (go generate) INSIDE nix, against the
+  # module's rendered/merged go.mod, and hand the results back. An impure
+  # derivation — network allowed, never cached, never a pure derivation's input —
+  # so it is not a flake check. The tree is src plus go.mod (fleet modules
+  # replaced to their store paths); `go mod download` writes go.sum with GOSUMDB
+  # on; then `command` runs. $out holds: patch — `git diff --no-index --binary`
+  # of src against the tree, go.mod and go.sum excluded (apply with `git apply
+  # -p2`; empty when nothing changed); go.mod — the tree's, after the command;
+  # gomod2nix.toml — `gomod2nix generate` over it, the hashes and Go versions
+  # ingest records. Tools the command needs come through nativeBuildInputs.
+  goRun =
+    {
+      command,
+      nativeBuildInputs ? [ ],
+    }:
+    let
+      base = checkBase "goRun";
+      goMod = base.passthru.mergedGoMod or "${src}/go.mod";
+    in
+    stdenv.mkDerivation {
+      name = "${pname}-go-run";
+      __impure = true;
+      nativeBuildInputs = [
+        go
+        git
+        cacert
+        gomod2nix
+      ]
+      ++ nativeBuildInputs;
+      dontUnpack = true;
+      dontInstall = true;
+      buildPhase = ''
+        runHook preBuild
+        export HOME="$TMPDIR/home" GOMODCACHE="$TMPDIR/gomodcache" GOCACHE="$TMPDIR/gocache"
+        export GOTOOLCHAIN=local GOFLAGS=-mod=mod
+        export SSL_CERT_FILE=${cacert}/etc/ssl/certs/ca-bundle.crt NIX_SSL_CERT_FILE=$SSL_CERT_FILE
+        mkdir -p "$HOME" "$out"
+        cp -r --no-preserve=mode ${src} src
+        cp -r --no-preserve=mode ${src} work
+        ls -A src > "$out/src-listing"
+        cp --no-preserve=mode ${goMod} work/go.mod
+        rm -f work/go.sum
+        (
+          cd work
+          go mod download
+          ${command}
+          cp go.mod "$out/go.mod"
+          [ ! -f go.sum ] || cp go.sum "$out/go.sum"
+          gomod2nix generate --dir . --outdir "$out"
+        )
+        # go.mod and go.sum are ingest's, not the patch's
+        rm -f work/go.mod work/go.sum
+        for f in go.mod go.sum; do [ ! -f "src/$f" ] || cp "src/$f" "work/$f"; done
+        set +e
+        git diff --no-index --binary src work > "$out/patch"
+        rc=$?
+        set -e
+        [ "$rc" -le 1 ] || { echo "goRun: git diff failed ($rc)" >&2; exit "$rc"; }
+        runHook postBuild
       '';
     };
 
@@ -1143,8 +1215,8 @@ let
 
   # Compile-only terminal for a library graph (no package main): a manifest that
   # depends on every compiled package archive (so building it realises the whole
-  # graph) and lists the import paths.
-  manifest = runCommandLocal "godyn-${pname}-manifest" { } (
+  # graph) and lists the import paths. (Not the go.nix `manifest` argument.)
+  libraryTerminal = runCommandLocal "godyn-${pname}-manifest" { } (
     ": > $out\n"
     + lib.concatMapStringsSep "\n" (
       p: "test -s ${pkgDrvs.${p.importPath}}/pkg.a && echo '${p.importPath}' >> $out"
@@ -1511,7 +1583,7 @@ let
   # the runtime closure.
   terminal =
     if mainPkg == null then
-      manifest
+      libraryTerminal
     else
       runCommandLocal "${pname}-${effectiveVersion}" { } (
         "mkdir -p $out/bin\n"
@@ -1592,6 +1664,13 @@ installed.overrideAttrs (old: {
     # codegen drift (FDR 0008): { command; nativeBuildInputs; exclude; } — run the
     # generators in the vendored module tree and fail on any diff from src.
     inherit codegenCheck;
+    # the escape hatch (FDR 0008): { command; nativeBuildInputs; } — an impure
+    # derivation running the command against the rendered module (see goRun).
+    inherit goRun;
+    # ingest (FDR 0008): go.nix source text for the module after an escape-hatch
+    # run — `out` is a goRun output path (its go.mod and gomod2nix.toml are read).
+    inherit manifest;
+    ingest = out: godynManifest.ingestGoNix { inherit pname manifest out; };
     # per-package vet and lint: run derivations for the local packages by import
     # path (a finding fails the build), and each lane's manifest for flake checks.
     vet = vetLane.local;

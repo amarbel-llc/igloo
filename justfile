@@ -367,6 +367,35 @@ explore-godyn-test-loop attr="godyn-derived-tests-test" dir="leaf" flags="-test.
     echo "--- test.log (last 20 lines) ---"
     tail -n 20 "$out/test.log"
 
+# [explore] Run godyn's escape hatch (FDR 0008) on a package of this tree: build
+# passthru.goRun { command } — an impure derivation (network allowed, never
+# cached) running the command against the rendered module — and print its
+# outputs: the patch against src, the resulting go.mod and gomod2nix.toml.
+#
+# run a go command in godyn's escape hatch and show its outputs
+[group: 'explore']
+explore-godyn-go-run attr="godyn-manifest-test" cmd="go mod tidy":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    system=$(nix eval --impure --raw --expr builtins.currentSystem)
+    cmd={{ quote(cmd) }}
+    expr="(builtins.getFlake \"path:$PWD\").packages.$system.{{ attr }}.passthru.goRun { command = $(printf '%s' "$cmd" | jq -Rs .); }"
+    out=$(nix build --impure --no-link --print-out-paths --expr "$expr")
+    echo "goRun output: $out"
+    for f in src-listing patch go.mod gomod2nix.toml; do
+      echo "--- $f ---"; cat "$out/$f"
+    done
+
+# [explore] Run the godyn-go escape hatch CLI (FDR 0008) from this tree, e.g.
+#   just explore-godyn-go -A packages.x86_64-linux.godyn-manifest-test \
+#     -m pkgs/build-support/godyn/tests/manifest/go.nix -- go get github.com/google/go-cmp@v0.7.0
+# Rewrites the named go.nix (and applies any patch) — revert afterwards.
+#
+# run godyn-go (the escape hatch CLI) with the given arguments
+[group: 'explore']
+explore-godyn-go *args:
+    nix run --impure "path:.#godyn-go" -- {{ args }}
+
 # [explore] Test the overlay-flake migration against amarbel-llc/maneater
 # Clones into .tmp/maneater (or reuses), bumps the nixpkgs input, runs
 # nix flake check + nix build .#default.

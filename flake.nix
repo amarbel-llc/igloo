@@ -180,7 +180,7 @@
           # go:embed (-embedcfg) and -ldflags version stamping. Built as packages so
           # `nix build .#godyn-{embed,ldflags}-test` produces a runnable binary; the
           # checks below assert their output.
-          inherit (pkgs) godyn-gen nixgc;
+          inherit (pkgs) godyn-gen godyn-go nixgc;
           godyn-embed-test = pkgs.buildGodynModule {
             pname = "godyn-embed-test";
             src = ./pkgs/build-support/godyn/tests/embed;
@@ -1027,6 +1027,71 @@
               {
                 command = "go generate ./...";
               };
+          # ingest (FDR 0008), the pure half of the escape hatch: from a goRun
+          # output captured after `go get github.com/google/go-cmp@v0.7.0` (its
+          # go.mod carries the fleet module's sentinel require and store-path
+          # replace), the manifest gains the bumped version, hash and Go version,
+          # keeps its flakeInputs, records no bridge — and the rendered go.nix
+          # evaluates back to the same data.
+          godyn-manifest-ingest-test =
+            let
+              m = pkgs.callPackage ./pkgs/build-support/godyn/manifest.nix { };
+              fixture = ./pkgs/build-support/godyn/tests/manifest;
+              ingested = m.ingest {
+                manifest = fixture + "/go.nix";
+                out = fixture + "/escape-hatch";
+              };
+              expected = (m.load (fixture + "/go.nix")) // {
+                require."github.com/google/go-cmp" = {
+                  version = "v0.7.0";
+                  hash = "sha256-JbxZFBFGCh/Rj5XZ1vG94V2x7c18L8XKB0N9ZD5F2rM=";
+                  go = "1.21";
+                };
+              };
+              rendered = m.renderGoNix ingested;
+              viaCli = self.packages.${system}.godyn-manifest-test.passthru.ingest (fixture + "/escape-hatch");
+            in
+            assert m.load ingested == expected;
+            assert m.load (import (builtins.toFile "go.nix" rendered)) == expected;
+            assert viaCli == rendered;
+            pkgs.runCommandLocal "godyn-manifest-ingest-test-check" { } ''
+              grep -q 'v0.7.0' ${builtins.toFile "ingested.go.nix" rendered}
+              echo OK > $out
+            '';
+          # migration (FDR 0008): ingest over a checkout's own go.mod + gomod2nix.toml
+          # — seeded with module, go and the fleet modules as flakeInputs — yields a
+          # manifest whose rendered go.mod parses equal to the original minus the
+          # fleet module's require and relative-path replace (cross/app), and, for a
+          # module with third-party requires (the gomod2nix CLI: two require blocks,
+          # indirect markers), carries the toml's hashes.
+          godyn-manifest-migrate-test =
+            let
+              m = pkgs.callPackage ./pkgs/build-support/godyn/manifest.nix { };
+              inherit (import ./pkgs/build-support/gomod2nix/parser.nix) parseGoMod;
+              app = ./pkgs/build-support/godyn/tests/cross/app;
+              lang = ./pkgs/build-support/gomod2nix/cli;
+              appManifest = m.ingest {
+                manifest = {
+                  inherit (parseGoMod (builtins.readFile (app + "/go.mod"))) module go;
+                  flakeInputs."example.com/dep".input = "dep";
+                };
+                out = app;
+              };
+              langGoMod = parseGoMod (builtins.readFile (lang + "/go.mod"));
+              langManifest = m.ingest {
+                manifest = { inherit (langGoMod) module go; };
+                out = lang;
+              };
+              langToml = builtins.fromTOML (builtins.readFile (lang + "/gomod2nix.toml"));
+            in
+            assert appManifest.require == { };
+            assert appManifest.replace == { };
+            assert appManifest.flakeInputs."example.com/dep".input == "dep";
+            assert parseGoMod (m.renderGoMod { manifest = langManifest; }) == langGoMod;
+            assert
+              pkgs.lib.mapAttrs (_: r: r.hash) langManifest.require
+              == pkgs.lib.mapAttrs (_: v: v.hash) langToml.mod;
+            pkgs.runCommandLocal "godyn-manifest-migrate-test-check" { } "echo OK > $out";
           godyn-manifest-codegen-drift-test = pkgs.testers.testBuildFailure' {
             drv = self.packages.${system}.godyn-manifest-test.passthru.codegenCheck {
               command = "go generate ./... && echo '// drift' >> generated.go";

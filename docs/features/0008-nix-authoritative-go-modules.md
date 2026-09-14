@@ -187,11 +187,11 @@ unverified:
 | `checks.lint`: `buildGoLint` on the bga base | godyn lint and vet lanes from a manifest | landed (`godyn-manifest-lint-test`, `godyn-manifest-vet-test`); the suite is godyn-lint's, not golangci-lint's (godyn(7) § LINT) |
 | codegen drift check (`verify-tommy-codegen` in the merge gate) | a **pure** check: run the generator against the rendered module, diff against committed output | landed: `passthru.codegenCheck { command; nativeBuildInputs; exclude; }` runs the command in the vendored module tree and fails on any diff from `src` (`godyn-manifest-codegen-test`, `godyn-manifest-codegen-drift-test`); the tommy invocation itself is spinclass's to wire |
 | inner loop: fast, cached `go test <pkg>` on the dirty tree (`debug-go-test`) | **decided 2026-09-14:** a godyn command that builds one package's test run from a `path:` flake ref (uncommitted and untracked files included), with per-invocation test flags; only the edited cone rebuilds | `passthru.testWith` landed (`godyn-test-with-test`); measured on the gotest fixture (`explore-godyn-test-loop`, x86_64-linux, one host): no-op floor ~4.4 s, a `_test.go` edit or a new untracked test file ~6.6–7.4 s (both graphs re-derived, test binary rebuilt, run). The floor is evaluation plus the tree copy; the CLI wrapper is to build |
-| `go generate` / `go get` / `go mod tidy` writing back | escape hatch + `ingest` | designed, not built |
+| `go generate` / `go get` / `go mod tidy` writing back | escape hatch + `ingest` | landed: `passthru.goRun` (impure derivation), `passthru.ingest`, the `godyn-go` CLI; verified on the manifest fixture (`go get` bump ingested end to end, `explore-godyn-go`); the pure half is checked (`godyn-manifest-ingest-test`) |
 | agent `go doc` (hamster) through the module (*theory*) | first-class answer needed | open |
 | conformist: eng-versioning reads go.mod's module path, tommy codegen repair hook type-loads packages, gofumpt reads the go directive (all *theory*) | go.nix-aware equivalents; conformist/tommy lanes to confirm | open |
 | devshell `mkGoEnv` + gomod2nix CLI | retired | open |
-| migration: go.mod + gomod2nix.toml → go.nix | `ingest` / `fromGoMod` | core landed; CLI not built |
+| migration: go.mod + gomod2nix.toml → go.nix | `godyn-go -I <dir>` over a seed go.nix (module, go, flakeInputs) | landed (`godyn-manifest-migrate-test`: fleet requires and relative replaces drop, third-party hashes carry over; verified on a fixture with the CLI) |
 
 Ordering constraint: spinclass's own merge gate runs its codegen recipes, so
 the replacements land before spinclass removes go.mod.
@@ -236,6 +236,19 @@ which needs `ca-derivations`); each run copies the checkout into
 the store and starts with an empty module cache; the build has no SSH agent
 or git credentials; generators that shell out to non-Go tools must declare
 them.
+
+**Landed (2026-09-14).** `passthru.goRun { command; nativeBuildInputs; }` is
+the impure derivation; `passthru.ingest <out>` renders go.nix from its go.mod
+and gomod2nix.toml (`gomod2nix generate` runs inside the derivation, so it
+records the hashes and each module's Go version); `godyn-go` wraps both
+(godyn(7) § The escape hatch). On this host `go get` against the manifest
+fixture reached the proxy from inside the sandbox, wrote go.sum with the
+checksum database on, and the bump came back as a well-formed go.nix.
+Unverified: whether a `path:` flake ref of a repository root copies its
+`.git` (the fixture's `src` is a subdirectory). It does copy git-ignored
+directories — a parallel build failed when a transient `.tmp/nix-shell.*`
+vanished mid-copy — so a consumer's `.tmp` rides along in every run; that is
+the same cost the inner loop pays.
 
 Rules the pair must keep:
 
@@ -309,8 +322,9 @@ directives into a go.mod.
   checkout has no go.mod, and the escape hatch runs only batch commands. That
   is the intended cost of "no toolchain outside nix" until a native-support
   POC says otherwise.
-- **Migration**: every consumer converts its go.mod once (`ingest` is also the
-  migration tool) and stops editing go.mod directly.
+- **Migration**: every consumer converts its go.mod once (`godyn-go -I` is the
+  migration tool) and stops editing go.mod directly. go.nix is rewritten as
+  plain sorted data on every ingest, so comments in it do not survive.
 - **Third-party Go versions** have to be recorded per module (from each
   module's own go.mod, at ingest time) to fix per-package `-lang`.
 

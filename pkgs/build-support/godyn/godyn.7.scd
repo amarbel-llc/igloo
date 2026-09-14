@@ -24,6 +24,8 @@ The public surface exposed on *pkgs* is:
 - *buildGodynModule* — build a Go module from a committed graph.json
 - *buildGoAuto* — pick godyn (dev) vs buildGoApplication (ci) by strategy
 - *godyn-gen* — the dev-time graph generator CLI
+- *godyn-go* — the go.nix escape hatch CLI: go commands with network access run
+  inside nix, results patched back, go.nix rewritten (§ GO.NIX MANIFEST)
 - *godynStdlib* — the shared CGO_ENABLED=1 Go stdlib derivation, reused by every
   per-package compile (built once, cached normally)
 
@@ -148,6 +150,48 @@ checks.<system>.myapp-codegen = myapp.passthru.codegenCheck {
   nativeBuildInputs = [ pkgs.stringer ];
 };
 ```
+
+## The escape hatch: goRun, ingest and godyn-go
+
+The go toolchain outside nix is unsupported, but *go get*, *go mod tidy* and
+generators still need a module with a go.mod. *passthru.goRun { command;
+nativeBuildInputs ? [ ]; }* (buildGodynModule and buildGoAuto) runs the command
+INSIDE nix against the rendered module: an impure derivation (*__impure*, so
+the network is available and nothing is cached — the *impure-derivations*
+experimental feature must be enabled on the host; it can never be a pure
+derivation's input, so it is not a flake check). Its tree is *src* plus the
+rendered go.mod (fleet modules replaced to their store paths); *go mod
+download* writes go.sum with GOSUMDB on; then the command runs. *$out* holds
+*patch* (*git diff --no-index --binary* of src against the tree, go.mod and
+go.sum excluded — empty when nothing changed), *go.mod*, *go.sum*,
+*gomod2nix.toml* (the hashes and Go versions of the result) and *src-listing*.
+
+*passthru.ingest <goRun output path>* is the pure half: go.nix source text for
+the module after the run — the go.mod's requires with the toml's hashes and Go
+versions, the manifest's *flakeInputs* carried over (their sentinel require and
+store-path replace, and any inherited bridge's, are dropped, never recorded),
+and *replace* for what survives. Comments and *toolchain*, *godebug*,
+*exclude*, *retract* and *tool* directives are rejected, never silently lost.
+The rendered go.nix is plain data with sorted keys; hand-written comments in
+the previous go.nix do not survive.
+
+*godyn-go* is the thin wrapper, run from the flake root:
+
+```
+godyn-go [-A <attr>] [-m <go.nix>] [-n] -- go get github.com/google/go-cmp@v0.7.0
+godyn-go [-m <go.nix>] -I <dir>
+```
+
+It builds *<attr>.passthru.goRun* (default *packages.<system>.default*) from a
+*path:* flake ref of the current directory, so uncommitted and untracked files
+are included; applies the patch with *git apply --check* then *git apply* (a
+touched file that changed in the checkout meanwhile aborts, nothing written,
+the patch's store path printed); and rewrites *<go.nix>* (default *./go.nix*)
+from *passthru.ingest*. *-n* stops after the build. *-I <dir>* only ingests
+<dir>'s go.mod and gomod2nix.toml into <go.nix>, seeded from the existing
+<go.nix> — the migration of a go.mod module: *gomod2nix generate*, write the
+seed (*module*, *go*, *flakeInputs*), *godyn-go -I .*, then remove go.mod,
+go.sum and gomod2nix.toml.
 
 # buildGoAuto (selector)
 
