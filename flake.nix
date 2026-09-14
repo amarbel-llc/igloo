@@ -406,27 +406,64 @@
               goFlakeInputs."example.com/p" = p.go-pkgs;
               version = "0.0.0";
             };
-          # The same consumer from go.nix (FDR 0008): q is a third-party require in
-          # the manifest (bogus hash) AND p's inherited bridge — the bridge must win
-          # and the hash never be fetched (spinclass's tap/go via tommy).
+          # go.nix on BOTH sides of RFC 0001 (FDR 0008). pm is producer p described
+          # by go.nix: mkGoPkgs renders go.mod/gomod2nix.toml into its go-pkgs and
+          # resolves its flakeInputs (q) into passthru.goFlakeInputs. The go.nix
+          # consumer cm bridges it through `inputs`; q is also a third-party require
+          # in cm's manifest (bogus hash) — the inherited bridge must win and the
+          # hash never be fetched.
           godyn-producer-manifest-test =
             let
-              q = pkgs.mkGoPkgs {
-                src = ./pkgs/build-support/godyn/tests/producer/q;
-                name = "q";
-              };
-              p = pkgs.mkGoPkgs {
-                src = ./pkgs/build-support/godyn/tests/producer/p;
-                name = "p";
-                goFlakeInputs."example.com/q" = q.go-pkgs;
-              };
+              inherit (self.packages.${system}.godyn-producer-gonix-test.passthru) pm;
             in
             pkgs.buildGoAuto {
               pname = "godyn-producer-manifest-test";
               src = ./pkgs/build-support/godyn/tests/producer/cm;
               manifest = ./pkgs/build-support/godyn/tests/producer/cm/go.nix;
-              inputs.p.packages.${system}.go-pkgs = p.go-pkgs;
+              inputs.p.packages.${system}.go-pkgs = pm.go-pkgs;
               version = "0.0.0";
+            };
+          # The ORGANIC consumer c (go.mod + gomod2nix.toml) bridging the go.nix
+          # producer pm through goFlakeInputs, on both backends: a producer's cutover
+          # must be invisible to consumers that have not cut over. passthru.pm is the
+          # producer for the other fixtures.
+          godyn-producer-gonix-test =
+            let
+              q = pkgs.mkGoPkgs {
+                src = ./pkgs/build-support/godyn/tests/producer/q;
+                name = "q";
+              };
+              pm = pkgs.mkGoPkgs {
+                src = ./pkgs/build-support/godyn/tests/producer/pm;
+                manifest = ./pkgs/build-support/godyn/tests/producer/pm/go.nix;
+                inputs.q.packages.${system}.go-pkgs = q.go-pkgs;
+              };
+            in
+            (pkgs.buildGoAuto {
+              pname = "godyn-producer-gonix-test";
+              src = ./pkgs/build-support/godyn/tests/producer/c;
+              modules = ./pkgs/build-support/godyn/tests/producer/c/gomod2nix.toml;
+              goFlakeInputs."example.com/p" = pm.go-pkgs;
+              version = "0.0.0";
+            }).overrideAttrs
+              (old: {
+                passthru = old.passthru // {
+                  inherit pm q;
+                };
+              });
+          # The go.nix producer self-consuming its go-pkgs-test (the RFC 0001
+          # producer contract): its rendered files drive the build and its tests run.
+          godyn-producer-gonix-self-test =
+            let
+              inherit (self.packages.${system}.godyn-producer-gonix-test.passthru) pm q;
+            in
+            pkgs.buildGodynModule {
+              pname = "godyn-producer-gonix-self-test";
+              src = pm.go-pkgs-test;
+              modules = "${pm.go-pkgs-test}/gomod2nix.toml";
+              goFlakeInputs."example.com/q" = q.go-pkgs;
+              version = "0.0.0";
+              tests = true;
             };
           godyn-producer-self-test =
             let
@@ -1177,6 +1214,32 @@
                 */vendor/*) echo "q sourced from the vendor tree: $dir" >&2; exit 1 ;;
               esac
               [ ! -e ${m.passthru.native.passthru.vendorEnv}/example.com/q ] || { echo "vendor tree carries q" >&2; exit 1; }
+              echo OK > $out
+            '';
+          # go.nix producer (FDR 0008): its go-pkgs carry a rendered go.mod (module,
+          # go, a sentinel require for q, no replace) and gomod2nix.toml, and
+          # passthru.goFlakeInputs names q; the organic consumer c builds and runs
+          # against it on both backends; the producer's own tests pass from its
+          # go-pkgs-test.
+          godyn-producer-gonix-test =
+            let
+              t = self.packages.${system}.godyn-producer-gonix-test;
+              inherit (t.passthru) pm;
+              selfTest = self.packages.${system}.godyn-producer-gonix-self-test;
+            in
+            assert pm.go-pkgs.passthru.goFlakeInputs ? "example.com/q";
+            pkgs.runCommandLocal "godyn-producer-gonix-test-check" { } ''
+              grep -qx "module example.com/p" ${pm.go-pkgs}/go.mod
+              grep -q "example.com/q v0.0.0-00010101000000-000000000000" ${pm.go-pkgs}/go.mod
+              ! grep -q "replace" ${pm.go-pkgs}/go.mod
+              grep -qx "schema = 3" ${pm.go-pkgs}/gomod2nix.toml
+              [ -f ${pm.go-pkgs}/go.nix ] && [ -f ${pm.go-pkgs-test}/go.mod ] && [ -f ${pm.go-pkgs-test}/p_test.go ]
+              [ ! -f ${pm.go-pkgs}/p_test.go ]
+              for b in ${t.passthru.native}/bin/c ${t.passthru.bga}/bin/c; do
+                got=$("$b")
+                [ "$got" = "p wraps q" ] || { echo "$b printed [$got]" >&2; exit 1; }
+              done
+              grep -qx "ok example.com/p" ${selfTest.passthru.checkAll} || { echo "p's tests did not run" >&2; exit 1; }
               echo OK > $out
             '';
           # build tags select files in the derived graph: untagged links the

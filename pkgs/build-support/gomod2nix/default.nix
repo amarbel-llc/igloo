@@ -89,7 +89,15 @@ let
   sourceFilter = import ./source-filter.nix { inherit lib runCommand; };
   inherit (sourceFilter) goSourceFilter goSourceFilterMiddleware;
 
-  goPkgsHelper = import ./mk-go-pkgs.nix { inherit lib runCommand; };
+  goPkgsHelper = import ./mk-go-pkgs.nix {
+    inherit lib runCommand;
+    # go.nix producers (FDR 0008): render go.mod/gomod2nix.toml into go-pkgs
+    manifestLib = import ../godyn/manifest.nix {
+      inherit lib stdenv;
+      runCommandLocal = runCommand;
+    };
+    system = stdenv.hostPlatform.system;
+  };
   inherit (goPkgsHelper) mkGoPkgs;
 
   # Resolve a caller-supplied (pwd, src) pair into an effective pwd, with

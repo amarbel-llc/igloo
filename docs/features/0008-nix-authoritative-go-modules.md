@@ -165,6 +165,15 @@ Comments other than `// indirect`, and `toolchain`, `godebug`, `exclude`,
 to come: the escape hatch (render into a derivation, `ingest`) and a fleet
 consumer.
 
+**Producers (2026-09-14).** `mkGoPkgs` accepts `manifest` (+ `inputs`,
+`goFlakeInputOverrides`): a go.nix producer's `go-pkgs` outputs carry a
+rendered go.mod (sentinel requires for its fleet modules, no replace) and
+gomod2nix.toml, and its `flakeInputs` become `passthru.goFlakeInputs`, so
+consumers bridge it unchanged whether or not they have cut over
+(`godyn-producer-gonix-test`: organic consumer, both backends, producer
+self-test; `godyn-producer-manifest-test`: go.nix consumer). This is what the
+second tracer, a producer, needs before it drops go.mod.
+
 ## Goal: drop gomod2nix (decided 2026-09-14)
 
 go.nix replaces gomod2nix as a consumer-facing tool: no gomod2nix.toml, no

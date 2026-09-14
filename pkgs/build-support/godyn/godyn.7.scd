@@ -135,6 +135,24 @@ pkgs.buildGoAuto { pname = "myapp"; src = self; inherit inputs; manifest = ./go.
   is rejected, and *manifest* cannot be combined with *modules* or *goFlakeInputs*.
 - Builds need no go.sum: the rendered go.mod builds in vendor mode.
 
+## Producers: mkGoPkgs with a manifest
+
+An RFC 0001 producer on go.nix passes *manifest* (plus *inputs* and
+*goFlakeInputOverrides*) to *mkGoPkgs* instead of tracking a go.mod:
+
+```
+mkGoPkgs { src = self; manifest = ./go.nix; inherit inputs; }
+```
+
+Its *go-pkgs* and *go-pkgs-test* then carry a rendered go.mod (module, go,
+requires, and a sentinel require for each fleet module — no replace; a
+consumer's merge supplies those) and gomod2nix.toml, so consumers that have
+not cut over bridge it exactly as before, and its *flakeInputs* become
+*passthru.goFlakeInputs* for depth-N inheritance. The producer self-consumes
+its *go-pkgs-test* as today (*modules* from the rendered toml). Checks
+*godyn-producer-gonix-test* and *godyn-producer-manifest-test* cover an organic
+and a go.nix consumer of such a producer.
+
 ## Codegen drift: codegenCheck
 
 *passthru.codegenCheck { command; nativeBuildInputs ? [ ]; exclude ? [ ]; }*

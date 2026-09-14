@@ -34,20 +34,29 @@
 #    self-consumption a producer can publish `go-pkgs-test` that
 #    subtly fails downstream and never notice. RFC 0001 § Producer
 #    interface carries the corresponding SHOULD recommendation.
-{ lib, runCommand }:
+{
+  lib,
+  runCommand,
+  # The go.nix manifest library (FDR 0008) and the evaluating system, for
+  # producers whose module is described by go.nix instead of a tracked go.mod.
+  manifestLib ? null,
+  system ? null,
+}:
 let
   # Build a derivation containing the files of `src` that satisfy
   # `predicate`, always traversing directories. The predicate receives
   # the source-tree-relative path of each non-directory file. Optional
   # `passthru` is forwarded to the resulting derivation so callers can
   # attach metadata (e.g. `goFlakeInputs` per RFC 0001 § Producer-side
-  # passthru inheritance, addressing amarbel-llc/nixpkgs#36).
+  # passthru inheritance, addressing amarbel-llc/nixpkgs#36). `extraFiles`
+  # (root-relative name -> text) are written into the tree afterwards.
   filteredTree =
     {
       name,
       src,
       predicate,
       passthru ? { },
+      extraFiles ? { },
     }:
     let
       origSrc = src.origSrc or src;
@@ -68,9 +77,17 @@ let
         allowSubstitutes = false;
         inherit passthru;
       }
-      ''
-        cp -r ${filteredPath} $out
-      '';
+      (
+        ''
+          cp -r ${filteredPath} $out
+        ''
+        + lib.concatStrings (
+          lib.mapAttrsToList (f: text: ''
+            chmod u+w $out
+            cp ${builtins.toFile (baseNameOf f) text} $out/${f}
+          '') extraFiles
+        )
+      );
 
   mkGoPkgs =
     {
@@ -105,13 +122,49 @@ let
       # consumers' bridge can union them transitively (depth-N) per
       # RFC 0001 § Multi-producer closures (amarbel-llc/igloo#58).
       goFlakeInputs ? { },
+      # go.nix producer (FDR 0008): the manifest replaces a tracked go.mod and
+      # gomod2nix.toml — both are rendered into go-pkgs and go-pkgs-test, so
+      # consumers bridge the producer exactly as before — and its flakeInputs
+      # (resolved through `inputs`, with goFlakeInputOverrides as for the
+      # builders) become passthru.goFlakeInputs for depth-N inheritance.
+      manifest ? null,
+      inputs ? { },
+      goFlakeInputOverrides ? { },
     }:
     let
+      hasManifest = manifest != null;
+      loaded =
+        if !hasManifest then
+          null
+        else if manifestLib == null then
+          throw "mkGoPkgs: manifest needs the go.nix manifest library"
+        else if builtins.pathExists (src + "/go.mod") then
+          throw "mkGoPkgs: a go.nix producer must not track a go.mod (FDR 0008); remove it from ${toString src}"
+        else
+          manifestLib.load manifest;
+      manifestFiles = lib.optionalAttrs hasManifest {
+        "go.mod" = manifestLib.renderGoMod {
+          inherit manifest;
+          fleetRequires = true;
+        };
+        "gomod2nix.toml" = manifestLib.renderGomod2nixToml manifest;
+      };
+      manifestFlakeInputs = lib.optionalAttrs (hasManifest && loaded.flakeInputs != { }) (
+        manifestLib.goFlakeInputsFor {
+          inherit manifest inputs;
+          system = if system != null then system else builtins.currentSystem;
+          overrides = goFlakeInputOverrides;
+        }
+      );
+      effectiveGoFlakeInputs = manifestFlakeInputs // goFlakeInputs;
+
       # Infer a name from go.mod's `module <path>` directive, taking
       # the last path element. Guarded by `pathExists` so missing
       # go.mod files cleanly fall through to "source" without throwing.
       inferredName =
-        if !(builtins.pathExists (src + "/go.mod")) then
+        if hasManifest then
+          lib.last (lib.splitString "/" loaded.module)
+        else if !(builtins.pathExists (src + "/go.mod")) then
           "source"
         else
           let
@@ -153,6 +206,7 @@ let
             "go.mod"
             "go.sum"
             "gomod2nix.toml"
+            "go.nix"
           ]
           && !isTestdataFile relPath
         )
@@ -185,19 +239,23 @@ let
       # actually declared cross-flake deps. Skipping the attribute
       # (rather than attaching {}) keeps consumers' `?` checks
       # well-defined for adopters who never bridge.
-      passthru = lib.optionalAttrs (goFlakeInputs != { }) { inherit goFlakeInputs; };
+      passthru = lib.optionalAttrs (effectiveGoFlakeInputs != { }) {
+        goFlakeInputs = effectiveGoFlakeInputs;
+      };
     in
     {
       go-pkgs = filteredTree {
         name = "${baseName}-go-pkgs";
         inherit src passthru;
         predicate = prodPredicate;
+        extraFiles = manifestFiles;
       };
 
       go-pkgs-test = filteredTree {
         name = "${baseName}-go-pkgs-test";
         inherit src passthru;
         predicate = testPredicate;
+        extraFiles = manifestFiles;
       };
     };
 in

@@ -76,20 +76,26 @@ let
   # go.mod text for a manifest. flakeInputTargets (module path -> replacement dir)
   # adds each fleet module as an RFC 0001 require (sentinel version) + replace pair;
   # null leaves them out, for builds where the goFlakeInputs merge adds them.
+  # fleetRequires adds the sentinel require lines alone (no replace) — the shape
+  # of a producer's go.mod, whose replaces `go` ignores anyway; the consumer's
+  # merge supplies the replace.
   renderGoMod =
     {
       manifest,
       flakeInputTargets ? null,
+      fleetRequires ? false,
     }:
     let
       m = load manifest;
       fleet =
-        if flakeInputTargets == null then
-          { }
-        else
+        if flakeInputTargets != null then
           lib.mapAttrs (
             p: _: flakeInputTargets.${p} or (fail "renderGoMod: no target for flake input ${p}")
-          ) m.flakeInputs;
+          ) m.flakeInputs
+        else if fleetRequires then
+          lib.mapAttrs (_: _: null) m.flakeInputs
+        else
+          { };
       requireLines =
         lib.mapAttrsToList (
           p: r: "${p} ${r.version}${lib.optionalString (r.indirect or false) " // indirect"}"
@@ -102,7 +108,7 @@ let
             r.path or "${r.module} ${r.version}"
           }"
         ) m.replace
-        ++ lib.mapAttrsToList (p: target: "${p} => ${target}") fleet;
+        ++ lib.mapAttrsToList (p: target: "${p} => ${target}") (lib.filterAttrs (_: t: t != null) fleet);
       block =
         directive: lines:
         lib.optionalString (lines != [ ])
