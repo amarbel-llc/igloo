@@ -200,8 +200,15 @@ tests, vet and lint checks; `-race` needs `cc`; no ambient go left in the
 devshell. The `/v2` chain agrees end to end: rendered module line
 `…/go-crap/v2`, consumer sentinel `v2.0.0-00010101000000-000000000000`, and
 the vendor symlink `code.linenisgreat.com/crap/go-crap/v2 → <go-pkgs>/go-crap`,
-verified with a throwaway go.nix consumer on both backends. Consumer bumps
-(spinclass, cutting-garden) follow.
+verified with a throwaway go.nix consumer on both backends. Consumer bumps:
+spinclass `e6900f1` (go.nix consumer, direct bridge with subPath) and
+cutting-garden `c80b74c` (organic go.mod consumer, go-crap arriving only as
+an INHERITED bridge through madder's passthru) both moved exactly the crap
+and igloo lock nodes and passed their full gates with nothing else changed.
+Practical note from cutting-garden: a repo whose input-bump recipe runs
+inside `nix develop` cannot bump the producer first (the half-bumped lock
+fails devshell evaluation on the new `mkGoPkgs` arguments); bump igloo
+first or both in one `nix flake update crap igloo`.
 
 ## Goal: drop gomod2nix (decided 2026-09-14)
 
