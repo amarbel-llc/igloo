@@ -350,6 +350,17 @@
             manifest = ./pkgs/build-support/godyn/tests/manifest/go.nix;
             inputs.dep.packages.${system}.go-pkgs = ./pkgs/build-support/godyn/tests/cross;
             version = "0.0.0";
+            tests = true;
+          };
+          # go.nix with -race on both backends (spinclass's variant, FDR 0008).
+          godyn-manifest-race-test = pkgs.buildGoAuto {
+            pname = "godyn-manifest-race-test";
+            src = ./pkgs/build-support/godyn/tests/manifest;
+            manifest = ./pkgs/build-support/godyn/tests/manifest/go.nix;
+            inputs.dep.packages.${system}.go-pkgs = ./pkgs/build-support/godyn/tests/cross;
+            version = "0.0.0";
+            race = true;
+            nativeArgs.cc = pkgs.stdenv.cc; # -race requires cgo
           };
           # buildGoAuto with go.nix: both backends build from the one manifest.
           godyn-manifest-auto-test = pkgs.buildGoAuto {
@@ -985,6 +996,25 @@
               diff -u ${builtins.toFile "roundtrip.gomod" roundTrip} ${builtins.toFile "rendered.gomod" rendered}
               echo OK > $out
             '';
+          # go.nix tracer bullet (FDR 0008): the manifest module's per-package test,
+          # vet and lint lanes run from the derived graphs, and its -race variant
+          # builds on both backends.
+          godyn-manifest-tests-test =
+            let
+              built = self.packages.${system}.godyn-manifest-test;
+              race = self.packages.${system}.godyn-manifest-race-test;
+            in
+            pkgs.runCommandLocal "godyn-manifest-tests-test-check" { } ''
+              grep -qx "ok example.com/manifest" ${built.passthru.checkAll} || {
+                echo "missing test result for example.com/manifest" >&2; cat ${built.passthru.checkAll} >&2; exit 1; }
+              for b in ${race.passthru.native}/bin/manifest ${race.passthru.bga}/bin/manifest; do
+                got=$("$b")
+                [ "$got" = "hello from dep/greet true" ] || { echo "$b printed [$got]" >&2; exit 1; }
+              done
+              echo OK > $out
+            '';
+          godyn-manifest-vet-test = self.packages.${system}.godyn-manifest-test.passthru.vetAll;
+          godyn-manifest-lint-test = self.packages.${system}.godyn-manifest-test.passthru.lintAll;
           # inner test loop (FDR 0008): testWith runs one package's tests with extra
           # flags and keeps the output — here verbose, filtered to leaf's tests.
           godyn-test-with-test =

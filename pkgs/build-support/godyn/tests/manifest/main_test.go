@@ -1,0 +1,16 @@
+package main
+
+import (
+	"testing"
+
+	"example.com/dep/greet"
+	"github.com/google/go-cmp/cmp"
+)
+
+// TestGreet runs from the test graph derived from go.nix (FDR 0008): the test
+// variant links both the fleet module and the third-party module.
+func TestGreet(t *testing.T) {
+	if d := cmp.Diff(greet.Hello(), "hello from dep/greet"); d != "" {
+		t.Fatalf("greet.Hello() mismatch (-got +want):\n%s", d)
+	}
+}

@@ -182,9 +182,9 @@ unverified:
 
 | spinclass dependency | godyn solution | status |
 |---|---|---|
-| builds: `modules` + `goFlakeInputs` at the bga and godyn sites, race/madder/native variants, ldflags pins, version.env, postInstall | `manifest` on `buildGodynModule` / `buildGoAuto` | landed (`godyn-manifest-test`); variants unexercised |
-| `checks.spinclass`: `go test ./...` via bga with runtime check inputs (git, a CLI) | godyn per-package tests from a manifest | godyn tests exist; manifest + tests unexercised |
-| `checks.lint`: `buildGoLint` on the bga base | godyn lint lane from a manifest | lane exists; manifest + golangci-lint parity unverified |
+| builds: `modules` + `goFlakeInputs` at the bga and godyn sites, race/madder/native variants, ldflags pins, version.env, postInstall | `manifest` on `buildGodynModule` / `buildGoAuto` | landed (`godyn-manifest-test`); `race = true` on both backends landed (`godyn-manifest-tests-test`); ldflags/version.env/postInstall are manifest-independent |
+| `checks.spinclass`: `go test ./...` via bga with runtime check inputs (git, a CLI) | godyn per-package tests from a manifest (`tests = true`, `nativeCheckInputs`) | landed (`godyn-manifest-tests-test`: the test graph derives from the rendered go.mod, the test links the fleet and third-party modules) |
+| `checks.lint`: `buildGoLint` on the bga base | godyn lint and vet lanes from a manifest | landed (`godyn-manifest-lint-test`, `godyn-manifest-vet-test`); the suite is godyn-lint's, not golangci-lint's (godyn(7) § LINT) |
 | codegen drift check (`verify-tommy-codegen` in the merge gate) | a **pure** check: run the generator against the rendered module, diff against committed output | to build |
 | inner loop: fast, cached `go test <pkg>` on the dirty tree (`debug-go-test`) | **decided 2026-09-14:** a godyn command that builds one package's test run from a `path:` flake ref (uncommitted and untracked files included), with per-invocation test flags; only the edited cone rebuilds | `passthru.testWith` landed (`godyn-test-with-test`); measured on the gotest fixture (`explore-godyn-test-loop`, x86_64-linux, one host): no-op floor ~4.4 s, a `_test.go` edit or a new untracked test file ~6.6–7.4 s (both graphs re-derived, test binary rebuilt, run). The floor is evaluation plus the tree copy; the CLI wrapper is to build |
 | `go generate` / `go get` / `go mod tidy` writing back | escape hatch + `ingest` | designed, not built |
