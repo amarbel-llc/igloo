@@ -849,6 +849,7 @@
           inherit (pkgs) gomod2nix-man;
           inherit (pkgs) go-toolchain-man;
           inherit (pkgs) godyn-man;
+          inherit (pkgs) vm-tests-man;
           inherit (pkgs) nixgc-man;
           nix-man = pkgs.nix.man;
 
@@ -1251,6 +1252,33 @@
               grep -q '^=== RUN' ${run}/test.log || { echo "no verbose output in test.log:" >&2; cat ${run}/test.log >&2; exit 1; }
               echo OK > $out
             '';
+          # NixOS VM test lane (FDR 0011): mkVmChecks boots a guest under TCG with
+          # the fleet defaults, the prelude's helpers work, a per-node `defaults`
+          # module reaches the guest, and a test may override a default. Empty on
+          # non-Linux hosts, so `nix flake check` there never touches the driver.
+          # One VM boot (~2-3 min) in the gate: the framework's own smoke test.
+          vm-tests-smoke =
+            let
+              checks = pkgs.mkVmChecks {
+                defaults.environment.etc."vm-tests-defaults".text = "reached";
+                tests.vm-tests-smoke = {
+                  globalTimeout = 1800; # overrides the 3600 default
+                  nodes.machine = { };
+                  testScript = pkgs.vmTestPrelude + ''
+                    wait_for_units(["multi-user.target", "systemd-journald.service"])
+                    assert machine.succeed("cat /etc/vm-tests-defaults") == "reached"
+                    assert journal_count("systemd-journald", "Journal started") >= 1
+                    assert journal_count("systemd-journald", "vm-tests-never-logged") == 0
+                    machine.succeed("nproc | grep -qx 2")
+                  '';
+                };
+              };
+            in
+            if pkgs.stdenv.isLinux then
+              checks.vm-tests-smoke
+            else
+              assert checks == { };
+              pkgs.runCommandLocal "vm-tests-smoke-skipped" { } "echo skipped > $out";
           # producers: the consumer links p and the INHERITED q; p's own tests pass
           # when godyn builds it from its published go-pkgs-test.
           godyn-producer-test = pkgs.runCommandLocal "godyn-producer-test-check" { } ''

@@ -547,10 +547,16 @@ let
     };
 
   # Return a Go attribute and error out if the Go version is older than was specified in go.mod.
+  # The overlay's `go` (the newest go-toolchain(7) registry entry, what godyn
+  # builds with) wins whenever it satisfies go.mod's directive; the scan over
+  # nixpkgs' go_<x>_<y> attributes is the fallback for a go.mod that demands a
+  # newer minor than the registry has.
   selectGo =
     attrs: goMod:
     attrs.go or (
       if goMod == null then
+        buildPackages.go
+      else if lib.versionAtLeast buildPackages.go.version goMod.go then
         buildPackages.go
       else
         (

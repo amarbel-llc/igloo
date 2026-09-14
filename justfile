@@ -422,6 +422,15 @@ explore-godyn-test *args:
 explore-build-overlay-attr attr="go":
     nix-build --no-out-link -E "(import ./. { }).{{ attr }}"
 
+# [explore] Which Go toolchain derivation(s) a flake attribute's derivation
+# depends on — the check for "does this build use pkgs.go (the registry's
+# newest) or a nixpkgs go_<x>_<y> base?". Lists distinct go-*.drv inputs.
+#
+# list the go-<version>.drv inputs of a flake attribute's derivation
+[group: 'explore']
+explore-go-inputs attr="godyn-manifest-auto-test.passthru.bga":
+    nix derivation show "path:.#{{ attr }}" | grep -o 'go-1\.[0-9.]*\.drv' | sort -u
+
 # print the version of nixpkgs-master's go_<major>_<minor> base for a Go minor
 [group: 'explore']
 explore-go-base minor="1.27":

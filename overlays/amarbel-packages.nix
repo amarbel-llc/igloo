@@ -146,6 +146,32 @@ final: _: {
     '';
   };
 
+  # vm-tests — NixOS VM integration checks for fleet repos (FDR 0011,
+  # vm-tests(7)): mkVmChecks wraps pkgs.testers.runNixOSTest with the fleet's
+  # defaults (Linux-only, no KVM, TCG sizing); vmTestPrelude is the shared
+  # testScript prelude.
+  inherit (final.callPackage ../pkgs/build-support/vm-tests { })
+    mkVmChecks
+    vmTestPrelude
+    ;
+
+  # vm-tests(7) man page (scdoc), validated as a flake check. Mirrors godyn-man.
+  vm-tests-man = final.stdenvNoCC.mkDerivation {
+    pname = "vm-tests-man";
+    version = "0.1.0";
+    src = ../pkgs/build-support/vm-tests;
+    nativeBuildInputs = [ final.scdoc ];
+    dontUnpack = true;
+    dontBuild = true;
+    installPhase = ''
+      mkdir -p $out/share/man/man7
+      for f in $src/*.7.scd; do
+        [ -e "$f" ] || continue
+        scdoc < "$f" > "$out/share/man/man7/$(basename "$f" .scd)"
+      done
+    '';
+  };
+
   # godyn(7) man page (scdoc), validated as a flake check so syntax errors are
   # caught by the pre-merge hook. Mirrors gomod2nix-man.
   godyn-man = final.stdenvNoCC.mkDerivation {
