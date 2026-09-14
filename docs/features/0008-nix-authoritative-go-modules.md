@@ -236,21 +236,40 @@ directives into a go.mod.
 
 ## Open Questions
 
-- **Eval-time graph mechanics.** `godyn-gen` must run offline in the sandbox
-  (against the vendor tree), per system (GOOS/GOARCH), and for the test graph
-  (`-tests`); how the resulting JSON is imported at eval time is to be settled
-  on the first fixture.
-- **Does go.sum survive?** Answered for builds (2026-09-14): vendor-mode
-  builds and `godyn-gen` need none, so the manifest carries NAR hashes only.
-  The escape hatch renders a go.sum for module-mode commands; whether that
-  needs `h1:` sums recorded in the manifest or can be produced by
-  `go mod download` inside the impure derivation is open.
+- **Eval-time graph mechanics.** Answered (igloo#72, 2026-09-14): `godyn-gen`
+  runs in a `buildGoCheck` over `buildGoApplication` — merged or rendered
+  go.mod, vendor tree, offline, for the evaluating system, cgo only with a
+  `cc` — and its JSON is imported at eval time (import-from-derivation);
+  `tests = true` adds `-test-deps` to the build graph and derives the test
+  graph with `-tests`. Covered by `godyn-derived-graph-test`,
+  `godyn-derived-tests-test` and `godyn-manifest-test`. The cross-system
+  evaluation limit is accepted above and tracked as igloo#75.
+- **Does go.sum survive?** Answered (2026-09-14): no. Vendor-mode builds and
+  `godyn-gen` need none, so the manifest carries NAR hashes only. The escape
+  hatch runs `go mod download` inside its impure derivation before the
+  command, which writes go.sum with `GOSUMDB` left on (sums checked against
+  the checksum database); `ingest` ignores go.sum. Builds still verify NAR
+  hashes.
 - **Where does version selection run?** Answered: inside the escape hatch's
   impure derivation, not an ambient go.
-- **Workspaces.** How a manifest expresses go.work-style multi-module setups
-  (igloo#73).
-- **Escape-hatch output**: a patch, or changed files; and how the wrapper
-  handles checkout edits made while the command ran.
+- **Workspaces.** Answered (2026-09-14): **one go.nix per module**, no
+  workspace concept. Each go.work member gets its own manifest and references
+  its siblings as path replaces, and go.work is retired. The only fleet
+  workspace today is purse-first (`.`, `libs/dewey`, `libs/go-mcp`,
+  `libs/go-mcp/command/huh`, one shared gomod2nix.toml). Cost: the shared
+  lockfile splits — third-party requires and hashes repeat per member, and
+  members can drift to different versions. Unverified: that the derived graph
+  and vendor tree handle sibling path replaces when `src` is the repository
+  root; igloo#73 becomes that fixture.
+- **Escape-hatch output.** Answered (2026-09-14): the derivation's source is
+  the checkout without `.git` (untracked files included). It outputs
+  `git diff --no-index --binary` of that source against the result —
+  excluding go.mod and go.sum — plus the changed go.mod. The wrapper runs
+  `git apply --check` then `git apply` (edits, new and deleted files, binary
+  files) and `ingest` on the go.mod. If a file the patch touches changed in
+  the checkout meanwhile, nothing is written and the wrapper prints the
+  patch's store path; edits to untouched files are unaffected. No three-way
+  merge.
 
 ## Limitations
 
