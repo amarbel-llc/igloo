@@ -181,6 +181,16 @@ producer forces the consumer's igloo to at least the producer-capable rev
 (899189e). Not a bug: the go.nix bridge itself is consumer-transparent; the
 flake-level `follows` is not. Bump both together.
 
+**Second tracer (2026-09-14): tommy, a producer.** tommy `3b9f688` cut
+over — go.nix ingested with the previous hashes and per-module Go versions,
+`mkGoPkgs { manifest; inputs; }`, go.mod/go.sum/gomod2nix.toml and `mkGoEnv`
+removed, full gate green. spinclass `f48ce08` then bumped tommy (and igloo,
+per the constraint above): its go.nix, builds, tests, lint, codegen drift
+check and generated code were unchanged apart from the stamped tommy rev,
+and its full gate stayed green. That is the consumer-transparency claim
+verified on a live producer/consumer pair; the go.nix consumer count for
+the experimental → testing gate is now two.
+
 ## Goal: drop gomod2nix (decided 2026-09-14)
 
 go.nix replaces gomod2nix as a consumer-facing tool: no gomod2nix.toml, no
