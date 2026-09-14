@@ -180,6 +180,21 @@ lint-worktree:
     cfg=$(nix build --no-link --print-out-paths '.#conformist-impure-config')
     nix run '.#conformist' -- check --config-file "$cfg" --tree-root .
 
+# The justfile convention linters (recipe names, orphan summaries) delivered by
+# conformist's PROFILE route (conformist RFC 0005): conformist.profile at the
+# root pins just-us's static `just` + recipe-model prelude and carries the two
+# rules; `--profile` fetches and verifies those artifacts, so this is impure and
+# lives in the working-tree lane, never a sandboxed check. igloo is upstream of
+# both conformist and just-us, so neither can be a flake input here without a
+# cycle — conformist comes from its master ref (which pins its own igloo), and
+# igloo's flake.nix/flake.lock gain no edge. `--profile-only`: no conformist.toml
+# involved. Exit 0 clean, 1 findings, 2 profile/fetch failure.
+#
+# check the justfile convention linters via conformist's profile route
+lint-justfile-profile:
+    nix run --refresh 'git+https://code.linenisgreat.com/conformist.git' -- \
+      check --tree-root . --profile conformist.profile --profile-only
+
 codemod-fmt: codemod-fmt-nix
 
 # format all nix files (write mode)
