@@ -9,21 +9,22 @@ promotion-criteria: |
   tree; the round trip go.mod → manifest → go.mod is lossless for every
   field the manifest owns.
 
-  proposed → experimental: the escape hatch exists — go commands
-  (`go get`, `go mod tidy`, `go generate`) run in an impure derivation
-  against the go.mod and go.sum rendered there, their changes are applied
-  back to the checkout, and `ingest` folds a changed go.mod into the
-  manifest — and one fleet consumer (spinclass) builds, tests, vets and
-  lints from its manifest with its committed go.mod removed. gopls and dlv
-  are out of scope.
+  proposed → experimental: every go.mod-dependent part of spinclass (the
+  tracer bullet, § Tracer bullet: spinclass) has a first-class godyn
+  solution with an igloo fixture — including the escape hatch and a pure
+  codegen drift check — and only then spinclass cuts over: it builds,
+  tests, vets, lints and verifies codegen from its go.nix with its
+  committed go.mod, go.sum and gomod2nix.toml removed. gopls and dlv are
+  out of scope.
 
   experimental → testing: dependency updates happen only through the
   manifest (directly or via ingest) on at least two consumers; each
   third-party module's own Go language version reaches its compiles.
 
   testing → accepted: a release cycle with no consumer re-committing an
-  authoritative go.mod, and gomod2nix.toml retired for manifest
-  consumers.
+  authoritative go.mod, and gomod2nix retired as a consumer-facing tool
+  fleet-wide (gomod2nix.toml, the gomod2nix CLI, mkGoEnv and the drift
+  linter); buildGoApplication may remain an internal builder.
 ---
 
 # A nix manifest as the only source of truth for Go modules
@@ -163,6 +164,37 @@ Comments other than `// indirect`, and `toolchain`, `godebug`, `exclude`,
 **go.sum:** builds do not need it (vendor mode with `GOSUMDB=off`). Still
 to come: the escape hatch (render into a derivation, `ingest`) and a fleet
 consumer.
+
+## Goal: drop gomod2nix (decided 2026-09-14)
+
+go.nix replaces gomod2nix as a consumer-facing tool: no gomod2nix.toml, no
+`gomod2nix generate`, no `mkGoEnv` devshells, no drift linter. This does
+not require dropping `buildGoApplication` as an internal builder (godyn's
+vendor tree and graph derivation run inside it today).
+
+## Tracer bullet: spinclass (decided 2026-09-14)
+
+spinclass is the first consumer, and every part of it that depends on a
+committed go.mod gets a **first-class godyn solution, with an igloo fixture,
+before spinclass is asked to cut over**. Inventory from the spinclass session
+(spinclass/brave-catalpa/pennywise, 2026-09-14); items marked *theory* are
+unverified:
+
+| spinclass dependency | godyn solution | status |
+|---|---|---|
+| builds: `modules` + `goFlakeInputs` at the bga and godyn sites, race/madder/native variants, ldflags pins, version.env, postInstall | `manifest` on `buildGodynModule` / `buildGoAuto` | landed (`godyn-manifest-test`); variants unexercised |
+| `checks.spinclass`: `go test ./...` via bga with runtime check inputs (git, a CLI) | godyn per-package tests from a manifest | godyn tests exist; manifest + tests unexercised |
+| `checks.lint`: `buildGoLint` on the bga base | godyn lint lane from a manifest | lane exists; manifest + golangci-lint parity unverified |
+| codegen drift check (`verify-tommy-codegen` in the merge gate) | a **pure** check: run the generator against the rendered module, diff against committed output | to build |
+| inner loop: fast, cached `go test <pkg>` on the dirty tree (`debug-go-test`) | first-class answer needed; the escape hatch is the wrong shape | open |
+| `go generate` / `go get` / `go mod tidy` writing back | escape hatch + `ingest` | designed, not built |
+| agent `go doc` (hamster) through the module (*theory*) | first-class answer needed | open |
+| conformist: eng-versioning reads go.mod's module path, tommy codegen repair hook type-loads packages, gofumpt reads the go directive (all *theory*) | go.nix-aware equivalents; conformist/tommy lanes to confirm | open |
+| devshell `mkGoEnv` + gomod2nix CLI | retired | open |
+| migration: go.mod + gomod2nix.toml → go.nix | `ingest` / `fromGoMod` | core landed; CLI not built |
+
+Ordering constraint: spinclass's own merge gate runs its codegen recipes, so
+the replacements land before spinclass removes go.mod.
 
 ## Escape hatch: go commands against the rendered module
 
