@@ -1059,8 +1059,11 @@
             assert m.load ingested == expected;
             assert m.load (import (builtins.toFile "go.nix" rendered)) == expected;
             assert viaCli == rendered;
+            # expected.go.nix is committed and therefore formatted by the repo's
+            # nix formatter: a byte-equal render proves ingest's output is
+            # nixfmt-stable, so consumers need not exclude go.nix from formatting.
             pkgs.runCommandLocal "godyn-manifest-ingest-test-check" { } ''
-              grep -q 'v0.7.0' ${builtins.toFile "ingested.go.nix" rendered}
+              diff -u ${fixture + "/escape-hatch/expected.go.nix"} ${builtins.toFile "ingested.go.nix" rendered}
               echo OK > $out
             '';
           # migration (FDR 0008): ingest over a checkout's own go.mod + gomod2nix.toml

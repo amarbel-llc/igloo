@@ -243,7 +243,10 @@ and gomod2nix.toml (`gomod2nix generate` runs inside the derivation, so it
 records the hashes and each module's Go version); `godyn-go` wraps both
 (godyn(7) § The escape hatch). On this host `go get` against the manifest
 fixture reached the proxy from inside the sandbox, wrote go.sum with the
-checksum database on, and the bump came back as a well-formed go.nix.
+checksum database on, and the bump came back as a well-formed go.nix. The
+rendered go.nix is nixfmt-stable (`godyn-manifest-ingest-test` diffs it
+against a committed, formatter-checked copy), so consumers need not exclude
+go.nix from their nix formatter (raised by conformist/fresh-willow, 2026-09-14).
 **Measured (`explore-path-ref-contents`, `explore-godyn-test-loop`):** a
 `path:` flake ref of a checkout copies **everything** into the store —
 `.git` and the git-ignored `.tmp` included (igloo's worktree: 203 MB, 171 MB
