@@ -210,6 +210,23 @@ inside `nix develop` cannot bump the producer first (the half-bumped lock
 fails devshell evaluation on the new `mkGoPkgs` arguments); bump igloo
 first or both in one `nix flake update crap igloo`.
 
+**Fourth tracer (2026-09-14): cutting-garden, a producer AND a consumer
+with two codegens.** cutting-garden `5c3f9e4`: go.nix from `godyn-go -I .`
+(89 requires, hashes and per-module Go versions equal to the old toml, five
+inherited-bridge requires kept, go line raised to 1.26.1 by the escape
+hatch); both `buildGoAuto` sites on `manifest` + `inputs`; `mkGoPkgs
+{ manifest; inputs; }` for its own consumers (chrest, nebulous); godyn tests,
+vet, lint and three dewey analyzer lanes (one `vetTool` instance each — the
+go.mod `tool` block ingest rejects became those lanes); two `codegenCheck`s
+(tommy, dagnabit; dagnabit's copy mode and tommy's directive rewrite the same
+file, so the check runs tommy after dagnabit); the conformist repair lanes
+dropped; no ambient go in the devshell. godyn-lint surfaced real findings
+the repo had no lane for before (struct-literal conversions, a dead store,
+a deprecated alias). Full gate green. Cost recorded: the first gate after
+the toolchain change took ~1h50m, dominated by per-package vet across all
+dependencies in four lanes — accepted as amortised. Its consumers' bumps
+follow.
+
 ## Goal: drop gomod2nix (decided 2026-09-14)
 
 go.nix replaces gomod2nix as a consumer-facing tool: no gomod2nix.toml, no
