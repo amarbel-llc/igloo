@@ -180,7 +180,12 @@
           # go:embed (-embedcfg) and -ldflags version stamping. Built as packages so
           # `nix build .#godyn-{embed,ldflags}-test` produces a runnable binary; the
           # checks below assert their output.
-          inherit (pkgs) godyn-gen godyn-go nixgc;
+          inherit (pkgs)
+            godyn-gen
+            godyn-go
+            godyn-test
+            nixgc
+            ;
           godyn-embed-test = pkgs.buildGodynModule {
             pname = "godyn-embed-test";
             src = ./pkgs/build-support/godyn/tests/embed;

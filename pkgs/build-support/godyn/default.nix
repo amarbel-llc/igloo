@@ -42,6 +42,8 @@ rec {
   # godyn-go: the escape hatch CLI (FDR 0008) — runs a go command in
   # passthru.goRun, applies its patch, and rewrites go.nix from passthru.ingest.
   godyn-go = callPackage ./go-cli { };
+  # godyn-test: the inner test loop CLI (FDR 0008) over passthru.testWith.
+  godyn-test = callPackage ./go-cli/test.nix { };
   # A go.nix consumer passes manifest (+ inputs, goFlakeInputOverrides) instead of
   # modules, goFlakeInputs and a tracked go.mod; every other arg is unchanged.
   buildGodynModule = args: buildGodynModuleFromArgs (godynManifest.withManifest args);

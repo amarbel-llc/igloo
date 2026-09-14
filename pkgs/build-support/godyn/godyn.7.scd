@@ -26,6 +26,8 @@ The public surface exposed on *pkgs* is:
 - *godyn-gen* — the dev-time graph generator CLI
 - *godyn-go* — the go.nix escape hatch CLI: go commands with network access run
   inside nix, results patched back, go.nix rewritten (§ GO.NIX MANIFEST)
+- *godyn-test* — the inner test loop CLI: one package's tests from the dirty
+  tree, with test-binary flags (§ TESTS)
 - *godynStdlib* — the shared CGO_ENABLED=1 Go stdlib derivation, reused by every
   per-package compile (built once, cached normally)
 
@@ -156,7 +158,7 @@ checks.<system>.myapp-codegen = myapp.passthru.codegenCheck {
 The go toolchain outside nix is unsupported, but *go get*, *go mod tidy* and
 generators still need a module with a go.mod. *passthru.goRun { command;
 nativeBuildInputs ? [ ]; }* (buildGodynModule and buildGoAuto) runs the command
-INSIDE nix against the rendered module: an impure derivation (*__impure*, so
+INSIDE nix against the rendered module: an impure derivation (*\_\_impure*, so
 the network is available and nothing is cached — the *impure-derivations*
 experimental feature must be enabled on the host; it can never be a pure
 derivation's input, so it is not a flake check). Its tree is *src* plus the
@@ -522,6 +524,13 @@ uncommitted and untracked files are included; only the edited cone rebuilds:
 nix build --impure --no-link --print-out-paths --expr '
   (builtins.getFlake "path:'$PWD'").packages.${builtins.currentSystem}.myapp
     .passthru.testWith { dir = "internal/foo"; testFlags = [ "-test.run=TestX" "-test.v" ]; }'
+```
+
+*godyn-test* is the thin wrapper, run from the flake root — it prints the
+run's test.log and exits 0 on ok, 1 on FAIL:
+
+```
+godyn-test [-A <attr>] internal/foo -- -test.run=TestX -test.v
 ```
 
 igloo's *just explore-godyn-test-loop* recipe times this loop.

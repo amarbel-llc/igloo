@@ -396,6 +396,14 @@ explore-godyn-go-run attr="godyn-manifest-test" cmd="go mod tidy":
 explore-godyn-go *args:
     nix run --impure "path:.#godyn-go" -- {{ args }}
 
+# [explore] Run the godyn-test inner-loop CLI (FDR 0008) from this tree, e.g.
+#   just explore-godyn-test -A packages.x86_64-linux.godyn-derived-tests-test leaf -- -test.v
+#
+# run godyn-test (the inner test loop CLI) with the given arguments
+[group: 'explore']
+explore-godyn-test *args:
+    nix run --impure "path:.#godyn-test" -- {{ args }}
+
 # [explore] Test the overlay-flake migration against amarbel-llc/maneater
 # Clones into .tmp/maneater (or reuses), bumps the nixpkgs input, runs
 # nix flake check + nix build .#default.
