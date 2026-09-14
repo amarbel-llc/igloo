@@ -243,6 +243,21 @@ versioned consumers convert before they next bump the producer. A
 conformist linter flagging a fleet module required without a bridge would
 stop it recurring (conformist's lane).
 
+**Fifth tracer (2026-09-14): nebulous, converting a versioned require into
+a bridge by cutting over.** nebulous `421339a`: cutting-garden added as a
+flake input and a `flakeInputs` entry beside tap and go-mcp; `godyn-go -I .`
+dropped the organic cutting-garden pseudo-version require and its hash;
+`mkGoPkgs { manifest; inputs; }` for its own consumers; two `buildGoAuto`
+sites on the manifest; tests, vet and lint checks; no codegen; devshell go
+and every go-mod-dependent tool removed; full gate green on Go 1.26.8.
+Observed behaviour change worth knowing for every such conversion: modules
+that used to arrive as July pseudo-versions (hyphence, madder, piggy, dewey,
+tommy) now come as INHERITED bridges through cutting-garden's passthru and
+compile at the flake.lock revs — tests, vet and lint were green on them.
+Nebulous-side lessons: a cgo-only dependency (zstd via madder) needs
+`nativeArgs.cc`; tests that write under HOME need `testPreRun` to point HOME
+at `$TMPDIR`; a flake that passes `inputs` needs the `inputs@{ … }` pattern.
+
 ## Goal: drop gomod2nix (decided 2026-09-14)
 
 go.nix replaces gomod2nix as a consumer-facing tool: no gomod2nix.toml, no
