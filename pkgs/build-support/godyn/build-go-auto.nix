@@ -20,6 +20,7 @@
   buildGoApplication,
   buildGoRace,
   godynSystems,
+  godynManifest,
 }:
 {
   pname,
@@ -31,6 +32,12 @@
   # the godyn graph against the matching merged go.mod: `godyn-gen -gomod
   # <result.passthru.bga.passthru.mergedGoMod> …` (igloo#67).
   goFlakeInputs ? { },
+  # go.nix (FDR 0008), for both backends: the manifest replaces modules,
+  # goFlakeInputs and a tracked go.mod. inputs: the flake's inputs, which its
+  # flakeInputs name; goFlakeInputOverrides: { <module> = { src; subPath?; }; }.
+  manifest ? null,
+  inputs ? { },
+  goFlakeInputOverrides ? { },
   version ? null,
   ldflags ? [ ],
   ldflagsX ? { },
@@ -82,17 +89,30 @@
   bgaArgs ? { },
 }:
 let
+  fromManifest = godynManifest.withManifest (
+    {
+      inherit
+        pname
+        src
+        modules
+        goFlakeInputs
+        ;
+    }
+    // lib.optionalAttrs (manifest != null) {
+      inherit manifest inputs goFlakeInputOverrides;
+      system = stdenv.hostPlatform.system;
+    }
+  );
   common = {
     inherit
       pname
-      src
       ldflags
       ldflagsX
-      goFlakeInputs
       ;
+    inherit (fromManifest) src goFlakeInputs;
   }
   // lib.optionalAttrs (version != null) { inherit version; }
-  // lib.optionalAttrs (modules != null) { inherit modules; }
+  // lib.optionalAttrs (fromManifest.modules != null) { inherit (fromManifest) modules; }
   // lib.optionalAttrs (postInstall != "") { inherit postInstall; }
   // lib.optionalAttrs (nativeBuildInputs != [ ]) { inherit nativeBuildInputs; }
   // lib.optionalAttrs (subPackages != null) { inherit subPackages; }
@@ -132,6 +152,7 @@ let
     // lib.optionalAttrs (gcflags != [ ]) { inherit gcflags; }
     // lib.optionalAttrs (asmflags != [ ]) { inherit asmflags; }
     // lib.optionalAttrs cover { inherit cover coverMode coverPackages; }
+    // lib.optionalAttrs (fromManifest ? commit) { inherit (fromManifest) commit; }
     // nativeArgs
   );
   bgaBase = buildGoApplication (

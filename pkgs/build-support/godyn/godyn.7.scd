@@ -94,6 +94,43 @@ pkgs.buildGodynModule {
 - *passthru.graphFile* / *passthru.testGraphFile* expose the graphs a build used,
   committed or derived.
 
+# GO.NIX MANIFEST
+
+A module can describe its dependencies in *go.nix*, a plain Nix attrset in the
+module root, instead of a tracked go.mod, gomod2nix.toml and *goFlakeInputs*
+(FDR 0008). *buildGodynModule* and *buildGoAuto* take it as *manifest*, render
+the go.mod and gomod2nix.toml from it inside Nix, and derive the graph from the
+rendered go.mod:
+
+```
+# go.nix
+{
+  module = "code.linenisgreat.com/myapp";
+  go = "1.26";
+  require."github.com/google/go-cmp" = {
+    version = "v0.6.0"; hash = "sha256-..."; go = "1.13";
+  };
+  flakeInputs."code.linenisgreat.com/tap/go" = { input = "tap"; subPath = "go"; };
+  replace = { };
+}
+
+# flake.nix
+pkgs.buildGoAuto { pname = "myapp"; src = self; inherit inputs; manifest = ./go.nix; }
+```
+
+- *require* — third-party modules: *version*, the vendor *hash* (as in
+  gomod2nix.toml), optionally the module's own *go* version and *indirect*.
+- *flakeInputs* — fleet modules: *input* names a flake input, resolved as
+  *inputs.<input>.packages.<system>.go-pkgs* (RFC 0001), plus an optional
+  *subPath*. They are bridged exactly like *goFlakeInputs*; no version is stored.
+- *replace* — surviving replaces: *{ path; }* or *{ module; version; }*, with an
+  optional *oldVersion* for a versioned left-hand side.
+- *goFlakeInputOverrides* — *{ <module> = { src; subPath; }; }* supplies a fleet
+  module's source when it is not a conventional flake input (fixtures).
+- Unknown fields are errors. A manifest module whose *src* still tracks a go.mod
+  is rejected, and *manifest* cannot be combined with *modules* or *goFlakeInputs*.
+- Builds need no go.sum: the rendered go.mod builds in vendor mode.
+
 # buildGoAuto (selector)
 
 *pkgs.buildGoAuto* picks the backend by intent — godyn for the incremental dev/test
@@ -175,6 +212,8 @@ Arguments:
 - *modules* — a gomod2nix.toml; its vendorEnv (third-party sources by import path)
   is derived internally via buildGoApplication. Omit for an all-local module.
 - *vendorEnv* — alternatively pass a prebuilt vendor tree directly.
+- *manifest*, *inputs*, *goFlakeInputOverrides* — a go.nix module instead of
+  *modules*, *goFlakeInputs* and a tracked go.mod; see GO.NIX MANIFEST.
 - *version*, *pwd*, *commit* — see VERSION EMBEDDING below.
 - *ldflags* — extra *go tool link* flags as a LIST (e.g. *[ "-s" "-w" ]*, or a raw
   *[ "-X pkg.sym=val" ]*).

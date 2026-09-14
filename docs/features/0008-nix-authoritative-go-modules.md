@@ -60,13 +60,14 @@ pass the right `-lang` per package either way.
 
 ## Interface (sketch)
 
-A nix file in the module root — the name (`go.nix`, `module.nix`) is open —
-evaluating to an attrset. Everything below is a sketch to be settled by the
-first fixture:
+**Decided 2026-09-14:** the manifest is **`go.nix`** in the module root, a
+**plain nix attrset of data** — no function, no nix expressions — so `render`
+and `ingest` read and write it without evaluating a flake. Field details below
+are still a sketch to be settled by the first fixture:
 
 ```nix
 {
-  module = "code.linenisgreat.com/spinclass";
+  module = "code.linenisgreat.com/madder/go";
   go = "1.26";
 
   # Third-party modules: the version the go command selected, the NAR hash the
@@ -78,13 +79,26 @@ first fixture:
   # Fleet modules (RFC 0001): the flake input IS the version. Rendered as a
   # require + replace pair; no pseudo-version is stored anywhere.
   flakeInputs = {
-    "code.linenisgreat.com/tommy" = "tommy"; # names a flake input
+    "code.linenisgreat.com/tommy" = { input = "tommy"; };
+    "code.linenisgreat.com/tap/go" = { input = "tap"; subPath = "go"; };
   };
 
   # Real replace directives, if any survive (forks, local overrides).
   replace = { };
 }
 ```
+
+- **Fleet modules name a flake input (decided 2026-09-14).** `flakeInputs`
+  entries carry an input *name* and an optional `subPath`, not a source. The
+  builder receives the flake's `inputs` and resolves each entry to
+  `inputs.<input>.packages.${system}.go-pkgs` — the RFC 0001 producer
+  convention, which therefore becomes mandatory for manifest consumers. Sources
+  that do not follow it (igloo's path fixtures, an unusual producer) are
+  supplied by a builder-side override instead of in `go.nix`:
+
+  ```nix
+  buildGoAuto { inherit pname src inputs; manifest = ./go.nix; }
+  ```
 
 - **Render** (pure, inside derivations): the manifest → a go.mod with the
   `module`, `go`, `require` and `replace` lines, plus the synthesized
@@ -128,9 +142,25 @@ igloo's fixtures the derived graphs equal the ones `godyn-gen` produces in
 module mode (checks `godyn-derived-graph-test`, `godyn-derived-tests-test`).
 The stdlib-import edge list has landed too: graphs record each package's
 `stdImports`, and a lint run is handed only the stdlib vetx its import closure
-reaches — 61 of 355 for the cgo fixture's `main`, which imports `fmt`. Still to
-come: the manifest and its render step, which replace go.mod and
-gomod2nix.toml as the inputs.
+reaches — 61 of 355 for the cgo fixture's `main`, which imports `fmt`. 
+
+**Progress (manifest, 2026-09-14).** `buildGodynModule` and `buildGoAuto`
+accept `manifest = ./go.nix` (with `inputs` and `goFlakeInputOverrides`) in
+place of `modules`, `goFlakeInputs` and a tracked go.mod
+(`pkgs/build-support/godyn/manifest.nix`). igloo renders the go.mod and
+gomod2nix.toml from the manifest, resolves `flakeInputs` through `inputs`,
+and derives the graph from the rendered go.mod. A module that still tracks a
+go.mod is rejected. The `godyn-manifest-test` check builds a fixture whose
+tree has no go.mod (and no go.sum) with a third-party require and a flake
+input on both backends. It confirms that the third-party module compiles at
+its own go directive (`1.13`), and that go.mod → manifest → go.mod is
+lossless for module, go, requires (including `// indirect`), fleet
+require/replace pairs, and path, module and versioned replaces.
+Comments other than `// indirect`, and `toolchain`, `godebug`, `exclude`,
+`retract` and `tool`, are rejected by the go.mod → manifest direction.
+**go.sum:** builds do not need it (vendor mode with `GOSUMDB=off`);
+`mkGoEnv` (devshells) still copies one, which is gate-2 `render` work. Still
+to come: the `render`/`ingest` CLI and a fleet consumer.
 
 ## Editor escape hatch: bidirectional go.mod ↔ manifest
 

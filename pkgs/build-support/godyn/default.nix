@@ -27,14 +27,22 @@ rec {
   godynStdlib = callPackage ./stdlib.nix { };
   godyn-gen = callPackage ./gen { };
   godyn-lint = callPackage ./lint { };
-  buildGodynModule = callPackage ./build-godyn-module.nix {
+  # go.nix (FDR 0008): render go.mod/gomod2nix.toml from the manifest, resolve its
+  # fleet modules through flake inputs, and read a go.mod back into a manifest.
+  godynManifest = callPackage ./manifest.nix { };
+  buildGodynModuleFromArgs = callPackage ./build-godyn-module.nix {
     stdlib = godynStdlib;
     inherit gomod2nixInternals godyn-lint godyn-gen;
   };
+  # A go.nix consumer passes manifest (+ inputs, goFlakeInputOverrides) instead of
+  # modules, goFlakeInputs and a tracked go.mod; every other arg is unchanged.
+  buildGodynModule = args: buildGodynModuleFromArgs (godynManifest.withManifest args);
   # buildGodynLint: the per-package lint lane of a buildGodynModule — takes the same
   # args (plus lintTool) and returns the manifest realising every local package's
   # lint derivation; wire it as a flake check.
   buildGodynLint = args: (buildGodynModule args).passthru.lintAll;
   # callPackage supplies buildGodynModule + buildGoApplication from the overlay.
-  buildGoAuto = callPackage ./build-go-auto.nix { inherit buildGodynModule godynSystems; };
+  buildGoAuto = callPackage ./build-go-auto.nix {
+    inherit buildGodynModule godynSystems godynManifest;
+  };
 }

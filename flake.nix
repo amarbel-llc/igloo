@@ -341,6 +341,24 @@
             modules = ./pkgs/build-support/godyn/tests/gotest/gomod2nix.toml;
             tests = true;
           };
+          # go.nix alone (FDR 0008): no go.mod in the tree; go.mod, gomod2nix.toml and
+          # the package graph are rendered/derived from the manifest, and the fleet
+          # module resolves as a flake input's packages.<system>.go-pkgs.
+          godyn-manifest-test = pkgs.buildGodynModule {
+            pname = "godyn-manifest-test";
+            src = ./pkgs/build-support/godyn/tests/manifest;
+            manifest = ./pkgs/build-support/godyn/tests/manifest/go.nix;
+            inputs.dep.packages.${system}.go-pkgs = ./pkgs/build-support/godyn/tests/cross;
+            version = "0.0.0";
+          };
+          # buildGoAuto with go.nix: both backends build from the one manifest.
+          godyn-manifest-auto-test = pkgs.buildGoAuto {
+            pname = "godyn-manifest-auto-test";
+            src = ./pkgs/build-support/godyn/tests/manifest;
+            manifest = ./pkgs/build-support/godyn/tests/manifest/go.nix;
+            inputs.dep.packages.${system}.go-pkgs = ./pkgs/build-support/godyn/tests/cross;
+            version = "0.0.0";
+          };
           # flake-input-go_mod producers under godyn: q and p publish go-pkgs via
           # mkGoPkgs (p's carries goFlakeInputs for q). godyn builds consumer c from
           # a derived graph declaring ONLY p — q must be inherited — and builds p
@@ -929,6 +947,42 @@
               jq -S . ${fixture}/godyn-test-graph.json > committed-tests.json
               jq -S . ${derived.passthru.testGraphFile} > derived-tests.json
               diff -u committed-tests.json derived-tests.json
+              echo OK > $out
+            '';
+          # go.nix: the manifest-only build runs; the third-party module compiles at
+          # its own go directive (1.13, as the manifest records); the tree tracks no
+          # go.mod; and go.mod -> manifest -> go.mod is lossless for every field the
+          # manifest owns (fleet pairs, indirect markers, path/module/versioned replaces).
+          godyn-manifest-test =
+            let
+              built = self.packages.${system}.godyn-manifest-test;
+              auto = self.packages.${system}.godyn-manifest-auto-test;
+              manifestLib = pkgs.callPackage ./pkgs/build-support/godyn/manifest.nix { };
+              fixture = ./pkgs/build-support/godyn/tests/manifest;
+              roundTrip = builtins.readFile ./pkgs/build-support/godyn/tests/manifest/roundtrip.gomod;
+              rendered = manifestLib.renderGoMod {
+                manifest = manifestLib.fromGoMod {
+                  text = roundTrip;
+                  hashes = {
+                    "github.com/google/go-cmp" = "sha256-go-cmp";
+                    "golang.org/x/text" = "sha256-text";
+                  };
+                  flakeInputs."example.com/dep".input = "dep";
+                };
+                flakeInputTargets."example.com/dep" = "/fleet/dep";
+              };
+            in
+            assert !builtins.pathExists "${fixture}/go.mod";
+            pkgs.runCommandLocal "godyn-manifest-test-check" { nativeBuildInputs = [ pkgs.jq ]; } ''
+              got=$(${pkgs.lib.getExe built})
+              [ "$got" = "hello from dep/greet true" ] || { echo "manifest build printed [$got]" >&2; exit 1; }
+              for b in ${auto.passthru.native}/bin/manifest ${auto.passthru.bga}/bin/manifest; do
+                got=$("$b")
+                [ "$got" = "hello from dep/greet true" ] || { echo "$b printed [$got]" >&2; exit 1; }
+              done
+              lang=$(jq -r '.[] | select(.importPath == "github.com/google/go-cmp/cmp") | .goVersion' ${built.passthru.graphFile})
+              [ "$lang" = "1.13" ] || { echo "go-cmp goVersion in the derived graph: [$lang], want 1.13" >&2; exit 1; }
+              diff -u ${builtins.toFile "roundtrip.gomod" roundTrip} ${builtins.toFile "rendered.gomod" rendered}
               echo OK > $out
             '';
           # producers: the consumer links p and the INHERITED q; p's own tests pass
