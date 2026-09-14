@@ -406,6 +406,28 @@
               goFlakeInputs."example.com/p" = p.go-pkgs;
               version = "0.0.0";
             };
+          # The same consumer from go.nix (FDR 0008): q is a third-party require in
+          # the manifest (bogus hash) AND p's inherited bridge — the bridge must win
+          # and the hash never be fetched (spinclass's tap/go via tommy).
+          godyn-producer-manifest-test =
+            let
+              q = pkgs.mkGoPkgs {
+                src = ./pkgs/build-support/godyn/tests/producer/q;
+                name = "q";
+              };
+              p = pkgs.mkGoPkgs {
+                src = ./pkgs/build-support/godyn/tests/producer/p;
+                name = "p";
+                goFlakeInputs."example.com/q" = q.go-pkgs;
+              };
+            in
+            pkgs.buildGoAuto {
+              pname = "godyn-producer-manifest-test";
+              src = ./pkgs/build-support/godyn/tests/producer/cm;
+              manifest = ./pkgs/build-support/godyn/tests/producer/cm/go.nix;
+              inputs.p.packages.${system}.go-pkgs = p.go-pkgs;
+              version = "0.0.0";
+            };
           godyn-producer-self-test =
             let
               q = pkgs.mkGoPkgs {
@@ -1138,6 +1160,25 @@
               || { echo "p's tests did not run from go-pkgs-test" >&2; exit 1; }
             echo OK > $out
           '';
+          # go.nix consumer with q both required (bogus hash) and inherited-bridged:
+          # both backends build and run, the graph sources q from the bridge, and
+          # the vendor tree carries no q — the bridge shadows the require.
+          godyn-producer-manifest-test =
+            let
+              m = self.packages.${system}.godyn-producer-manifest-test;
+            in
+            pkgs.runCommandLocal "godyn-producer-manifest-test-check" { nativeBuildInputs = [ pkgs.jq ]; } ''
+              for b in ${m.passthru.native}/bin/c ${m.passthru.bga}/bin/c; do
+                got=$("$b")
+                [ "$got" = "p wraps q" ] || { echo "$b printed [$got]" >&2; exit 1; }
+              done
+              dir=$(jq -r '.[] | select(.importPath == "example.com/q") | .dir' ${m.passthru.native.passthru.graphFile})
+              case "$dir" in
+                */vendor/*) echo "q sourced from the vendor tree: $dir" >&2; exit 1 ;;
+              esac
+              [ ! -e ${m.passthru.native.passthru.vendorEnv}/example.com/q ] || { echo "vendor tree carries q" >&2; exit 1; }
+              echo OK > $out
+            '';
           # build tags select files in the derived graph: untagged links the
           # default file, tagged the other; the tagged tests (cross-package tagged
           # helper, testEnv) all pass.

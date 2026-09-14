@@ -269,6 +269,14 @@ Rules the pair must keep:
   go.mod back into nix.
 - **Fleet modules stay flake inputs**: `ingest` maps a require on a fleet
   module back to its `flakeInputs` entry instead of recording a version.
+  A fleet module the manifest does not declare but a declared producer
+  bridges (an **inherited** bridge, RFC 0001 depth-N — spinclass's tap/go via
+  tommy) may still appear as a versioned third-party require after a
+  migration or a `go get`: harmless. The merge keeps the require's version
+  line but replaces the module to the inherited bridge and strips it from the
+  vendor table, so its version and hash are dead data and the bridge wins on
+  both backends (`godyn-producer-manifest-test`, whose hash is bogus). This
+  matches the organic-require case before go.nix.
 
 Both directions build on existing pieces: gomod2nix already parses go.mod in
 nix (the `parser-*-test.nix` fixtures), and RFC 0001's merge already renders
