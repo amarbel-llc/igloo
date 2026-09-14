@@ -65,6 +65,9 @@
   testModuleTree ? false,
   testPreRun ? "",
   testFlags ? [ ],
+  # tests: derive the test graph and enable per-package go test on the godyn
+  # backend (passthru.tests / checkAll); bga's checkPhase is unaffected.
+  tests ? false,
   # -race on both backends: godyn natively (buildGodynModule race), bga through
   # buildGoRace (race binaries + `go test -race` checkPhase).
   race ? false,
@@ -150,6 +153,7 @@ let
     // lib.optionalAttrs testModuleTree { inherit testModuleTree; }
     // lib.optionalAttrs (testPreRun != "") { inherit testPreRun; }
     // lib.optionalAttrs (testFlags != [ ]) { inherit testFlags; }
+    // lib.optionalAttrs tests { inherit tests; }
     // lib.optionalAttrs race { inherit race; }
     // lib.optionalAttrs (modes != [ ]) { inherit modes; }
     // lib.optionalAttrs (gcflags != [ ]) { inherit gcflags; }
@@ -163,6 +167,9 @@ let
     common
     // lib.optionalAttrs (binaryNames != { }) { postInstall = bgaRenames + "\n" + postInstall; }
     // bgaArgs
+    # With a manifest the checkout has no go.mod, so a bgaArgs.pwd pointing at it
+    # (the version.env / go.mod anchor) must point at the rendered tree instead.
+    // lib.optionalAttrs (manifest != null && bgaArgs ? pwd) { pwd = fromManifest.src; }
   );
   bga =
     if race then

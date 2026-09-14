@@ -370,7 +370,9 @@
             race = true;
             nativeArgs.cc = pkgs.stdenv.cc; # -race requires cgo
           };
-          # buildGoAuto with go.nix: both backends build from the one manifest.
+          # buildGoAuto with go.nix: both backends build from the one manifest; tests
+          # reaches the godyn backend, and a bgaArgs.pwd at the (go.mod-less)
+          # checkout is redirected to the rendered tree (spinclass's shape).
           godyn-manifest-auto-test = pkgs.buildGoAuto {
             pname = "godyn-manifest-auto-test";
             src = ./pkgs/build-support/godyn/tests/manifest;
@@ -378,6 +380,8 @@
             inputs.dep.packages.${system}.go-pkgs = ./pkgs/build-support/godyn/tests/cross;
             version = "0.0.0";
             subPackages = [ "." ];
+            tests = true;
+            bgaArgs.pwd = ./pkgs/build-support/godyn/tests/manifest;
           };
           # flake-input-go_mod producers under godyn: q and p publish go-pkgs via
           # mkGoPkgs (p's carries goFlakeInputs for q). godyn builds consumer c from
@@ -1000,6 +1004,7 @@
                 got=$("$b")
                 [ "$got" = "hello from dep/greet true" ] || { echo "$b printed [$got]" >&2; exit 1; }
               done
+              grep -qx "ok example.com/manifest" ${auto.passthru.checkAll} || { echo "buildGoAuto tests = true: no test run" >&2; exit 1; }
               lang=$(jq -r '.[] | select(.importPath == "github.com/google/go-cmp/cmp") | .goVersion' ${built.passthru.graphFile})
               [ "$lang" = "1.13" ] || { echo "go-cmp goVersion in the derived graph: [$lang], want 1.13" >&2; exit 1; }
               diff -u ${builtins.toFile "roundtrip.gomod" roundTrip} ${builtins.toFile "rendered.gomod" rendered}

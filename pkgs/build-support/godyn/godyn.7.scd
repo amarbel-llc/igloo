@@ -231,6 +231,11 @@ A bridged consumer declares *goFlakeInputs* once on *buildGoAuto*, which hands i
 both backends (see *goFlakeInputs* under buildGodynModule). Generate the graph with
 *godyn-gen -gomod* against *passthru.bga.passthru.mergedGoMod* (see above).
 
+*tests = true* reaches the godyn backend (per-package test runs, *passthru.tests*
+/ *checkAll*); buildGoApplication keeps its own *go test ./...* checkPhase. With
+a *manifest*, a *bgaArgs.pwd* naming the checkout (the version.env anchor) is
+redirected to the rendered tree, since the checkout has no go.mod.
+
 The install step (*postInstall*, *nativeBuildInputs*) — which godyn follows with
 stdenv's fixup (man-page compression, patchShebangs; no strip, the link already
 used *-w*), as buildGoApplication does — is likewise declared once on
