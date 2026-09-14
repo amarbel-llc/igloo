@@ -350,6 +350,7 @@
             manifest = ./pkgs/build-support/godyn/tests/manifest/go.nix;
             inputs.dep.packages.${system}.go-pkgs = ./pkgs/build-support/godyn/tests/cross;
             version = "0.0.0";
+            subPackages = [ "." ]; # tools/gen is a generator, not a product
             tests = true;
           };
           # go.nix with -race on both backends (spinclass's variant, FDR 0008).
@@ -359,6 +360,7 @@
             manifest = ./pkgs/build-support/godyn/tests/manifest/go.nix;
             inputs.dep.packages.${system}.go-pkgs = ./pkgs/build-support/godyn/tests/cross;
             version = "0.0.0";
+            subPackages = [ "." ];
             race = true;
             nativeArgs.cc = pkgs.stdenv.cc; # -race requires cgo
           };
@@ -369,6 +371,7 @@
             manifest = ./pkgs/build-support/godyn/tests/manifest/go.nix;
             inputs.dep.packages.${system}.go-pkgs = ./pkgs/build-support/godyn/tests/cross;
             version = "0.0.0";
+            subPackages = [ "." ];
           };
           # flake-input-go_mod producers under godyn: q and p publish go-pkgs via
           # mkGoPkgs (p's carries goFlakeInputs for q). godyn builds consumer c from
@@ -1015,6 +1018,21 @@
             '';
           godyn-manifest-vet-test = self.packages.${system}.godyn-manifest-test.passthru.vetAll;
           godyn-manifest-lint-test = self.packages.${system}.godyn-manifest-test.passthru.lintAll;
+          # pure codegen drift check (FDR 0008): go generate runs the fixture's
+          # generator in the vendored module tree; the committed generated.go matches
+          # (green), and a command that changes the tree fails naming the drift —
+          # through buildGoAuto's passthru, which spinclass wires.
+          godyn-manifest-codegen-test =
+            self.packages.${system}.godyn-manifest-auto-test.passthru.codegenCheck
+              {
+                command = "go generate ./...";
+              };
+          godyn-manifest-codegen-drift-test = pkgs.testers.testBuildFailure' {
+            drv = self.packages.${system}.godyn-manifest-test.passthru.codegenCheck {
+              command = "go generate ./... && echo '// drift' >> generated.go";
+            };
+            expectedBuilderLogEntries = [ "godyn codegen drift (godyn-manifest-test)" ];
+          };
           # inner test loop (FDR 0008): testWith runs one package's tests with extra
           # flags and keeps the output — here verbose, filtered to leaf's tests.
           godyn-test-with-test =

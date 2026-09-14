@@ -446,21 +446,30 @@ let
   # JSON. That is import-from-derivation, so evaluating another system's packages
   # needs a builder for that system (accepted in FDR 0008; igloo#75). cgo is on only
   # when a cc is given, matching what this builder can compile.
+  # The vendored module tree a buildGoCheck command runs in: merged go.mod for
+  # goFlakeInputs, vendored deps, offline. Shared by the graph derivation and
+  # the codegen check.
+  checkBase =
+    what:
+    if modules == null then
+      throw "buildGodynModule(${pname}): ${what} needs modules (gomod2nix.toml) or a manifest"
+    else
+      buildGoApplication {
+        inherit
+          pname
+          src
+          modules
+          goFlakeInputs
+          ;
+        version = effectiveVersion; # an explicit version sidesteps igloo#70
+      };
   deriveGraph =
     genFlags: pnameSuffix:
     if modules == null then
       throw "buildGodynModule(${pname}): pass graphFile/graphFiles, or modules (gomod2nix.toml) to derive the graph at eval time"
     else
       buildGoCheck {
-        base = buildGoApplication {
-          inherit
-            pname
-            src
-            modules
-            goFlakeInputs
-            ;
-          version = effectiveVersion; # an explicit version sidesteps igloo#70
-        };
+        base = checkBase "deriving the graph";
         inherit pnameSuffix;
         extraNativeBuildInputs = [ godyn-gen ];
         command = ''CGO_ENABLED=${
@@ -486,6 +495,39 @@ let
       deriveGraph "-tests" "-godyn-test-graph"
     else
       null;
+
+  # A pure codegen drift check (FDR 0008): run `command` (e.g. `go generate ./...`)
+  # in the vendored module tree, then fail if the tree differs from src. The
+  # generators and any tools they shell out to come in through nativeBuildInputs;
+  # exclude lists extra basenames (diff --exclude) the command may write besides
+  # vendor/, go.mod and go.sum.
+  codegenCheck =
+    {
+      command,
+      nativeBuildInputs ? [ ],
+      exclude ? [ ],
+    }:
+    buildGoCheck {
+      base = checkBase "codegenCheck";
+      pnameSuffix = "-codegen-check";
+      extraNativeBuildInputs = nativeBuildInputs;
+      command = ''
+        ${command}
+        if ! diff -r ${
+          lib.concatMapStringsSep " " (e: "--exclude=${lib.escapeShellArg e}") (
+            [
+              "vendor"
+              "go.mod"
+              "go.sum"
+            ]
+            ++ exclude
+          )
+        } ${src} . >&2; then
+          echo "godyn codegen drift (${pname}): the generated files above differ from the source tree; regenerate and commit them" >&2
+          exit 1
+        fi
+      '';
+    };
 
   graph = builtins.fromJSON (builtins.readFile resolvedGraphFile);
   byImport = lib.listToAttrs (map (p: lib.nameValuePair p.importPath p) graph);
@@ -1547,6 +1589,9 @@ installed.overrideAttrs (old: {
         extraFlags = testFlags;
         keepLog = true;
       };
+    # codegen drift (FDR 0008): { command; nativeBuildInputs; exclude; } — run the
+    # generators in the vendored module tree and fail on any diff from src.
+    inherit codegenCheck;
     # per-package vet and lint: run derivations for the local packages by import
     # path (a finding fails the build), and each lane's manifest for flake checks.
     vet = vetLane.local;

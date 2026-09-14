@@ -131,6 +131,24 @@ pkgs.buildGoAuto { pname = "myapp"; src = self; inherit inputs; manifest = ./go.
   is rejected, and *manifest* cannot be combined with *modules* or *goFlakeInputs*.
 - Builds need no go.sum: the rendered go.mod builds in vendor mode.
 
+## Codegen drift: codegenCheck
+
+*passthru.codegenCheck { command; nativeBuildInputs ? [ ]; exclude ? [ ]; }*
+(on buildGodynModule and buildGoAuto) is a pure check that generated files are
+committed up to date: it runs *command* — typically *go generate ./...* — in the
+vendored module tree (rendered or merged go.mod, offline, the same tree the
+graph derivation runs in), then fails if the tree differs from *src*.
+Generators and tools they shell out to come in through *nativeBuildInputs*;
+*exclude* adds basenames to ignore besides vendor/, go.mod and go.sum. A
+failing check prints the diff and names the drift:
+
+```
+checks.<system>.myapp-codegen = myapp.passthru.codegenCheck {
+  command = "go generate ./...";
+  nativeBuildInputs = [ pkgs.stringer ];
+};
+```
+
 # buildGoAuto (selector)
 
 *pkgs.buildGoAuto* picks the backend by intent — godyn for the incremental dev/test

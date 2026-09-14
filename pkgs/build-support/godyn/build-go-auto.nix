@@ -197,5 +197,8 @@ chosen.overrideAttrs (old: {
       strategy
       backend
       ;
+    # the codegen drift check (FDR 0008) is backend-independent: it runs in the
+    # vendored module tree, never against a compiled package.
+    inherit (native.passthru) codegenCheck;
   };
 })
