@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: experimental
 date: 2026-09-14
 promotion-criteria: |
   exploring → proposed: the manifest shape below is settled on one
@@ -190,11 +190,28 @@ unverified:
 | `go generate` / `go get` / `go mod tidy` writing back | escape hatch + `ingest` | landed: `passthru.goRun` (impure derivation), `passthru.ingest`, the `godyn-go` CLI; verified on the manifest fixture (`go get` bump ingested end to end, `explore-godyn-go`); the pure half is checked (`godyn-manifest-ingest-test`) |
 | agent `go doc` (hamster) through the module (*theory*) | first-class answer needed | open |
 | conformist: eng-versioning reads go.mod's module path, tommy codegen repair hook type-loads packages, gofumpt reads the go directive (all *theory*) | go.nix-aware equivalents; conformist/tommy lanes to confirm | open |
-| devshell `mkGoEnv` + gomod2nix CLI | retired | open |
+| devshell `mkGoEnv` + gomod2nix CLI | retired | spinclass's devshell dropped both (cutover below); igloo keeps them until every consumer has (testing → accepted) |
 | migration: go.mod + gomod2nix.toml → go.nix | `godyn-go -I <dir>` over a seed go.nix (module, go, flakeInputs) | landed (`godyn-manifest-migrate-test`: fleet requires and relative replaces drop, third-party hashes carry over; verified on a fixture with the CLI) |
 
 Ordering constraint: spinclass's own merge gate runs its codegen recipes, so
 the replacements land before spinclass removes go.mod.
+
+**Cutover (2026-09-14, promoted to experimental).** spinclass landed
+`13d42af` + `104a5a0` on its default branch: go.mod, go.sum, gomod2nix.toml
+and its gomod.nix removed, go.nix in their place (seeded with module, go and
+four `flakeInputs`, then `godyn-go -I .`), both `buildGoAuto` sites on
+`manifest`, tests/vet/lint/codegen as flake checks, `build-tommy-codegen`
+through `godyn-go`, `debug-go-test` on `godyn-test`, `mkGoEnv` and gomod2nix
+out of the devshell. Its full `just` gate passed in the merge run on igloo
+`c0dfbe9`, conformist `7e1bac4` (go.nix-aware eng-versioning and gofumpt) and
+tommy `5767957` (generator proven inside `codegenCheck`). Known gaps
+recorded in that commit: four `serve_integration` tests skip under godyn (no
+`go` on PATH; bga's checkPhase in the bats lanes still runs them); godyn-lint
+replaces the golangci-lint set on x86_64-linux; three debug recipes still
+need ambient `go`; gopls, delve and gotools stay in the devshell with nothing
+to work against; the unit suite runs more than once per `nix flake check`.
+Measured inner loop on spinclass (`internal/perms`, `git+file:`): ~2.5 s
+no-op, ~6 s after a test edit.
 
 ## Escape hatch: go commands against the rendered module
 
