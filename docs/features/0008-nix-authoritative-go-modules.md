@@ -191,6 +191,18 @@ and its full gate stayed green. That is the consumer-transparency claim
 verified on a live producer/consumer pair; the go.nix consumer count for
 the experimental → testing gate is now two.
 
+**Third tracer (2026-09-14): crap/go-crap, a subPath producer with a `/v2`
+major.** crap `a4320ea`: go.nix ingested with every hash, per-module Go
+version and indirect marker matching the old toml; `mkGoPkgs { manifest;
+subPath = "go-crap"; }` (subPath added to igloo for it, `8b8cab2`); builds
+on `buildGoAuto` from `go-pkgs-test + "/go-crap"` with the manifest; godyn
+tests, vet and lint checks; `-race` needs `cc`; no ambient go left in the
+devshell. The `/v2` chain agrees end to end: rendered module line
+`…/go-crap/v2`, consumer sentinel `v2.0.0-00010101000000-000000000000`, and
+the vendor symlink `code.linenisgreat.com/crap/go-crap/v2 → <go-pkgs>/go-crap`,
+verified with a throwaway go.nix consumer on both backends. Consumer bumps
+(spinclass, cutting-garden) follow.
+
 ## Goal: drop gomod2nix (decided 2026-09-14)
 
 go.nix replaces gomod2nix as a consumer-facing tool: no gomod2nix.toml, no

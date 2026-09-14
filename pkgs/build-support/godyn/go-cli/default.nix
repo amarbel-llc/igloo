@@ -51,7 +51,7 @@ writeShellApplication {
            godyn-go [-m <go.nix>] -I <dir>
       -A <attr>    the module's flake attribute (default: packages.<system>.default)
       -m <go.nix>  the manifest to rewrite (default: ./go.nix)
-      -n           build only: print the goRun output path, apply nothing
+      -n           build only: print the goRun output path on stdout, apply nothing
       -I <dir>     ingest only: <dir>/go.mod + <dir>/gomod2nix.toml into <go.nix>,
                    seeded from the existing <go.nix> (module, go, flakeInputs)
     EOF
@@ -106,7 +106,8 @@ writeShellApplication {
     expr="$flake.goRun { command = $(printf '%s' "$command" | jq -Rs .); }"
     out=$(nix build --impure --no-link --print-out-paths --expr "$expr")
     echo "godyn-go: $out" >&2
-    [ "$apply" -eq 1 ] || exit 0
+    # -n: the output path is the result, on stdout
+    [ "$apply" -eq 1 ] || { echo "$out"; exit 0; }
 
     if [ -s "$out/patch" ]; then
       prefix=$(git rev-parse --show-prefix)
