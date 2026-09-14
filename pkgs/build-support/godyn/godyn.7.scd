@@ -142,6 +142,9 @@ An RFC 0001 producer on go.nix passes *manifest* (plus *inputs* and
 
 ```
 mkGoPkgs { src = self; manifest = ./go.nix; inherit inputs; }
+# module in a subdirectory of the published tree (consumers bridge with the
+# same subPath): the render lands at go-pkgs/<subPath>/
+mkGoPkgs { src = self; manifest = ./go-crap/go.nix; subPath = "go-crap"; inherit inputs; }
 ```
 
 Its *go-pkgs* and *go-pkgs-test* then carry a rendered go.mod (module, go,

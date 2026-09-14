@@ -83,7 +83,8 @@ let
         ''
         + lib.concatStrings (
           lib.mapAttrsToList (f: text: ''
-            chmod u+w $out
+            mkdir -p "$out/$(dirname ${f})"
+            chmod u+w "$out/$(dirname ${f})"
             cp ${builtins.toFile (baseNameOf f) text} $out/${f}
           '') extraFiles
         )
@@ -130,24 +131,30 @@ let
       manifest ? null,
       inputs ? { },
       goFlakeInputOverrides ? { },
+      # subPath (manifest mode): the module's directory inside src, when the
+      # producer publishes a whole repository and consumers bridge it with the
+      # same subPath. The rendered go.mod and gomod2nix.toml land there.
+      subPath ? "",
     }:
     let
       hasManifest = manifest != null;
+      moduleDir = lib.removeSuffix "/" (lib.removePrefix "./" subPath);
+      inTree = f: if moduleDir == "" then f else "${moduleDir}/${f}";
       loaded =
         if !hasManifest then
           null
         else if manifestLib == null then
           throw "mkGoPkgs: manifest needs the go.nix manifest library"
-        else if builtins.pathExists (src + "/go.mod") then
-          throw "mkGoPkgs: a go.nix producer must not track a go.mod (FDR 0008); remove it from ${toString src}"
+        else if builtins.pathExists (src + "/${inTree "go.mod"}") then
+          throw "mkGoPkgs: a go.nix producer must not track a go.mod (FDR 0008); remove it from ${toString src}/${inTree "go.mod"}"
         else
           manifestLib.load manifest;
       manifestFiles = lib.optionalAttrs hasManifest {
-        "go.mod" = manifestLib.renderGoMod {
+        ${inTree "go.mod"} = manifestLib.renderGoMod {
           inherit manifest;
           fleetRequires = true;
         };
-        "gomod2nix.toml" = manifestLib.renderGomod2nixToml manifest;
+        ${inTree "gomod2nix.toml"} = manifestLib.renderGomod2nixToml manifest;
       };
       manifestFlakeInputs = lib.optionalAttrs (hasManifest && loaded.flakeInputs != { }) (
         manifestLib.goFlakeInputsFor {

@@ -451,6 +451,34 @@
                   inherit pm q;
                 };
               });
+          # A go.nix producer whose module is a subdirectory of the published tree
+          # (mkGoPkgs subPath; crap's go-crap/): the organic consumer c bridges it
+          # with the same subPath on both backends.
+          godyn-producer-subpath-test =
+            let
+              inherit (self.packages.${system}.godyn-producer-gonix-test.passthru) q;
+              psub = pkgs.mkGoPkgs {
+                src = ./pkgs/build-support/godyn/tests/producer/sub;
+                manifest = ./pkgs/build-support/godyn/tests/producer/sub/p/go.nix;
+                subPath = "p";
+                inputs.q.packages.${system}.go-pkgs = q.go-pkgs;
+              };
+            in
+            (pkgs.buildGoAuto {
+              pname = "godyn-producer-subpath-test";
+              src = ./pkgs/build-support/godyn/tests/producer/c;
+              modules = ./pkgs/build-support/godyn/tests/producer/c/gomod2nix.toml;
+              goFlakeInputs."example.com/p" = {
+                src = psub.go-pkgs;
+                subPath = "p";
+              };
+              version = "0.0.0";
+            }).overrideAttrs
+              (old: {
+                passthru = old.passthru // {
+                  inherit psub;
+                };
+              });
           # The go.nix producer self-consuming its go-pkgs-test (the RFC 0001
           # producer contract): its rendered files drive the build and its tests run.
           godyn-producer-gonix-self-test =
@@ -1247,6 +1275,23 @@
                 [ "$got" = "p wraps q" ] || { echo "$b printed [$got]" >&2; exit 1; }
               done
               grep -qx "ok example.com/p" ${selfTest.passthru.checkAll} || { echo "p's tests did not run" >&2; exit 1; }
+              echo OK > $out
+            '';
+          # subPath producer: the render sits at go-pkgs/p/, not the root, and the
+          # consumer bridging with subPath "p" builds and runs on both backends.
+          godyn-producer-subpath-test =
+            let
+              t = self.packages.${system}.godyn-producer-subpath-test;
+              inherit (t.passthru) psub;
+            in
+            assert psub.go-pkgs.name == "p-go-pkgs";
+            pkgs.runCommandLocal "godyn-producer-subpath-test-check" { } ''
+              [ -f ${psub.go-pkgs}/p/go.mod ] && [ -f ${psub.go-pkgs}/p/gomod2nix.toml ] && [ ! -e ${psub.go-pkgs}/go.mod ]
+              grep -qx "module example.com/p" ${psub.go-pkgs}/p/go.mod
+              for b in ${t.passthru.native}/bin/c ${t.passthru.bga}/bin/c; do
+                got=$("$b")
+                [ "$got" = "p wraps q" ] || { echo "$b printed [$got]" >&2; exit 1; }
+              done
               echo OK > $out
             '';
           # build tags select files in the derived graph: untagged links the
