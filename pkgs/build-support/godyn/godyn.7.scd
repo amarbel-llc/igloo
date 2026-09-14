@@ -167,6 +167,9 @@ download* writes go.sum with GOSUMDB on; then the command runs. *$out* holds
 *patch* (*git diff --no-index --binary* of src against the tree, go.mod and
 go.sum excluded — empty when nothing changed), *go.mod*, *go.sum*,
 *gomod2nix.toml* (the hashes and Go versions of the result) and *src-listing*.
+Tools the command needs (a generator such as tommy) go on PATH through the
+module's *goRunInputs* argument — declared once, so *godyn-go -- go generate
+./...* finds them — or the call's own *nativeBuildInputs*.
 
 *passthru.ingest <goRun output path>* is the pure half: go.nix source text for
 the module after the run — the go.mod's requires with the toml's hashes and Go

@@ -38,6 +38,9 @@
   manifest ? null,
   inputs ? { },
   goFlakeInputOverrides ? { },
+  # tools on PATH in every escape-hatch run (passthru.goRun / godyn-go), e.g. a
+  # code generator; see buildGodynModule.
+  goRunInputs ? [ ],
   version ? null,
   ldflags ? [ ],
   ldflagsX ? { },
@@ -152,6 +155,7 @@ let
     // lib.optionalAttrs (gcflags != [ ]) { inherit gcflags; }
     // lib.optionalAttrs (asmflags != [ ]) { inherit asmflags; }
     // lib.optionalAttrs cover { inherit cover coverMode coverPackages; }
+    // lib.optionalAttrs (goRunInputs != [ ]) { inherit goRunInputs; }
     // lib.optionalAttrs (fromManifest ? commit) { inherit (fromManifest) commit; }
     // nativeArgs
   );

@@ -357,6 +357,7 @@
             version = "0.0.0";
             subPackages = [ "." ]; # tools/gen is a generator, not a product
             tests = true;
+            goRunInputs = [ pkgs.hello ]; # a tool every escape-hatch run has on PATH
           };
           # go.nix with -race on both backends (spinclass's variant, FDR 0008).
           godyn-manifest-race-test = pkgs.buildGoAuto {

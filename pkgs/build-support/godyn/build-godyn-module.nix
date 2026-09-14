@@ -36,6 +36,10 @@
   # manifest: the module's go.nix (FDR 0008), left in place by withManifest (which
   # turned it into src/modules/goFlakeInputs) so passthru.ingest can update it.
   manifest ? null,
+  # goRunInputs: tools on PATH in every escape-hatch run (passthru.goRun, hence
+  # godyn-go) — generators like tommy, so `godyn-go -- go generate ./...` finds
+  # them; declared once here rather than per invocation.
+  goRunInputs ? [ ],
   # Version embedding (parity with buildGoApplication, eng-versioning(7)): an
   # explicit `version` wins; else a `version.env` (declaring <PKG>_VERSION) in the
   # module dir is auto-read; else "dev". Drives -X main.version.
@@ -548,7 +552,8 @@ let
   # of src against the tree, go.mod and go.sum excluded (apply with `git apply
   # -p2`; empty when nothing changed); go.mod — the tree's, after the command;
   # gomod2nix.toml — `gomod2nix generate` over it, the hashes and Go versions
-  # ingest records. Tools the command needs come through nativeBuildInputs.
+  # ingest records. Tools the command needs come through the module's
+  # goRunInputs (declared once) or this call's nativeBuildInputs.
   goRun =
     {
       command,
@@ -567,6 +572,7 @@ let
         cacert
         gomod2nix
       ]
+      ++ goRunInputs
       ++ nativeBuildInputs;
       dontUnpack = true;
       dontInstall = true;
