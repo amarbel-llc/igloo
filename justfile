@@ -341,15 +341,16 @@ explore-test-godyn rev="ccc91bed0accabf12f63abc00e583d78aa20183e":
         --override-input igloo .
 
 # [explore] Time godyn's inner test loop (FDR 0008): build one package's
-# passthru.testWith run from a path: flake ref of this tree (uncommitted and
-# untracked files included), twice — the first pays evaluation, graph
+# passthru.testWith run from a flake ref of this tree (scheme git+file, the
+# CLIs' choice: tracked files as in the working tree; or path, which copies
+# everything incl. .tmp), twice — the first pays evaluation, graph
 # derivation and any rebuilds, the second is the no-op floor — and print each
 # wall-clock time plus the run's result, then the tail of the run's test.log.
 # flags are test-binary flags.
 #
 # time the godyn inner test loop (path: flake ref, one package)
 [group: 'explore']
-explore-godyn-test-loop attr="godyn-derived-tests-test" dir="leaf" flags="-test.run=. -test.v" scheme="path":
+explore-godyn-test-loop attr="godyn-derived-tests-test" dir="leaf" flags="-test.run=. -test.v" scheme="git+file":
     #!/usr/bin/env bash
     set -euo pipefail
     system=$(nix eval --impure --raw --expr builtins.currentSystem)

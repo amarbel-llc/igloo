@@ -3,8 +3,9 @@
 #   godyn-go [-A <attr>] [-m <go.nix>] [-n] -- <go command...>
 #   godyn-go [-m <go.nix>] -I <dir>
 #
-# Builds <attr>.passthru.goRun { command } from a path: flake ref of the current
-# directory (uncommitted and untracked files included): an impure derivation
+# Builds <attr>.passthru.goRun { command } from a git+file: flake ref of the
+# repository (tracked files as in the working tree; a new file needs
+# `git add -N` first; .git and ignored dirs never copied): an impure derivation
 # that runs the command against the rendered module with the network available.
 # Then applies the run's patch to the checkout (`git apply --check` first: if a
 # touched file changed meanwhile nothing is written and the patch's store path
@@ -97,7 +98,9 @@ writeShellApplication {
     [ "$#" -gt 0 ] || { usage; exit 2; }
     system=$(nix eval --impure --raw --expr builtins.currentSystem)
     [ -n "$attr" ] || attr="packages.$system.default"
-    flake="(builtins.getFlake \"path:$PWD\").$attr.passthru"
+    # git+file: copies only tracked files (modified contents included), never
+    # .git or ignored dirs like .tmp; a new file needs `git add -N` first.
+    flake="(builtins.getFlake \"git+file:$(git rev-parse --show-toplevel)\").$attr.passthru"
     # the command, shell-quoted for the derivation's bash
     command=$(printf '%q ' "$@")
     expr="$flake.goRun { command = $(printf '%s' "$command" | jq -Rs .); }"

@@ -185,8 +185,9 @@ godyn-go [-m <go.nix>] -I <dir>
 ```
 
 It builds *<attr>.passthru.goRun* (default *packages.<system>.default*) from a
-*path:* flake ref of the current directory, so uncommitted and untracked files
-are included; applies the patch with *git apply --check* then *git apply* (a
+*git+file:* flake ref of the repository — tracked files as they are in the
+working tree, never .git or ignored directories such as .tmp; a NEW file must
+be *git add -N*'d before the run sees it; applies the patch with *git apply --check* then *git apply* (a
 touched file that changed in the checkout meanwhile aborts, nothing written,
 the patch's store path printed); and rewrites *<go.nix>* (default *./go.nix*)
 from *passthru.ingest*. *-n* stops after the build. *-I <dir>* only ingests
@@ -517,12 +518,15 @@ to *testWith* or manual testBins invocations, not the cached run.
 selected by module-relative *dir* — with extra test-binary flags, for the
 edit-test loop (FDR 0008). Unlike *tests.<importPath>* it always builds:
 *$out/result* is *ok <importPath>* or *FAIL <importPath>*, and *$out/test.log*
-holds the binary's output. Evaluate it against a *path:* flake ref so
-uncommitted and untracked files are included; only the edited cone rebuilds:
+holds the binary's output. Evaluate it against a *git+file:* flake ref of the
+dirty tree: tracked files come as they are in the working tree (a new file
+after *git add -N*), .git and ignored directories are never copied, and only
+the edited cone rebuilds. (A *path:* ref also works but copies the whole
+checkout, .tmp included, on every edit — ~4× the no-op floor.)
 
 ```
 nix build --impure --no-link --print-out-paths --expr '
-  (builtins.getFlake "path:'$PWD'").packages.${builtins.currentSystem}.myapp
+  (builtins.getFlake "git+file:'$PWD'").packages.${builtins.currentSystem}.myapp
     .passthru.testWith { dir = "internal/foo"; testFlags = [ "-test.run=TestX" "-test.v" ]; }'
 ```
 

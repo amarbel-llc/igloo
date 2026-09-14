@@ -2,9 +2,10 @@
 #
 #   godyn-test [-A <attr>] <dir> [-- <test binary flags...>]
 #
-# Builds <attr>.passthru.testWith { dir; testFlags } from a path: flake ref of the
-# current directory (uncommitted and untracked files included), so only the
-# edited cone rebuilds, then prints the run's test.log and exits 0 on "ok",
+# Builds <attr>.passthru.testWith { dir; testFlags } from a git+file: flake ref
+# of the repository (tracked files as in the working tree; a new file needs
+# `git add -N` first), so only the edited cone rebuilds, then prints the run's
+# test.log and exits 0 on "ok",
 # 1 on "FAIL". Flags are the test binary's (-test.run=TestX -test.v -test.count=1).
 {
   writeShellApplication,
@@ -45,7 +46,9 @@ writeShellApplication {
     # each flag as a nix string literal (json-escaped), space-separated
     flags=""
     for f in "$@"; do flags+="$(printf '%s' "$f" | jq -Rs .) "; done
-    expr="(builtins.getFlake \"path:$PWD\").$attr.passthru.testWith {
+    # git+file: copies only tracked files (modified contents included), never
+    # .git or ignored dirs like .tmp; a new file needs `git add -N` first.
+    expr="(builtins.getFlake \"git+file:$(git rev-parse --show-toplevel)\").$attr.passthru.testWith {
       dir = $(printf '%s' "$dir" | jq -Rs .);
       testFlags = [ $flags];
     }"

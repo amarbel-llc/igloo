@@ -186,7 +186,7 @@ unverified:
 | `checks.spinclass`: `go test ./...` via bga with runtime check inputs (git, a CLI) | godyn per-package tests from a manifest (`tests = true`, `nativeCheckInputs`) | landed (`godyn-manifest-tests-test`: the test graph derives from the rendered go.mod, the test links the fleet and third-party modules) |
 | `checks.lint`: `buildGoLint` on the bga base | godyn lint and vet lanes from a manifest | landed (`godyn-manifest-lint-test`, `godyn-manifest-vet-test`); the suite is godyn-lint's, not golangci-lint's (godyn(7) § LINT) |
 | codegen drift check (`verify-tommy-codegen` in the merge gate) | a **pure** check: run the generator against the rendered module, diff against committed output | landed: `passthru.codegenCheck { command; nativeBuildInputs; exclude; }` runs the command in the vendored module tree and fails on any diff from `src` (`godyn-manifest-codegen-test`, `godyn-manifest-codegen-drift-test`); the tommy invocation itself is spinclass's to wire |
-| inner loop: fast, cached `go test <pkg>` on the dirty tree (`debug-go-test`) | **decided 2026-09-14:** a godyn command that builds one package's test run from a `path:` flake ref (uncommitted and untracked files included), with per-invocation test flags; only the edited cone rebuilds | `passthru.testWith` landed (`godyn-test-with-test`); measured on the gotest fixture (`explore-godyn-test-loop`, x86_64-linux, one host): no-op floor ~4.4 s, a `_test.go` edit or a new untracked test file ~6.6–7.4 s (both graphs re-derived, test binary rebuilt, run). The floor is evaluation plus the tree copy. The `godyn-test` CLI wraps it (prints the log, exits by result) |
+| inner loop: fast, cached `go test <pkg>` on the dirty tree (`debug-go-test`) | **decided 2026-09-14:** a godyn command that builds one package's test run from a `git+file:` flake ref of the dirty tree (tracked files as in the working tree; a new file after `git add -N`; `.git` and `.tmp` never copied), with per-invocation test flags; only the edited cone rebuilds | `passthru.testWith` landed (`godyn-test-with-test`); measured on the gotest fixture (`explore-godyn-test-loop`, x86_64-linux, one host): no-op floor ~4.4 s, a `_test.go` edit or a new untracked test file ~6.6–7.4 s (both graphs re-derived, test binary rebuilt, run). The floor is evaluation plus the tree copy. The `godyn-test` CLI wraps it (prints the log, exits by result) |
 | `go generate` / `go get` / `go mod tidy` writing back | escape hatch + `ingest` | landed: `passthru.goRun` (impure derivation), `passthru.ingest`, the `godyn-go` CLI; verified on the manifest fixture (`go get` bump ingested end to end, `explore-godyn-go`); the pure half is checked (`godyn-manifest-ingest-test`) |
 | agent `go doc` (hamster) through the module (*theory*) | first-class answer needed | open |
 | conformist: eng-versioning reads go.mod's module path, tommy codegen repair hook type-loads packages, gofumpt reads the go directive (all *theory*) | go.nix-aware equivalents; conformist/tommy lanes to confirm | open |
@@ -254,10 +254,9 @@ of it `.tmp`) — and re-copies on every edit; that copy is most of the inner
 loop's ~4.4 s no-op floor. A `git+file:` ref of the same dirty tree copies
 only tracked files (modified contents included) and floors at ~1.0 s on the
 same fixture; a new file is included once it is `git add -N`'d (verified).
-`godyn-go` and `godyn-test` use `path:` today. **Open decision:** switch them
-to `git+file:` (fast, `.tmp`-free, new files need intent-to-add — the fleet's
-existing `nix build` convention) or keep `path:` (no git step, 4× slower,
-`.tmp` in every escape-hatch tree).
+**Decided 2026-09-14:** `godyn-go` and `godyn-test` build from `git+file:`
+(fast, `.tmp`-free; a new file needs `git add -N`, the fleet's existing
+`nix build` convention), not `path:`.
 
 Rules the pair must keep:
 
@@ -316,7 +315,8 @@ directives into a go.mod.
   and vendor tree handle sibling path replaces when `src` is the repository
   root; igloo#73 becomes that fixture.
 - **Escape-hatch output.** Answered (2026-09-14): the derivation's source is
-  the checkout without `.git` (untracked files included). It outputs
+  the checkout's tracked files as in the working tree, without `.git` or
+  ignored directories (a new file after `git add -N`). It outputs
   `git diff --no-index --binary` of that source against the result —
   excluding go.mod and go.sum — plus the changed go.mod. The wrapper runs
   `git apply --check` then `git apply` (edits, new and deleted files, binary
