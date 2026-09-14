@@ -134,6 +134,7 @@ let
           "\n[mod.${builtins.toJSON p}]\n  version = ${
             builtins.toJSON (if rp != null then rp.version else r.version)
           }\n  hash = ${builtins.toJSON r.hash}\n"
+          + lib.optionalString (r ? go) "  goVersion = ${builtins.toJSON r.go}\n"
           + lib.optionalString (rp != null) "  replaced = ${builtins.toJSON rp.module}\n";
     in
     "schema = 3\n" + lib.concatStrings (lib.mapAttrsToList entry m.require);
@@ -308,10 +309,25 @@ let
     else
       let
         inherit (args) pname src manifest;
+
+        rendered = renderGoMod { inherit manifest; };
+        # A src that already carries a go.mod is accepted only if it is this
+        # manifest's own render (a producer's go-pkgs-test, whose go.mod also has
+        # the fleet sentinel requires): then the tree is used as is.
+        srcGoMod = "${src}/go.mod";
+        srcIsRendered =
+          builtins.pathExists srcGoMod
+          && lib.elem (builtins.readFile srcGoMod) [
+            rendered
+            (renderGoMod {
+              inherit manifest;
+              fleetRequires = true;
+            })
+          ];
       in
       if (args.modules or null) != null || (args.goFlakeInputs or { }) != { } then
         throw "${pname}: manifest (go.nix) replaces modules and goFlakeInputs; pass only manifest"
-      else if builtins.pathExists "${src}/go.mod" then
+      else if builtins.pathExists srcGoMod && !srcIsRendered then
         throw "${pname}: a go.nix module must not track a go.mod (FDR 0008); remove it from ${toString src}"
       else
         # manifest stays: the builder keeps it for passthru.ingest
@@ -320,14 +336,14 @@ let
           "goFlakeInputOverrides"
         ]
         // {
-          src = runCommandLocal "${pname}-go-src" { } ''
-            cp -r --no-preserve=mode ${src} $out
-            cp ${
-              builtins.toFile "go.mod" (renderGoMod {
-                inherit manifest;
-              })
-            } $out/go.mod
-          '';
+          src =
+            if srcIsRendered then
+              src
+            else
+              runCommandLocal "${pname}-go-src" { } ''
+                cp -r --no-preserve=mode ${src} $out
+                cp ${builtins.toFile "go.mod" rendered} $out/go.mod
+              '';
           modules = builtins.toFile "gomod2nix.toml" (renderGomod2nixToml manifest);
           goFlakeInputs = goFlakeInputsFor {
             inherit manifest;

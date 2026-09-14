@@ -457,11 +457,14 @@
             let
               inherit (self.packages.${system}.godyn-producer-gonix-test.passthru) pm q;
             in
+            # src is the producer's own go-pkgs-test, which carries this manifest's
+            # rendered go.mod — accepted as is, so one build serves the producer's
+            # tests AND godyn-go's ingest/goRun (no second manifest attribute).
             pkgs.buildGodynModule {
               pname = "godyn-producer-gonix-self-test";
               src = pm.go-pkgs-test;
-              modules = "${pm.go-pkgs-test}/gomod2nix.toml";
-              goFlakeInputs."example.com/q" = q.go-pkgs;
+              manifest = ./pkgs/build-support/godyn/tests/producer/pm/go.nix;
+              inputs.q.packages.${system}.go-pkgs = q.go-pkgs;
               version = "0.0.0";
               tests = true;
             };
@@ -1066,6 +1069,10 @@
               grep -qx "ok example.com/manifest" ${auto.passthru.checkAll} || { echo "buildGoAuto tests = true: no test run" >&2; exit 1; }
               lang=$(jq -r '.[] | select(.importPath == "github.com/google/go-cmp/cmp") | .goVersion' ${built.passthru.graphFile})
               [ "$lang" = "1.13" ] || { echo "go-cmp goVersion in the derived graph: [$lang], want 1.13" >&2; exit 1; }
+              grep -q 'goVersion = "1.13"' ${
+                builtins.toFile "rendered.toml" (manifestLib.renderGomod2nixToml (fixture + "/go.nix"))
+              } \
+                || { echo "rendered gomod2nix.toml lost go-cmp's goVersion" >&2; exit 1; }
               diff -u ${builtins.toFile "roundtrip.gomod" roundTrip} ${builtins.toFile "rendered.gomod" rendered}
               echo OK > $out
             '';

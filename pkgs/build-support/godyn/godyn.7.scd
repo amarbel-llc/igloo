@@ -149,7 +149,11 @@ requires, and a sentinel require for each fleet module — no replace; a
 consumer's merge supplies those) and gomod2nix.toml, so consumers that have
 not cut over bridge it exactly as before, and its *flakeInputs* become
 *passthru.goFlakeInputs* for depth-N inheritance. The producer self-consumes
-its *go-pkgs-test* as today (*modules* from the rendered toml). Checks
+its *go-pkgs-test* with the same *manifest* (*src = go-pkgs-test; manifest =
+./go.nix*): a src whose go.mod is this manifest's own render is accepted as
+is, so that one build also carries *passthru.ingest* and *goRun* for
+godyn-go — no second manifest attribute. The rendered gomod2nix.toml keeps
+each require's *go* as *goVersion*. Checks
 *godyn-producer-gonix-test* and *godyn-producer-manifest-test* cover an organic
 and a go.nix consumer of such a producer.
 
