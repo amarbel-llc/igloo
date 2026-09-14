@@ -445,7 +445,24 @@ re-runs exactly that package's tests and nothing else (finer than per-package
 granularity). The flip side: a PASSING flaky test caches; godyn tests must be
 hermetic and deterministic (no network, no clock/order dependence — the same
 contract as buildGoModule's doCheck). Runtime flags like -run or -count belong
-to manual testBins invocations, not the cached run.
+to *testWith* or manual testBins invocations, not the cached run.
+
+## The inner loop: testWith
+
+*passthru.testWith { dir; testFlags ? [ ]; }* is one tested package's run —
+selected by module-relative *dir* — with extra test-binary flags, for the
+edit-test loop (FDR 0008). Unlike *tests.<importPath>* it always builds:
+*$out/result* is *ok <importPath>* or *FAIL <importPath>*, and *$out/test.log*
+holds the binary's output. Evaluate it against a *path:* flake ref so
+uncommitted and untracked files are included; only the edited cone rebuilds:
+
+```
+nix build --impure --no-link --print-out-paths --expr '
+  (builtins.getFlake "path:'$PWD'").packages.${builtins.currentSystem}.myapp
+    .passthru.testWith { dir = "internal/foo"; testFlags = [ "-test.run=TestX" "-test.v" ]; }'
+```
+
+igloo's *just explore-godyn-test-loop* recipe times this loop.
 
 # VET
 

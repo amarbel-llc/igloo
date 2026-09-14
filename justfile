@@ -344,7 +344,8 @@ explore-test-godyn rev="ccc91bed0accabf12f63abc00e583d78aa20183e":
 # passthru.testWith run from a path: flake ref of this tree (uncommitted and
 # untracked files included), twice — the first pays evaluation, graph
 # derivation and any rebuilds, the second is the no-op floor — and print each
-# wall-clock time plus the run's result. flags are test-binary flags.
+# wall-clock time plus the run's result, then the tail of the run's test.log.
+# flags are test-binary flags.
 #
 # time the godyn inner test loop (path: flake ref, one package)
 [group: 'explore']
@@ -356,12 +357,15 @@ explore-godyn-test-loop attr="godyn-derived-tests-test" dir="leaf" flags="-test.
     for f in {{ flags }}; do nixflags+="\"$f\" "; done
     expr="(builtins.getFlake \"path:$PWD\").packages.$system.{{ attr }}.passthru.testWith { dir = \"{{ dir }}\"; testFlags = [ $nixflags]; }"
     for pass in first second; do
-      start=$(date +%s.%N)
+      start=$(date +%s%N)
       out=$(nix build --impure --no-link --print-out-paths --expr "$expr")
-      end=$(date +%s.%N)
-      printf '%s pass: %.2fs  %s\n' "$pass" "$(echo "$end - $start" | bc)" "$(cat "$out/result")"
+      end=$(date +%s%N)
+      ms=$(( (end - start) / 1000000 ))
+      printf '%s pass: %d.%03ds  %s\n' "$pass" $(( ms / 1000 )) $(( ms % 1000 )) "$(cat "$out/result")"
     done
     du -sh --apparent-size . 2>/dev/null | sed 's/^/path: tree size: /'
+    echo "--- test.log (last 20 lines) ---"
+    tail -n 20 "$out/test.log"
 
 # [explore] Test the overlay-flake migration against amarbel-llc/maneater
 # Clones into .tmp/maneater (or reuses), bumps the nixpkgs input, runs
