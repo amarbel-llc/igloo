@@ -80,8 +80,10 @@ nixpkgs' minor and unaffected.
 
 Migrated: papi `d43b6c8` (five sites, papi's only Go input now 1.26.8, gate
 green), conformist `8962d01` (four sites, then its go.nix cutover `12ddb8a`
-on top). Pending: circus (two sites, in its next igloo bump), piggy's
-devshell line, ringmaster's facade, purse-first's workspace-module default.
+on top), piggy `c826b74` (devshell line; the bump rebuilt no nixpkgs
+package, its three VM lanes green on the library defaults). Pending: circus
+(two sites, in its next igloo bump), ringmaster's facade, purse-first's
+workspace-module default.
 
 ## Limitations
 
