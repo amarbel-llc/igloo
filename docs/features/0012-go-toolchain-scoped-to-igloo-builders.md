@@ -78,6 +78,11 @@ purse-first's `mkGoWorkspaceModule` default. Each is a one-attribute change to
 selection. Consumers pinning `pkgs.go_1_26` / `pkgs-master.go_1_26` are on
 nixpkgs' minor and unaffected.
 
+Migrated: papi `d43b6c8` (five sites, papi's only Go input now 1.26.8, gate
+green), conformist `8962d01` (four sites, then its go.nix cutover `12ddb8a`
+on top). Pending: circus (two sites, in its next igloo bump), piggy's
+devshell line, ringmaster's facade, purse-first's workspace-module default.
+
 ## Limitations
 
 - A consumer that wants the registry toolchain for a nixpkgs package (say a

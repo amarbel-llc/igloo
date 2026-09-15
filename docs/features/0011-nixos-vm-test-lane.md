@@ -1,6 +1,6 @@
 ---
-status: experimental
-date: 2026-09-14
+status: testing
+date: 2026-09-15
 promotion-criteria: |
   experimental → testing: a second repo adopts mkVmChecks + vmTestPrelude
   for a real scenario (piggy is the first, its three lanes pre-dating the
@@ -56,8 +56,16 @@ lane's stack in the test's own `defaults.imports`, and its bootstrap
 prefix with `vmTestPrelude`, on igloo `f235a1f`. Two observations fed back:
 per-test `defaults.imports` stacking (now documented), and the
 `no_timer_check` kernel parameter every TCG lane set by hand (now the
-library's no-KVM default). Promotion to testing waits on piggy's lanes
-merging green on those defaults.
+library's no-KVM default).
+
+**Promoted to testing (2026-09-15).** piggy master `ea36ef6` runs
+vm-piggy-luks, vm-piggy-zfs and vm-piggy-agent through `mkVmChecks` +
+`vmTestPrelude` inside its pre-merge gate: about two minutes per lane, the
+whole gate eleven minutes on an idle host, no per-repo lever override. One
+observation feeds the levers: a lane once hung for the full 3600 s driver
+timeout while the host sat at load ~90 with under 1 GiB free (a guest ssh
+login never completed; not reproduced idle). The library does not guard
+against host pressure; see the timeout lever and vm-tests(7) § GOTCHAS.
 
 ## Limitations
 
@@ -76,7 +84,7 @@ merging green on those defaults.
 |---|---|---|---|
 | memorySize | 2048 MiB | piggy's lanes under TCG | a lane OOMs, or hosts gain RAM headroom |
 | cores | 2 | TCG scales poorly past that on the shared host | measured lane time improves with more |
-| globalTimeout | 3600 s | a TCG boot plus a multi-subtest script is minutes | lanes time out, or a KVM host arrives |
+| globalTimeout | 3600 s | a TCG boot plus a multi-subtest script is minutes | lanes time out, or a KVM host arrives; a hung lane under host pressure costs the full hour (piggy, 2026-09-15), so a shorter default trades slow-host tolerance for faster failure |
 | kvm | false | build hosts have no /dev/kvm | a KVM-capable builder joins the fleet |
 
 ## More Information

@@ -87,6 +87,10 @@ would otherwise hang on a GUI that does not exist.
   in LUKS tests, as upstream's do with *--iter-time=1*.
 - *nix flake check* boots every VM in *checks*: budget minutes per lane, and
   keep the count to the scenarios a unit lane cannot cover.
+- A TCG guest on a host under memory or load pressure can hang rather than
+  fail (a guest ssh login that never completes), and then costs the full
+  *globalTimeout*. The library has no host guard; run VM lanes on an idle
+  host, or lower *globalTimeout* per test when a lane is known to be short.
 
 # SEE ALSO
 

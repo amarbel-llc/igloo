@@ -267,6 +267,22 @@ Nebulous-side lessons: a cgo-only dependency (zstd via madder) needs
 `nativeArgs.cc`; tests that write under HOME need `testPreRun` to point HOME
 at `$TMPDIR`; a flake that passes `inputs` needs the `inputs@{ … }` pattern.
 
+**Sixth adopter (2026-09-15): conformist, back to godyn as its default and
+the first with golangci-lint fully retired.** conformist `12ddb8a` (after
+its FDR 0012 bump `8962d01`): `buildGoAuto` over go.nix with no strategy,
+so godyn is the default on every system (configured through
+`godynSystems`; darwin remains subject to igloo#33); go.mod, go.sum,
+gomod2nix.toml and the committed godyn-graph.json deleted, `conformist-bga`
+kept as `passthru.bga`; tests as a `tags = [ "test" ]` instance with
+`nativeCheckInputs` (formatters, git, jj, bash) and `testFiles`; vet,
+godyn-lint (clean on first run) and four dewey vet lanes, the analyzers
+built from a purse-first FOD. Two test fixes were conformist's own: stub
+scripts resolving bash by absolute path, and store-copied fixtures given
+owner-write so git/jj init and TempDir cleanup work. Consumer requirements
+are filed as conformist#118. Consequence for igloo: its own `mkConformist`
+FOD build reads go.mod/gomod2nix.toml from the pinned tree and must move to
+the manifest before igloo bumps conformist past `12ddb8a` (igloo#76).
+
 ## Goal: drop gomod2nix (decided 2026-09-14)
 
 go.nix replaces gomod2nix as a consumer-facing tool: no gomod2nix.toml, no
