@@ -271,7 +271,9 @@ at `$TMPDIR`; a flake that passes `inputs` needs the `inputs@{ … }` pattern.
 the first with golangci-lint fully retired.** conformist `12ddb8a` (after
 its FDR 0012 bump `8962d01`): `buildGoAuto` over go.nix with no strategy,
 so godyn is the default on every system (configured through
-`godynSystems`; darwin remains subject to igloo#33); go.mod, go.sum,
+`godynSystems`; never exercised on darwin, which remains subject to
+igloo#33 — conformist#118 points darwin consumers at `conformist-bga`
+meanwhile); go.mod, go.sum,
 gomod2nix.toml and the committed godyn-graph.json deleted, `conformist-bga`
 kept as `passthru.bga`; tests as a `tags = [ "test" ]` instance with
 `nativeCheckInputs` (formatters, git, jj, bash) and `testFiles`; vet,
