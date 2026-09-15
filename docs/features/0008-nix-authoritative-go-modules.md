@@ -227,6 +227,15 @@ the toolchain change took ~1h50m, dominated by per-package vet across all
 dependencies in four lanes — accepted as amortised. Its consumers' bumps
 follow.
 
+**Consumer verification (2026-09-15).** chrest `dd10a81` bumped
+cutting-garden `db0e221` → `5c3f9e4` (with igloo `ca00931`) and `2115086`
+igloo → `ddd99f2`; both gates green with no error naming cutting-garden's
+rendered go.mod, gomod2nix.toml, sentinels or vendor paths — the producer
+cutover was invisible to a bridging consumer, as designed. (nebulous, the
+other consumer, verified the same in its own cutover, `421339a`.) The
+chrest bump also exposed the global `pkgs.go` override cost, resolved by
+FDR 0012.
+
 **Rollout precondition found on cutting-garden's consumers (2026-09-14):**
 a fleet module consumed as a **versioned require** (a tag or pseudo-version
 fetched from the vanity host and hashed in the consumer's toml) keeps

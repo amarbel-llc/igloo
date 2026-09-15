@@ -59,6 +59,14 @@ OOM-killed a manual commit on a 16 GB host.
     # a godyn / go.nix consumer changes nothing: the builder picks the toolchain
     pkgs.buildGoAuto { pname = "myapp"; src = self; inherit inputs; manifest = ./go.nix; }
 
+**First consumer (2026-09-15).** chrest `2115086` bumped igloo `ca00931` →
+`ddd99f2` with no code change (its build pins `pkgs.go_1_26`). Derivation
+check on x86_64-linux: pipewire's closure reaches only nixpkgs' go 1.26.5
+(pipewire → libcanberra → libcap → go), where before the bump it reached
+igloo's 1.26.6; the devshell and pre-commit derivations built in minutes and
+the pre-commit hook ran in seconds, against the 83-minute re-evaluation the
+previous bump caused. The full gate passed in under six minutes.
+
 ## Migration
 
 Consumers that wrote `go = pkgs.go` under the old contract silently get
