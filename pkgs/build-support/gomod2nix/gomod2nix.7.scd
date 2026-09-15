@@ -169,8 +169,11 @@ and *pwd* at the output for the self-consumption contract.
 *buildGoApplication* selects the Go toolchain in this order:
 
 . Explicit *go* attribute passed to the call: *buildGoApplication { go = pkgs-master.go_1_26; ... }*
-. Version declared in *go.mod* — matched against toolchains available in *pkgs*
-. Default *pkgs.go*
+. *pkgs.goToolchain.go* — the newest go-toolchain(7) registry entry — whenever
+  it satisfies the version declared in *go.mod* (or there is no go.mod)
+. Otherwise the newest nixpkgs *go_<x>_<y>* attribute satisfying that version
+
+nixpkgs' plain *pkgs.go* is never selected implicitly (FDR 0012).
 
 For projects that need a specific toolchain (e.g. a release candidate or a
 version not yet in the pinned nixpkgs), pass it explicitly:

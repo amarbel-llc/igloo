@@ -5,11 +5,14 @@
 #   buildGoAuto       — pick godyn (dev) vs buildGoApplication (ci) by strategy
 #   godyn-gen         — the dev-time graph generator CLI
 #   godynStdlib       — the shared CGO_ENABLED=1 stdlib derivation
-{ callPackage }:
+{ callPackage, goToolchain }:
 let
   # goFlakeInputs resolution (RFC 0001, incl. depth-N inheritance) is shared with
   # buildGoApplication so both backends see the same bridge set.
   gomod2nixInternals = import ../gomod2nix/internals.nix { };
+  # Every godyn compile, the stdlib and godyn-lint use the newest registry
+  # toolchain (go-toolchain(7), FDR 0012), never nixpkgs' `go`.
+  inherit (goToolchain) go;
 in
 rec {
   # The systems where godyn is the default Go builder: every system igloo
@@ -24,15 +27,16 @@ rec {
     "x86_64-darwin"
     "aarch64-darwin"
   ];
-  godynStdlib = callPackage ./stdlib.nix { };
+  godynStdlib = callPackage ./stdlib.nix { inherit go; };
   godyn-gen = callPackage ./gen { };
-  godyn-lint = callPackage ./lint { };
+  godyn-lint = callPackage ./lint { inherit go; };
   # go.nix (FDR 0008): render go.mod/gomod2nix.toml from the manifest, resolve its
   # fleet modules through flake inputs, and read a go.mod back into a manifest.
   godynManifest = callPackage ./manifest.nix { };
   buildGodynModuleFromArgs = callPackage ./build-godyn-module.nix {
     stdlib = godynStdlib;
     inherit
+      go
       gomod2nixInternals
       godyn-lint
       godyn-gen

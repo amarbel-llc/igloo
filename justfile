@@ -317,8 +317,8 @@ explore-prefetch-url url:
 # (go-toolchain(7)). Prefetches the go<version>.src.tar.gz SRI hash and appends
 # a registry entry, refusing to rewrite an existing one. Serves the "pick a Go
 # point release the day it ships" loop (circus#196): after `just update-go
-# 1.26.6`, `pkgs.go` = 1.26.6, `pkgs.go_1_26_6` is available, and older versions
-# still build.
+# 1.26.6`, `pkgs.goToolchain.go` = 1.26.6, `pkgs.go_1_26_6` is available, and
+# older versions still build. nixpkgs' `pkgs.go` is untouched (FDR 0012).
 #
 # add an explicit Go version to the go-toolchain registry (single source of truth)
 [group: 'maintenance']
@@ -432,18 +432,19 @@ explore-godyn-test *args:
 # registry entries need `go_<major>_<minor>` as their nixpkgs base)? Prints the
 # base's version, or the eval error if the attribute is missing.
 #
-# [explore] Build an overlay attribute of this tree's pkgs (default: `go`, the
-# newest registry toolchain) — the out-of-band compiler build go-toolchain(7)
-# keeps off the pre-merge gate; run it after `just update-go`.
+# [explore] Build an overlay attribute of this tree's pkgs (default:
+# `goToolchain.go`, the newest registry toolchain) — the out-of-band compiler
+# build go-toolchain(7) keeps off the pre-merge gate; run it after `just
+# update-go`.
 #
 # build an overlay attr from this tree's pkgs, e.g. the newest Go toolchain
 [group: 'explore']
-explore-build-overlay-attr attr="go":
+explore-build-overlay-attr attr="goToolchain.go":
     nix-build --no-out-link -E "(import ./. { }).{{ attr }}"
 
 # [explore] Which Go toolchain derivation(s) a flake attribute's derivation
-# depends on — the check for "does this build use pkgs.go (the registry's
-# newest) or a nixpkgs go_<x>_<y> base?". Lists distinct go-*.drv inputs.
+# depends on — the check for "does this build use goToolchain.go (the
+# registry's newest) or nixpkgs' go?". Lists distinct go-*.drv inputs.
 #
 # list the go-<version>.drv inputs of a flake attribute's derivation
 [group: 'explore']

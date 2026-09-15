@@ -2,13 +2,14 @@
 # See go-toolchain(7).
 #
 # `mkGo` (compiler only) lives in ./mk-go.nix and is re-exported here; the
-# overlay pin uses it directly (via `prev`) to build the `go` / `go_<x>_<y>_<z>`
-# attrs without cycling through the gomod2nix builders.
+# overlay pin uses it directly (via `prev`) to build the `go_<x>_<y>_<z>` attrs
+# without cycling through the gomod2nix builders.
 #
 # `mkGoToolchain` bundles that compiler with matching builders (buildGoModule /
 # buildGoApplication / mkGoEnv) bound to it, so a consumer's build-time and
-# devshell Go stay in lockstep. It is consumer-facing and is NOT used while the
-# overlay is still defining `pkgs.go`.
+# devshell Go stay in lockstep. `pkgs.goToolchain` is `mkGoToolchain { }` (the
+# newest entry), the toolchain igloo's Go builders take; nixpkgs' `pkgs.go` is
+# never overridden (FDR 0012).
 {
   lib,
   fetchurl,

@@ -2,11 +2,11 @@
 # supplied nixpkgs base. See go-toolchain(7).
 #
 # Deps are just lib + fetchurl (plus the `base` you pass), deliberately: the
-# overlay pin builds `pkgs.go` / `pkgs.go_<x>_<y>_<z>` with this and references
-# ONLY `prev`, so defining `go` never forces the gomod2nix builders (which
-# reference `pkgs.go`) — which would be an overlay fixpoint cycle. The fuller
-# `mkGoToolchain` bundle (compiler + builders) lives in default.nix and is
-# consumer-facing, never used while the overlay is still defining `pkgs.go`.
+# overlay pin builds `pkgs.go_<x>_<y>_<z>` with this and references ONLY
+# `prev`, so the per-version attrs never force the gomod2nix builders — which
+# would be an overlay fixpoint cycle. The fuller `mkGoToolchain` bundle
+# (compiler + builders) lives in default.nix; `pkgs.goToolchain` is its newest
+# instance, and nixpkgs' `pkgs.go` is never overridden (FDR 0012).
 {
   lib,
   fetchurl,

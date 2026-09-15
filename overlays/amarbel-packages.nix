@@ -52,11 +52,18 @@ final: _: {
 
   # go-toolchain — version-parameterized Go toolchains (go-toolchain(7)).
   # mkGoToolchain builds a Go compiler for a registry version and returns it
-  # with matching builders bound; the per-version `go` / `go_<x>_<y>_<z>` attrs
-  # are aliased over it in overlays/pins/go.nix.
+  # with matching builders bound; the per-version `go_<x>_<y>_<z>` attrs are
+  # aliased over it in overlays/pins/go.nix.
   inherit (final.callPackage ../pkgs/development/compilers/go-toolchain { })
     mkGoToolchain
     ;
+  # goToolchain — the NEWEST registry entry as a bundle (`goToolchain.go`, plus
+  # buildGoModule / buildGoApplication / mkGoEnv bound to it). This is the
+  # toolchain igloo's own Go builders (godyn, buildGoApplication's default
+  # selection) compile with. nixpkgs' `go` is left alone on purpose (FDR 0012),
+  # so a registry bump rebuilds Go modules only, never the nixpkgs packages that
+  # take `go` as an input.
+  goToolchain = final.mkGoToolchain { };
 
   # godyn — per-package Go builder (one CA derivation per package; nix schedules
   # the merkle-delta on edits). buildGodynModule consumes a committed graph.json

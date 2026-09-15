@@ -1,6 +1,7 @@
 # Single source of truth for the igloo Go toolchain versions — see
-# go-toolchain(7). `pkgs.go` tracks the NEWEST entry here; every entry also
-# surfaces as a pinned `pkgs.go_<major>_<minor>_<patch>` attribute.
+# go-toolchain(7). `pkgs.goToolchain.go` tracks the NEWEST entry here; every
+# entry also surfaces as a pinned `pkgs.go_<major>_<minor>_<patch>` attribute.
+# nixpkgs' `pkgs.go` is never overridden (FDR 0012).
 #
 # APPEND-ONLY. Add a version with `just update-go <version>`, which
 # prefetches the go<version>.src.tar.gz SRI hash and inserts a new entry below

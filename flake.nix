@@ -84,7 +84,7 @@
             pwd = conformistSrc;
             modules = "${conformistSrc}/gomod2nix.toml";
             subPackages = [ "." ];
-            inherit (pkgs) go;
+            go = pkgs.goToolchain.go;
             GOTOOLCHAIN = "local";
             doCheck = false;
           };
@@ -129,6 +129,12 @@
           config.allowUnfree = true;
         }
       );
+
+      # The newest go-toolchain(7) registry entry as a bundle (`.go`,
+      # `.buildGoApplication`, `.mkGoEnv`, `.buildGoModule`) for consumers that
+      # do not apply the overlay (FDR 0012); the same value as
+      # legacyPackages.<system>.goToolchain.
+      goToolchain = forAllSystems (system: self.legacyPackages.${system}.goToolchain);
 
       formatter = forAllSystems (
         system:
@@ -853,6 +859,29 @@
           inherit (pkgs) nixgc-man;
           nix-man = pkgs.nix.man;
 
+          # FDR 0012: the registry toolchain is scoped to igloo's builders.
+          # nixpkgs' `go` must be byte-identical with and without the overlay
+          # (so libcap, gopls and every other nixpkgs taker of `go` keep their
+          # cache hits), and goToolchain.go must be the newest registry entry,
+          # the toolchain godyn's stdlib is built with.
+          go-toolchain-scope =
+            let
+              upstreamGo = nixpkgs-master.legacyPackages.${system}.go;
+              inherit
+                (import ./pkgs/development/compilers/go-toolchain/mk-go.nix {
+                  inherit (pkgs) lib fetchurl;
+                })
+                newest
+                ;
+            in
+            assert pkgs.go.drvPath == upstreamGo.drvPath;
+            assert pkgs.goToolchain.go.version == newest;
+            assert
+              pkgs.godynStdlib.name == "go-stdlib-${newest}-${
+                builtins.substring 0 8 (builtins.hashString "sha256" (builtins.toJSON { }))
+              }";
+            pkgs.runCommandLocal "go-toolchain-scope-ok" { } "echo OK > $out";
+
           bun2nix-lint-stack-up-to-date = import ./pkgs/build-support/bun2nix/lint/check.nix {
             inherit pkgs;
             bun2nix = bun2nixCli;
@@ -938,7 +967,7 @@
             pkgs.runCommandLocal "godyn-gen-gomod-test"
               {
                 nativeBuildInputs = [
-                  pkgs.go
+                  pkgs.goToolchain.go
                   pkgs.godyn-gen
                 ];
               }
