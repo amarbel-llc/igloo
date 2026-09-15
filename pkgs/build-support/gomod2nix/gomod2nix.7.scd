@@ -171,7 +171,7 @@ and *pwd* at the output for the self-consumption contract.
 . Explicit *go* attribute passed to the call: *buildGoApplication { go = pkgs-master.go_1_26; ... }*
 . *pkgs.goToolchain.go* — the newest go-toolchain(7) registry entry — whenever
   it satisfies the version declared in *go.mod* (or there is no go.mod)
-. Otherwise the newest nixpkgs *go_<x>_<y>* attribute satisfying that version
+. Otherwise the newest nixpkgs go\_<x>\_<y> attribute satisfying that version
 
 nixpkgs' plain *pkgs.go* is never selected implicitly (FDR 0012).
 
@@ -660,6 +660,13 @@ the *tap* flake:
   *gomod2nix.toml* must be added there (regen via *go-sync-wrap* in the
   devshell). Full FOD-driven regeneration of the merged *gomod2nix.toml* is
   tracked as a follow-up.
+- The bridged producer rev must be at or after the producer's own
+  module-path rename: the key is the module path the CONSUMER imports, and
+  the *replace* points that path at the producer tree, so a tree whose
+  packages still import the old path (e.g. *github.com/…/madder/go/internal/…*)
+  fails at compile time. Pin the library through its own flake input at a
+  post-rename rev, separately from any daemon or binary pin of the same repo
+  (circus's nix-cache, 2026-09-15).
 
 ## See also
 
