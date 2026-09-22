@@ -1,6 +1,6 @@
 ---
 status: exploring
-date: 2026-09-11
+date: 2026-09-22
 promotion-criteria: |
   exploring → proposed: godyn is the DEFAULT build of at least one fleet
   consumer with a full package (not a bare binary) — spinclass, on
@@ -89,11 +89,13 @@ output. Ambient `go` / `gopls` in the devshell remain the editor loop; the
 authoritative build, test and lint are godyn's (the reason the devshell cannot
 be authoritative is recorded in FDR 0006 § *Why not fix the devshell?*).
 
-## Current State (2026-09-11)
+## Current State (2026-09-22)
 
 | Capability | godyn today | Gap |
 |---|---|---|
 | Build, cross-flake bridges, embeds, ldflags/version | done (igloo#67/#68/#69) | — |
+| Go toolchain | the go-toolchain registry's newest release (`goToolchain.go`), scoped to igloo's builders (FDR 0012) | consumers still naming `pkgs.go` silently get nixpkgs' go: ringmaster's facade, purse-first's workspace-module default |
+| Static binaries | none — `godynStdlib` is CGO_ENABLED=1, so every per-package compile links against a cgo stdlib | a cgo-free stdlib variant behind a `buildGoStatic` (igloo#78); static release artifacts go through bga today, itself broken when cross-compiling (igloo#77) |
 | Install step | `postInstall` / `nativeBuildInputs`, forwarded by buildGoAuto to both backends | — |
 | Per-package `go test` | `testGraphFile` → `tests` / `checkAll` | cgo/asm tests, test-only third-party deps, `-race`, test-only embeds (igloo#32); no `nativeCheckInputs`-style tools on the test PATH (unverified) |
 | Per-package vet | `vetAll` (toolchain vet, or `vetTool`) | cgo packages and test sources not analyzed |
@@ -101,7 +103,7 @@ be authoritative is recorded in FDR 0006 § *Why not fix the devshell?*).
 | Platforms | default on every supported system (`godynSystems`); x86_64-linux proven (two fleet hosts) | darwin / aarch64 builds unvalidated on real builders (igloo#33) |
 | Package graph | committed graph, or derived at eval time from go.mod + gomod2nix.toml when no `graphFile` is given (build and test graphs; igloo#72) | derivation from the nix manifest instead of go.mod (FDR 0008); consumers still committing graphs migrate |
 | Workspace consumers | `-gomod` takes a merged go.mod | go.work consumers (igloo#73) |
-| Nix features | content-addressed derivations | `ca-derivations` on every building host — eng-managed hosts declare it today; circus will own it fleet-wide |
+| Nix features | content-addressed derivations | `ca-derivations` on every building host — eng-managed hosts declare it today; circus will own it fleet-wide. the cache side appears missing too: the fleet cache is not known to serve realisations, which would make godyn outputs rebuild rather than substitute (circus#219, unverified) |
 | buildGoAuto's bga backend | builds | eval fails without `version` / `version.env` (igloo#70) |
 
 ## Rollout
@@ -135,9 +137,15 @@ CLI use buildGoApplication, godyn-gen buildGoModule).
 - **Cold builds.** Per-package derivations cost more than one `go build` from
   cold (spinclass: about 205 derivations). The trade — slower cold,
   much faster incremental, shared per-package cache hits across consumers — is
-  accepted; the fleet's binary cache is what keeps cold consumers fast.
+  accepted; the fleet's binary cache is what keeps cold consumers fast. Whether
+  that second half holds today is in doubt: see the `ca-derivations` bullet.
 - **`ca-derivations` is required** on every host that builds godyn outputs.
-  A host or CI runner without it fails at evaluation.
+  A host or CI runner without it fails at evaluation. The cache must also
+  *serve* realisation records, not only NARs: without the drv-output →
+  store-path mapping a client cannot address a CA output and rebuilds from
+  source. The fleet cache appears not to serve them, which would mean no
+  consumer has ever substituted a godyn output; that has not been verified
+  against its deployment (circus#219).
 - **golangci-lint parity.** The godyn lint runs analyzers, not golangci-lint:
   linters outside the go/analysis framework, formatters, and golangci-lint
   configuration do not carry over. Whether that gap is acceptable, or needs a
@@ -156,6 +164,10 @@ CLI use buildGoApplication, godyn-gen buildGoModule).
 - FDR 0008 (`docs/features/0008-nix-authoritative-go-modules.md`) — a nix
   manifest replacing go.mod as the source of truth, with a bidirectional
   go.mod ↔ manifest escape hatch for editors.
+- FDR 0012 (`docs/features/0012-go-toolchain-scoped-to-igloo-builders.md`) —
+  the toolchain these builders compile with, scoped to igloo so a registry
+  bump no longer rebuilds nixpkgs' Go closure on every consumer host.
 - Issues: igloo#32 (tests), igloo#33 (platforms), igloo#70 (bga eval),
   igloo#71 (vetx protocol), igloo#72 (graph drift check), igloo#73 (go.work
-  consumers).
+  consumers), igloo#77 (bga static cross-link), igloo#78 (no static lane),
+  circus#219 (the fleet cache serves no CA realisations).
