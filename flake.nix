@@ -2,7 +2,7 @@
   description = "amarbel-llc/igloo — overlay flake providing Nix build-support helpers, pins, and package additions on top of nixpkgs.";
 
   inputs = {
-    nixpkgs-master.url = "github:NixOS/nixpkgs/f13ff45afd1bb73e640eaa08a7066dbed07e3238";
+    nixpkgs-master.url = "github:NixOS/nixpkgs/e94cb152ed51bd6e24eb4a41f1460252beb52cd2";
 
     # Declared at top level only so bun2nix's transitive copies can
     # follow these and collapse to single nodes in downstream locks.
