@@ -160,16 +160,17 @@ each require's *go* as *goVersion*. Checks
 *godyn-producer-gonix-test* and *godyn-producer-manifest-test* cover an organic
 and a go.nix consumer of such a producer.
 
-## Codegen drift: codegenCheck
+## Codegen drift: codegenCheck and codegenPatch
 
-*passthru.codegenCheck { command; nativeBuildInputs ? [ ]; exclude ? [ ]; }*
-(on buildGodynModule and buildGoAuto) is a pure check that generated files are
-committed up to date: it runs *command* — typically *go generate ./...* — in the
-vendored module tree (rendered or merged go.mod, offline, the same tree the
-graph derivation runs in), then fails if the tree differs from *src*.
-Generators and tools they shell out to come in through *nativeBuildInputs*;
-*exclude* adds basenames to ignore besides vendor/, go.mod and go.sum. A
-failing check prints the diff and names the drift:
+*passthru.codegenCheck { command; nativeBuildInputs ? [ ]; exclude ? [ ];
+codegenIncludes ? [ ]; }* (on buildGodynModule and buildGoAuto) is a pure check
+that generated files are committed up to date: it runs *command* — typically
+*go generate ./...* — in the vendored module tree (rendered or merged go.mod,
+offline, the same tree the graph derivation runs in), then fails if the tree
+differs from *src*. Generators and tools they shell out to come in through
+*nativeBuildInputs*; *exclude* adds basenames to ignore besides vendor/, go.mod
+and go.sum. A failing check prints the diff, names the drift and names its
+repair:
 
 ```
 checks.<system>.myapp-codegen = myapp.passthru.codegenCheck {
@@ -177,6 +178,37 @@ checks.<system>.myapp-codegen = myapp.passthru.codegenCheck {
   nativeBuildInputs = [ pkgs.stringer ];
 };
 ```
+
+The check's result carries two passthru attributes, the contract a pre-commit
+repair lane (conformist's codegen-repair linter) finds on any
+*checks.<system>.<name>*:
+
+*passthru.codegenPatch* is the repair: a pure, offline, cached derivation that
+runs the same *command* in the same tree and writes *$out/patch* — the
+*git diff --no-index --binary* of *src* against the result, with vendor/,
+go.mod, go.sum and *exclude* pruned from both sides — instead of failing. Apply it from the
+module root with *git apply -p2* (goRun's convention); it creates, rewrites and
+deletes files as the command did. The check is defined as "codegenPatch is
+empty", so the check passes exactly when the patch is empty, and once applied,
+the check passes. Drift is only what the patch can carry: an empty directory,
+which git cannot represent, is not drift.
+
+*passthru.codegenIncludes* is *codegenIncludes* verbatim: extra trigger globs
+(e.g. *"\*.schema"*, *"\*.peg"*) for generators driven by non-Go files, which
+a repair lane unions with its default triggers. It is metadata only; the check
+tree is *src* either way.
+
+Chained generators that feed each other (dagnabit then tommy rewriting one
+file) belong in ONE *command*, run in order, so that check's patch holds the
+whole chain's result. Each check's patch is computed against *src* alone, so the
+patches of two checks that touch the same file do not apply one after the
+other; after applying one, rebuild the rest against the updated tree.
+
+*godyn-codegen-patch-test* covers a stale tree under a three-step command
+(rewrite, create, delete), its repair to a passing check with an empty patch,
+a current tree, and output naming the toolchain's store path (which the patch
+may carry); *godyn-codegen-patch-drift-test* covers the failing
+check naming its repair.
 
 ## The escape hatch: goRun, ingest and godyn-go
 

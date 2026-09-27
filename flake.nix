@@ -1162,6 +1162,16 @@
               {
                 command = "go generate ./...";
               };
+          # codegen repair (igloo#80): passthru.codegenPatch, codegenCheck as "the
+          # patch is empty", codegenIncludes.
+          inherit
+            (import ./pkgs/build-support/godyn/tests/codegen.nix {
+              inherit pkgs system;
+              manifestAuto = self.packages.${system}.godyn-manifest-auto-test;
+            })
+            godyn-codegen-patch-test
+            godyn-codegen-patch-drift-test
+            ;
           # ingest (FDR 0008), the pure half of the escape hatch: from a goRun
           # output captured after `go get github.com/google/go-cmp@v0.7.0` (its
           # go.mod carries the fleet module's sentinel require and store-path

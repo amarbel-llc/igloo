@@ -1284,7 +1284,9 @@ let
   # Lint-only: it replaces the build phase and compiles/installs no binary
   # (producing the binary stays the base derivation's job). `command` runs
   # after the vendor tree + env are ready, with a writable HOME and Go caches;
-  # a non-zero exit fails the build. $out is an empty success marker.
+  # a non-zero exit fails the build. $out is an empty success marker unless
+  # `command` writes it (godyn's derived graph and codegen patch do); the
+  # install phase only touches it.
   buildGoCheck =
     {
       base,

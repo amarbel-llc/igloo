@@ -509,38 +509,74 @@ let
     else
       null;
 
-  # A pure codegen drift check (FDR 0008): run `command` (e.g. `go generate ./...`)
-  # in the vendored module tree, then fail if the tree differs from src. The
-  # generators and any tools they shell out to come in through nativeBuildInputs;
-  # exclude lists extra basenames (diff --exclude) the command may write besides
-  # vendor/, go.mod and go.sum.
+  # The patch goRun and codegenCheck hand back: src/ against work/ in the cwd,
+  # into $out/patch, for `git apply -p2` (empty when unchanged; godyn-go and
+  # conformist's codegen repair apply it). git diff exits 1 on a difference.
+  treePatch = ''git diff --no-index --binary src work > "$out/patch" || [ $? -eq 1 ]'';
+
+  # The pure codegen drift check (FDR 0008) is "passthru.codegenPatch is empty"
+  # (igloo#80), so check and repair never diverge: codegenPatch runs `command`
+  # in the vendored module tree (offline, cached) and writes the treePatch of src
+  # against the result, vendor/, go.mod, go.sum and `exclude` basenames pruned
+  # from both sides. codegenIncludes is metadata for a repair lane. See godyn(7).
   codegenCheck =
     {
       command,
       nativeBuildInputs ? [ ],
       exclude ? [ ],
+      codegenIncludes ? [ ],
     }:
-    buildGoCheck {
-      base = checkBase "codegenCheck";
-      pnameSuffix = "-codegen-check";
-      extraNativeBuildInputs = nativeBuildInputs;
-      command = ''
-        ${command}
-        if ! diff -r ${
-          lib.concatMapStringsSep " " (e: "--exclude=${lib.escapeShellArg e}") (
-            [
-              "vendor"
-              "go.mod"
-              "go.sum"
-            ]
-            ++ exclude
-          )
-        } ${src} . >&2; then
+    assert lib.assertMsg (
+      lib.isList codegenIncludes && lib.all lib.isString codegenIncludes
+    ) "buildGodynModule(${pname}): codegenCheck's codegenIncludes must be a list of glob strings";
+    let
+      # the patch carries generated text, which may name the toolchain's store
+      # path — lift the base's disallowedReferences = [ go ] guard
+      patch =
+        (buildGoCheck {
+          base = checkBase "codegenCheck";
+          pnameSuffix = "-codegen-patch";
+          extraNativeBuildInputs = [ git ] ++ nativeBuildInputs;
+          command = ''
+            (
+              ${command}
+            )
+            codegen_diff=$(mktemp -d)
+            cp -r --no-preserve=mode ${src} "$codegen_diff/src"
+            cp -r --no-preserve=mode . "$codegen_diff/work"
+            find "$codegen_diff/src" "$codegen_diff/work" -mindepth 1 \( ${
+              lib.concatMapStringsSep " -o " (e: "-name ${lib.escapeShellArg e}") (
+                [
+                  "vendor"
+                  "go.mod"
+                  "go.sum"
+                ]
+                ++ exclude
+              )
+            } \) -prune -exec rm -rf {} +
+            mkdir -p "$out"
+            cd "$codegen_diff"
+            ${treePatch}
+          '';
+        }).overrideAttrs
+          { disallowedReferences = [ ]; };
+    in
+    runCommandLocal "${pname}-codegen-check"
+      {
+        passthru = {
+          codegenPatch = patch;
+          inherit codegenIncludes;
+        };
+      }
+      ''
+        if [ -s ${patch}/patch ]; then
+          cat ${patch}/patch >&2
           echo "godyn codegen drift (${pname}): the generated files above differ from the source tree; regenerate and commit them" >&2
+          echo "godyn codegen drift (${pname}): or, from the module root, git apply -p2 ${patch}/patch" >&2
           exit 1
         fi
+        touch $out
       '';
-    };
 
   # The escape hatch (FDR 0008): run a go command that needs the network (go get,
   # go mod tidy) or rewrites the tree (go generate) INSIDE nix, against the
@@ -598,11 +634,7 @@ let
         # go.mod and go.sum are ingest's, not the patch's
         rm -f work/go.mod work/go.sum
         for f in go.mod go.sum; do [ ! -f "src/$f" ] || cp "src/$f" "work/$f"; done
-        set +e
-        git diff --no-index --binary src work > "$out/patch"
-        rc=$?
-        set -e
-        [ "$rc" -le 1 ] || { echo "goRun: git diff failed ($rc)" >&2; exit "$rc"; }
+        ${treePatch}
         runHook postBuild
       '';
     };
@@ -1667,8 +1699,8 @@ installed.overrideAttrs (old: {
         extraFlags = testFlags;
         keepLog = true;
       };
-    # codegen drift (FDR 0008): { command; nativeBuildInputs; exclude; } — run the
-    # generators in the vendored module tree and fail on any diff from src.
+    # codegen drift (FDR 0008): { command; nativeBuildInputs; exclude;
+    # codegenIncludes; } — its result carries passthru.codegenPatch (igloo#80).
     inherit codegenCheck;
     # the escape hatch (FDR 0008): { command; nativeBuildInputs; } — an impure
     # derivation running the command against the rendered module (see goRun).
