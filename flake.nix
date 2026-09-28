@@ -1166,11 +1166,12 @@
           # patch is empty", codegenIncludes.
           inherit
             (import ./pkgs/build-support/godyn/tests/codegen.nix {
-              inherit pkgs system;
+              inherit pkgs system self;
               manifestAuto = self.packages.${system}.godyn-manifest-auto-test;
             })
             godyn-codegen-patch-test
             godyn-codegen-patch-drift-test
+            godyn-codegen-prefix-test
             ;
           # ingest (FDR 0008), the pure half of the escape hatch: from a goRun
           # output captured after `go get github.com/google/go-cmp@v0.7.0` (its

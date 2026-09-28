@@ -514,6 +514,48 @@ let
   # conformist's codegen repair apply it). git diff exits 1 on a difference.
   treePatch = ''git diff --no-index --binary src work > "$out/patch" || [ $? -eq 1 ]'';
 
+  # codegenPrefix (igloo#83): src's module root, relative to the flake/repo root
+  # a repo-root repair (conformist#124's `git apply --directory=`) needs — as
+  # opposed to codegenPatch's module-root convention (`git apply -p2` alone,
+  # godyn-go's). Derived from `src`'s Nix string CONTEXT: the documented
+  # convention for a module rooted below the flake root (mkGoPkgs(7)) is
+  # `self` or `self + "/subdir"` — a flake input, or a subpath composed from
+  # one via `+`. Stringifying either carries exactly one context entry, an
+  # "opaque path" (not a derivation's outputs) keyed at the flake input's own
+  # store path, with any subdirectory surviving only as the string's suffix;
+  # a `./subdir` PATH LITERAL, or a filtered/rendered src (goSourceFilter,
+  # mkGoPkgs, withManifest's manifest-rendered tree), does not carry this
+  # relationship (each gets its own independent store copy, or is a genuine
+  # derivation output) — verified with nix-build probes, not assumed
+  # (igloo#83). The bare case (`src` IS its context's single opaque path, no
+  # suffix) is deliberately left null rather than "": a flake's own `self`
+  # used bare and an unrelated bare path literal produce the IDENTICAL
+  # context shape, so there's no reliable way to tell "this is the repo
+  # root" apart from "this is some other directory's own independent copy" —
+  # and a wrong prefix is worse than none. Only a genuine `root + "/suffix"`
+  # relationship is trusted, since that shape is only ever produced by the
+  # documented subdirectory-module convention.
+  codegenPrefixOf =
+    s:
+    let
+      str = "${s}";
+      ctx = builtins.getContext str;
+      keys = builtins.attrNames ctx;
+    in
+    if builtins.length keys != 1 then
+      null
+    else
+      let
+        root = builtins.head keys;
+        isOpaquePath = (ctx.${root}.path or false) == true;
+      in
+      if !isOpaquePath || str == root then
+        null
+      else if lib.hasPrefix (root + "/") str then
+        lib.removePrefix (root + "/") str
+      else
+        null;
+
   # The pure codegen drift check (FDR 0008) is "passthru.codegenPatch is empty"
   # (igloo#80), so check and repair never diverge: codegenPatch runs `command`
   # in the vendored module tree (offline, cached) and writes the treePatch of src
@@ -525,11 +567,21 @@ let
       nativeBuildInputs ? [ ],
       exclude ? [ ],
       codegenIncludes ? [ ],
+      # codegenPrefix (igloo#83): explicit override for codegenPrefixOf's
+      # derivation, for a src shape it can't (or shouldn't) infer from. An
+      # explicit value always wins; null (the default) derives from `src`,
+      # itself falling back to null when derivation isn't reliable. Never
+      # guessed: null means "unknown", not "assume the repo root".
+      codegenPrefix ? null,
     }:
     assert lib.assertMsg (
       lib.isList codegenIncludes && lib.all lib.isString codegenIncludes
     ) "buildGodynModule(${pname}): codegenCheck's codegenIncludes must be a list of glob strings";
+    assert lib.assertMsg (
+      codegenPrefix == null || lib.isString codegenPrefix
+    ) "buildGodynModule(${pname}): codegenCheck's codegenPrefix must be a string or null";
     let
+      effectiveCodegenPrefix = if codegenPrefix != null then codegenPrefix else codegenPrefixOf src;
       # the patch carries generated text, which may name the toolchain's store
       # path — lift the base's disallowedReferences = [ go ] guard
       patch =
@@ -565,6 +617,7 @@ let
       {
         passthru = {
           codegenPatch = patch;
+          codegenPrefix = effectiveCodegenPrefix;
           inherit codegenIncludes;
         };
       }
@@ -573,6 +626,9 @@ let
           cat ${patch}/patch >&2
           echo "godyn codegen drift (${pname}): the generated files above differ from the source tree; regenerate and commit them" >&2
           echo "godyn codegen drift (${pname}): or, from the module root, git apply -p2 ${patch}/patch" >&2
+          ${lib.optionalString (effectiveCodegenPrefix != null) ''
+            echo "godyn codegen drift (${pname}): or, from the repo root, git apply -p2 --directory=${lib.escapeShellArg effectiveCodegenPrefix} ${patch}/patch" >&2
+          ''}
           exit 1
         fi
         touch $out

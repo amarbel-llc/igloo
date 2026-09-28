@@ -163,7 +163,7 @@ and a go.nix consumer of such a producer.
 ## Codegen drift: codegenCheck and codegenPatch
 
 *passthru.codegenCheck { command; nativeBuildInputs ? [ ]; exclude ? [ ];
-codegenIncludes ? [ ]; }* (on buildGodynModule and buildGoAuto) is a pure check
+codegenIncludes ? [ ]; codegenPrefix ? null; }* (on buildGodynModule and buildGoAuto) is a pure check
 that generated files are committed up to date: it runs *command* — typically
 *go generate ./...* — in the vendored module tree (rendered or merged go.mod,
 offline, the same tree the graph derivation runs in), then fails if the tree
@@ -179,7 +179,7 @@ checks.<system>.myapp-codegen = myapp.passthru.codegenCheck {
 };
 ```
 
-The check's result carries two passthru attributes, the contract a pre-commit
+The check's result carries three passthru attributes, the contract a pre-commit
 repair lane (conformist's codegen-repair linter) finds on any
 *checks.<system>.<name>*:
 
@@ -197,6 +197,40 @@ which git cannot represent, is not drift.
 (e.g. *"\*.schema"*, *"\*.peg"*) for generators driven by non-Go files, which
 a repair lane unions with its default triggers. It is metadata only; the check
 tree is *src* either way.
+
+*passthru.codegenPrefix* is *src*'s module root, relative to the flake/repo
+root — *""* when the module IS the root — the offset a repo-root repair lane
+(conformist's codegen-repair linter, conformist#124) needs to land a
+subdirectory module's patch at the right path:
+
+```
+git apply -p2 --directory=<codegenPrefix> ${check.passthru.codegenPatch}/patch
+```
+
+This is a DIFFERENT convention from *codegenPatch*'s own module-root
+*git apply -p2* above (goRun's convention): a repo-root linter applies from
+above the module, not from inside it. *codegenPrefix* defaults to deriving
+from *src*'s Nix string context: the documented convention for a module
+rooted below the flake root (mkGoPkgs(7)) is *self* or *self + "/subdir"* — a
+flake input, or a subpath composed from one with *+*. Stringifying either
+carries exactly one context entry, an "opaque path" keyed at the flake
+input's own store path, with any subdirectory surviving only as the string's
+suffix, so the offset is recovered reliably. Anything else — a *./subdir*
+PATH LITERAL (its own independent store copy, indistinguishable by context
+from *self* used bare), a filtered or rendered *src* (goSourceFilter,
+mkGoPkgs, withManifest's manifest-rendered tree — a genuine derivation
+output), or *src* used bare with no subpath composition at all (ambiguous:
+*self* alone and an unrelated bare path look identical in context) — cannot
+be related to a root reliably and derives *null* rather than guess. Pass
+*codegenPrefix* explicitly (a string, including *""* for a root module) to
+cover those shapes; an explicit value always wins over derivation. A wrong
+prefix silently writes a repaired file at the wrong path, worse than *null*,
+so derivation only ever fires for the one shape it can verify.
+
+*godyn-codegen-prefix-test* covers the derivation rule (a *self + "/subdir"*
+module auto-deriving the real repo-relative path, a bare path literal and an
+explicit *""* for the root case, and an explicit override winning over
+derivation) and the repair applying cleanly from a simulated repo root.
 
 Chained generators that feed each other (dagnabit then tommy rewriting one
 file) belong in ONE *command*, run in order, so that check's patch holds the

@@ -7,6 +7,10 @@
 {
   pkgs,
   system,
+  # the flake's own self, for igloo#83's codegenPrefix fixtures (self + "/subdir"
+  # is the only src shape codegenPrefixOf can derive a real subdirectory from —
+  # see build-godyn-module.nix's codegenPrefixOf).
+  self,
   # a buildGoAuto module over the (current) manifest fixture
   manifestAuto,
 }:
@@ -57,6 +61,49 @@ let
   goRefPatch =
     (manifestAuto.passthru.codegenCheck { command = "go env GOROOT > goroot.txt"; })
     .passthru.codegenPatch;
+
+  # igloo#83: codegenPrefix. Reuses the all-local `ldflags` fixture (a real
+  # go.mod, no third-party deps) purely as a module tree; codegenCheck's
+  # checkBase unconditionally needs `modules`, so a schema-only gomod2nix.toml
+  # (the same shape an all-local module's own toml has — see e.g.
+  # tests/testldflags/gomod2nix.toml) satisfies it without a real vendor tree.
+  # One buildGodynModule instance per distinct `src` shape, each producing
+  # multiple codegenCheck calls off it (as currentCheck/goRefPatch already do
+  # off manifestAuto above), rather than one instance per check.
+  ldflagsFixture = ./ldflags;
+  emptyModules = builtins.toFile "gomod2nix.toml" "schema = 3\n";
+  prefixRelPath = "pkgs/build-support/godyn/tests/ldflags";
+  # self + "/<subdir>" — the documented convention (mkGoPkgs(7)) for a module
+  # rooted below the flake root — auto-derives the real repo-relative prefix.
+  subdirModule = pkgs.buildGodynModule {
+    pname = "godyn-codegen-prefix-subdir";
+    src = self + "/${prefixRelPath}";
+    modules = emptyModules;
+  };
+  subdirCheck = subdirModule.passthru.codegenCheck {
+    command = "echo codegen-prefix-marker > CODEGEN_PREFIX_MARKER.txt";
+  };
+  # explicit always wins, even over a src that would auto-derive a real prefix.
+  explicitOverrideCheck = subdirModule.passthru.codegenCheck {
+    command = "true";
+    codegenPrefix = "elsewhere";
+  };
+  # a bare path literal (like every pre-existing fixture in this file): its own
+  # independent store copy, indistinguishable from "src IS the flake root" by
+  # context alone -> null, never a guessed "".
+  bareModule = pkgs.buildGodynModule {
+    pname = "godyn-codegen-prefix-bare";
+    src = ldflagsFixture;
+    modules = emptyModules;
+  };
+  bareCheck = bareModule.passthru.codegenCheck { command = "true"; };
+  # the escape hatch for a root module: bare src can't auto-derive "" (see
+  # codegenPrefixOf), so a caller who knows their module IS the repo root
+  # passes it explicitly.
+  explicitRootCheck = bareModule.passthru.codegenCheck {
+    command = "true";
+    codegenPrefix = "";
+  };
 in
 {
   # stale: the patch is non-empty and repairs the tree (modify, create, delete);
@@ -87,4 +134,32 @@ in
       "git apply -p2 "
     ];
   };
+  # igloo#83: codegenPrefix. `self + "/subdir"` auto-derives the real
+  # repo-relative path; a bare path literal (like every pre-existing fixture
+  # above, none of which carry a codegenPrefix) stays null; explicit always
+  # wins, including "" for a root module (the auto-derivation escape hatch).
+  # The build check applies subdirCheck's patch from a SIMULATED repo root
+  # with conformist#124's own convention — `git apply -p2 --directory=<the
+  # auto-derived prefix>` — and asserts the marker lands at the module's real
+  # nested path, never at the simulated repo root.
+  godyn-codegen-prefix-test =
+    assert subdirCheck.passthru.codegenPrefix == prefixRelPath;
+    assert bareCheck.passthru.codegenPrefix == null;
+    assert explicitOverrideCheck.passthru.codegenPrefix == "elsewhere";
+    assert explicitRootCheck.passthru.codegenPrefix == "";
+    assert staleCheck.passthru.codegenPrefix == null;
+    assert currentCheck.passthru.codegenPrefix == null;
+    pkgs.runCommandLocal "godyn-codegen-prefix-test-check" { nativeBuildInputs = [ pkgs.git ]; } ''
+      mkdir -p "$TMPDIR/repo/$(dirname ${prefixRelPath})"
+      cp -r --no-preserve=mode ${ldflagsFixture} "$TMPDIR/repo/${prefixRelPath}"
+      cd "$TMPDIR/repo"
+      git apply -p2 --directory=${prefixRelPath} ${subdirCheck.passthru.codegenPatch}/patch
+      [ -f ${prefixRelPath}/CODEGEN_PREFIX_MARKER.txt ] || {
+        echo "codegenPrefix repair: marker not created at ${prefixRelPath}/ under the simulated repo root" >&2; exit 1; }
+      [ ! -f CODEGEN_PREFIX_MARKER.txt ] || {
+        echo "codegenPrefix repair: marker wrongly created at the simulated repo root instead of ${prefixRelPath}/" >&2; exit 1; }
+      grep -qx 'codegen-prefix-marker' ${prefixRelPath}/CODEGEN_PREFIX_MARKER.txt || {
+        echo "codegenPrefix repair: marker content mismatch" >&2; exit 1; }
+      echo OK > $out
+    '';
 }
