@@ -360,10 +360,11 @@ explore-test-godyn rev="ccc91bed0accabf12f63abc00e583d78aa20183e":
         --override-input igloo .
 
 # [explore] Profile evaluating a flake attr's drvPath (igloo#84): NIX_SHOW_STATS
-# + NIX_COUNT_CALLS, eval cache off, optionally with the flake's igloo input
-# overridden (a consumer whose inputs follow igloo, e.g.
-# igloo="git+file:$PWD?rev=<sha>"). Prints the drvPath, CPU time, call totals
-# and the 15 hottest function positions; the full stats JSON stays in $TMPDIR.
+# + NIX_COUNT_CALLS, eval cache off, optionally with EVERY igloo input in the
+# flake's lock graph (direct or nested — consumers without follows each bring
+# their own) overridden to one ref, e.g. igloo="git+file:$PWD?rev=<full sha>".
+# Prints the drvPath, CPU time, call totals and the 15 hottest function
+# positions; the full stats JSON stays in $TMPDIR.
 #
 # profile a flake attr's eval (call counts, CPU time), optionally overriding igloo
 [group: 'explore']
@@ -372,13 +373,39 @@ explore-eval-stats flake attr igloo="":
     set -euo pipefail
     stats=$(mktemp --suffix=.eval-stats.json)
     override=()
-    [[ -z "{{ igloo }}" ]] || override=(--override-input igloo "{{ igloo }}")
+    if [[ -n "{{ igloo }}" ]]; then
+        mapfile -t paths < <(nix flake metadata --json "{{ flake }}" | jq -r '
+            .locks as $l
+            | def isIgloo: (.original.url // "" | test("/igloo(\\.git|/|$)"))
+                or (.original.repo == "igloo");
+              def walk($n; $p):
+                ($l.nodes[$n].inputs // {}) | to_entries[] | select(.value | type == "string")
+                | ($p + [.key]) as $q
+                | (if ($l.nodes[.value] | isIgloo) then ($q | join("/")) else empty end), walk(.value; $q);
+            [walk($l.root; [])] | unique[]')
+        for p in "${paths[@]}"; do override+=(--override-input "$p" "{{ igloo }}"); done
+        echo "overriding ${#paths[@]} igloo input(s): ${paths[*]}" >&2
+    fi
     NIX_SHOW_STATS=1 NIX_COUNT_CALLS=1 NIX_SHOW_STATS_PATH="$stats" \
         nix eval --no-eval-cache --raw "{{ flake }}#{{ attr }}.drvPath" "${override[@]}"
     echo
     echo "stats: $stats"
     jq -r '"cpuTime: \(.cpuTime)s  functionCalls: \(.nrFunctionCalls)  primOpCalls: \(.nrPrimOpCalls)  heap: \(.gc.totalBytes // "?")",
         (.functions | sort_by(-.count) | .[:15][] | "\(.count)\t\(.name // "<lambda>")\t\(.file):\(.line)")' "$stats"
+
+# [explore] Print every checks.<system>.godyn-* drvPath of a flake ref of this
+# tree (e.g. "git+file:$PWD?rev=<full sha>"), one "name drvPath" per line, so
+# two revs can be diffed for an eval-only refactor that must not change a
+# single derivation (igloo#84).
+#
+# print the godyn checks' drvPaths at a flake ref, for before/after diffing
+[group: 'explore']
+explore-godyn-check-drvpaths ref:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    system=$(nix eval --raw --impure --expr 'builtins.currentSystem')
+    nix eval --raw "{{ ref }}#checks.${system}" --apply 'cs: builtins.concatStringsSep "\n" (map (n: "${n} ${cs.${n}.drvPath}") (builtins.filter (n: builtins.substring 0 6 n == "godyn-") (builtins.attrNames cs)))'
+    echo
 
 # [explore] Time godyn's inner test loop (FDR 0008): build one package's
 # passthru.testWith run from a flake ref of this tree (scheme git+file, the
