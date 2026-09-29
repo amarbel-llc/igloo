@@ -755,8 +755,9 @@ let
   # lib.unique's result (first occurrence kept, order preserved) without its
   # quadratic elem scan: listToAttrs keeps the FIRST value for a repeated name,
   # so an element survives iff it sits at its name's first index. Order matters —
-  # it is the importcfg line order, hence every compile derivation's hash (igloo#84).
-  uniqueStrings =
+  # it is the importcfg line order, hence every compile derivation's hash (igloo#84)
+  # — which is why this is not lib.uniqueStrings (which sorts). Strings only.
+  uniqueInOrder =
     xs:
     let
       firstIndex = builtins.listToAttrs (lib.imap0 (i: x: lib.nameValuePair x i) xs);
@@ -782,7 +783,7 @@ let
     let
       direct = importsOf importPath;
     in
-    uniqueStrings (direct ++ lib.concatMap (d: closureOf.${d}) direct)
+    uniqueInOrder (direct ++ lib.concatMap (d: closureOf.${d}) direct)
   ) byImport;
   transitiveDeps = importPath: closureOf.${importPath};
 
@@ -1245,7 +1246,7 @@ let
                   # which get the whole stdlib index
                   stdRoots =
                     if p ? stdImports then
-                      uniqueStrings (lib.concatMap (d: nl (byImport.${d}.stdImports or null)) ([ importPath ] ++ deps))
+                      uniqueInOrder (lib.concatMap (d: nl (byImport.${d}.stdImports or null)) ([ importPath ] ++ deps))
                     else
                       null;
                   VetxOnly = !p.local;
@@ -1433,8 +1434,8 @@ let
       # the test graph (the variant's imports INCLUDE test-only deps); expand
       # through the build graph. A dep absent from the build graph is a test-only
       # third-party import — not yet supported.
-      directDeps = uniqueStrings (nl t.imports ++ nl t.xTestImports);
-      testDeps = uniqueStrings (
+      directDeps = uniqueInOrder (nl t.imports ++ nl t.xTestImports);
+      testDeps = uniqueInOrder (
         directDeps ++ lib.concatMap (d: if byImport ? ${d} then transitiveDeps d else [ ]) directDeps
       );
       # go test recompiles the in-graph packages the external test imports that
