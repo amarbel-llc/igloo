@@ -359,6 +359,27 @@ explore-test-godyn rev="ccc91bed0accabf12f63abc00e583d78aa20183e":
         "github:amarbel-llc/conformist/{{rev}}#conformist-native" \
         --override-input igloo .
 
+# [explore] Profile evaluating a flake attr's drvPath (igloo#84): NIX_SHOW_STATS
+# + NIX_COUNT_CALLS, eval cache off, optionally with the flake's igloo input
+# overridden (a consumer whose inputs follow igloo, e.g.
+# igloo="git+file:$PWD?rev=<sha>"). Prints the drvPath, CPU time, call totals
+# and the 15 hottest function positions; the full stats JSON stays in $TMPDIR.
+#
+# profile a flake attr's eval (call counts, CPU time), optionally overriding igloo
+[group: 'explore']
+explore-eval-stats flake attr igloo="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    stats=$(mktemp --suffix=.eval-stats.json)
+    override=()
+    [[ -z "{{ igloo }}" ]] || override=(--override-input igloo "{{ igloo }}")
+    NIX_SHOW_STATS=1 NIX_COUNT_CALLS=1 NIX_SHOW_STATS_PATH="$stats" \
+        nix eval --no-eval-cache --raw "{{ flake }}#{{ attr }}.drvPath" "${override[@]}"
+    echo
+    echo "stats: $stats"
+    jq -r '"cpuTime: \(.cpuTime)s  functionCalls: \(.nrFunctionCalls)  primOpCalls: \(.nrPrimOpCalls)  heap: \(.gc.totalBytes // "?")",
+        (.functions | sort_by(-.count) | .[:15][] | "\(.count)\t\(.name // "<lambda>")\t\(.file):\(.line)")' "$stats"
+
 # [explore] Time godyn's inner test loop (FDR 0008): build one package's
 # passthru.testWith run from a flake ref of this tree (scheme git+file, the
 # CLIs' choice: tracked files as in the working tree; or path, which copies

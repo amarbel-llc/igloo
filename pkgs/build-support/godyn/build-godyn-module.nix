@@ -752,15 +752,39 @@ let
     );
   archivePathOf = importPath: "${archiveBridges.${archiveBridgeOf importPath}}/${importPath}/pkg.a";
 
+  # lib.unique's result (first occurrence kept, order preserved) without its
+  # quadratic elem scan: listToAttrs keeps the FIRST value for a repeated name,
+  # so an element survives iff it sits at its name's first index. Order matters —
+  # it is the importcfg line order, hence every compile derivation's hash (igloo#84).
+  uniqueStrings =
+    xs:
+    let
+      firstIndex = builtins.listToAttrs (lib.imap0 (i: x: lib.nameValuePair x i) xs);
+    in
+    builtins.concatLists (
+      builtins.genList (
+        i:
+        let
+          x = builtins.elemAt xs i;
+        in
+        lib.optional (firstIndex.${x} == i) x
+      ) (builtins.length xs)
+    );
+
   # Transitive non-stdlib import closure of a package (go tool compile's importcfg
   # must carry every package whose export data is reachable). Go has no import
-  # cycles, so the recursion terminates.
-  transitiveDeps =
-    importPath:
+  # cycles, so the recursion terminates. Memoized as a lazy attrset over the graph,
+  # so each node's closure is evaluated once rather than once per path through the
+  # DAG (exponential in depth; ~98% of a consumer's eval before igloo#84). An import
+  # missing from the graph still throws, as importsOf does.
+  closureOf = lib.mapAttrs (
+    importPath: _:
     let
       direct = importsOf importPath;
     in
-    lib.unique (direct ++ lib.concatMap transitiveDeps direct);
+    uniqueStrings (direct ++ lib.concatMap (d: closureOf.${d}) direct)
+  ) byImport;
+  transitiveDeps = importPath: closureOf.${importPath};
 
   # go:embed -embedcfg JSON for a graph node's embeds against a source dir. godyn-gen
   # records each pattern's matched files (embedPatternFiles, resolved with cmd/go's
@@ -1221,7 +1245,7 @@ let
                   # which get the whole stdlib index
                   stdRoots =
                     if p ? stdImports then
-                      lib.unique (lib.concatMap (d: nl (byImport.${d}.stdImports or null)) ([ importPath ] ++ deps))
+                      uniqueStrings (lib.concatMap (d: nl (byImport.${d}.stdImports or null)) ([ importPath ] ++ deps))
                     else
                       null;
                   VetxOnly = !p.local;
@@ -1409,8 +1433,8 @@ let
       # the test graph (the variant's imports INCLUDE test-only deps); expand
       # through the build graph. A dep absent from the build graph is a test-only
       # third-party import — not yet supported.
-      directDeps = lib.unique (nl t.imports ++ nl t.xTestImports);
-      testDeps = lib.unique (
+      directDeps = uniqueStrings (nl t.imports ++ nl t.xTestImports);
+      testDeps = uniqueStrings (
         directDeps ++ lib.concatMap (d: if byImport ? ${d} then transitiveDeps d else [ ]) directDeps
       );
       # go test recompiles the in-graph packages the external test imports that
