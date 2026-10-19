@@ -304,6 +304,49 @@ explore-lint-warm-cache spinclass=(env_var('HOME') + "/eng/repos/spinclass"):
     nb b warm
     nb a real-warm
 
+# [explore] Build a consumer's package on an Intel Mac (x86_64-darwin) with
+# THIS tree's igloo and an overridden nixpkgs (default nixos-26.05, the last
+# release supporting x86_64-darwin) — exercising default.nix's `nixpkgs` arg.
+# rsyncs igloo and the consumer (e.g. a posh worktree) to <host>:~/.tmp-igloo-x86,
+# patches the COPY of the consumer's flake.nix to pass `nixpkgs = nixpkgs-master`
+# into `import igloo`, then `nix build --no-link` (nothing is linked, no config
+# on the host is touched). Needs ssh access to the host.
+#
+# build a consumer package on an x86_64-darwin host against this tree's igloo
+[group: 'explore']
+explore-build-intel consumer pkg="posh" host="sasha@goldielocks.ts.starbrandshoes.com" nixpkgs="github:NixOS/nixpkgs/nixos-26.05":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root=$(ssh "{{ host }}" 'echo $HOME/.tmp-igloo-x86')
+    ssh "{{ host }}" "mkdir -p $root/igloo $root/consumer"
+    rsync -a --delete --exclude .git --exclude .tmp --exclude .worktrees ./ "{{ host }}:$root/igloo/"
+    rsync -a --delete --exclude .git --exclude .tmp --exclude result "{{ consumer }}/" "{{ host }}:$root/consumer/"
+    ssh "{{ host }}" "cd $root/consumer && \
+      perl -0pi -e 's/^( *)igloo,\$/\$1igloo,\n\$1nixpkgs-master,/m; s/import igloo \{/import igloo { nixpkgs = nixpkgs-master;/' flake.nix && \
+      nix build --no-link --print-out-paths --print-build-logs \
+        '.#packages.x86_64-darwin.{{ pkg }}' \
+        --override-input igloo path:$root/igloo \
+        --override-input nixpkgs-master '{{ nixpkgs }}'"
+
+# [explore] Build igloo's own attrs on an x86_64-darwin host with an overridden
+# nixpkgs-master (flake route), plus the default.nix route with `nixpkgs` passed
+# explicitly. --no-link; syncs this tree to <host>:~/.tmp-igloo-x86/igloo.
+#
+# build igloo's own attrs on an x86_64-darwin host with nixpkgs overridden
+[group: 'explore']
+explore-build-intel-igloo attr="gomod2nix" host="sasha@goldielocks.ts.starbrandshoes.com" nixpkgs="github:NixOS/nixpkgs/nixos-26.05":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root=$(ssh "{{ host }}" 'echo $HOME/.tmp-igloo-x86')
+    ssh "{{ host }}" "mkdir -p $root/igloo"
+    rsync -a --delete --exclude .git --exclude .tmp --exclude .worktrees ./ "{{ host }}:$root/igloo/"
+    ssh "{{ host }}" "cd $root/igloo && \
+      nix build --no-link --print-out-paths --print-build-logs \
+        'path:.#packages.x86_64-darwin.{{ attr }}' \
+        --override-input nixpkgs-master '{{ nixpkgs }}' && \
+      nix build --no-link --print-out-paths --impure --expr \
+        'let np = builtins.getFlake \"{{ nixpkgs }}\"; in (import ./. { system = \"x86_64-darwin\"; nixpkgs = np; }).{{ attr }}'"
+
 # [explore] Prefetch a URL into the nix store and print its SRI hash.
 # Serves the overlay-pin dev loop: overlays/pins/*.nix src bumps need a
 # fetchurl hash, and sessions have no raw-shell path to nix-prefetch.
