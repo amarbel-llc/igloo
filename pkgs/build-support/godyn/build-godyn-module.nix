@@ -18,6 +18,7 @@
   stdlib,
   buildGoApplication,
   stdenv,
+  apple-sdk,
   jq,
   pkg-config,
   godyn-lint,
@@ -695,6 +696,11 @@ let
       '';
     };
 
+  # runCommandLocal + a bare cc-wrapper has no macOS SDK (SDKROOT unset), so an
+  # external cgo link fails `ld: library not found for -lresolv` (igloo#33,
+  # seen on x86_64-darwin). apple-sdk's setup hook supplies SDKROOT and the libs.
+  cgoPlatformInputs = lib.optional stdenv.hostPlatform.isDarwin apple-sdk;
+
   graph = builtins.fromJSON (builtins.readFile resolvedGraphFile);
   byImport = lib.listToAttrs (map (p: lib.nameValuePair p.importPath p) graph);
 
@@ -1098,7 +1104,7 @@ let
       ++ lib.optional (isCgo || mainCgo) cc
       ++ lib.optional (isCgo && nl (p.cgoPkgConfig or null) != [ ]) pkg-config;
       # the C libraries cgo compiles and the external link resolve against
-      buildInputs = lib.optionals (isCgo || mainCgo) buildInputs;
+      buildInputs = lib.optionals (isCgo || mainCgo) (cgoPlatformInputs ++ buildInputs);
       # Content-addressed: a byte-identical pkg.a after an edit keeps its store
       # hash, so dependents stay cached (early cutoff) — the merkle-delta.
       __contentAddressed = true;
@@ -1543,7 +1549,7 @@ let
           runCommandLocal "godyn-testbin-${sanitize importPath}"
             {
               nativeBuildInputs = [ go ] ++ lib.optional testCgo cc;
-              buildInputs = lib.optionals testCgo buildInputs;
+              buildInputs = lib.optionals testCgo (cgoPlatformInputs ++ buildInputs);
               __contentAddressed = true;
               outputHashMode = "recursive";
               outputHashAlgo = "sha256";

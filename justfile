@@ -347,6 +347,38 @@ explore-build-intel-igloo attr="gomod2nix" host="sasha@goldielocks.ts.starbrands
       nix build --no-link --print-out-paths --impure --expr \
         'let np = builtins.getFlake \"{{ nixpkgs }}\"; in (import ./. { system = \"x86_64-darwin\"; nixpkgs = np; }).{{ attr }}'"
 
+# [explore] Build godyn flake packages/checks on an x86_64-darwin host (FDR 0007,
+# igloo#33). Same sync as explore-build-intel-igloo; NIX_USER_CONF_FILES=/dev/null
+# because the host's ~/.config/nix/nix.conf overrides the daemon's
+# extra-experimental-features (ca-derivations etc.). Prints `nix --version` first
+# (the host's nix is being upgraded). kind = packages | checks. --no-link.
+#
+# build a godyn package/check on an x86_64-darwin host
+[group: 'explore']
+explore-build-intel-godyn attr="godyn-embed-test" kind="packages" host="sasha@goldielocks.ts.starbrandshoes.com" nixpkgs="github:NixOS/nixpkgs/nixos-26.05":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root=$(ssh "{{ host }}" 'echo $HOME/.tmp-igloo-x86')
+    ssh "{{ host }}" "mkdir -p $root/igloo"
+    rsync -a --delete --exclude .git --exclude .tmp --exclude .worktrees ./ "{{ host }}:$root/igloo/"
+    ssh "{{ host }}" "export NIX_USER_CONF_FILES=/dev/null; nix --version && cd $root/igloo && \
+      nix build --no-link --print-out-paths --print-build-logs \
+        'path:.#{{ kind }}.x86_64-darwin.{{ attr }}' \
+        --override-input nixpkgs-master '{{ nixpkgs }}'"
+
+# [explore] On an x86_64-darwin host, print what a godyn compile derivation sees
+# of the macOS SDK (SDKROOT, libresolv, cc-wrapper sysroot flags): diagnoses
+# `ld: library not found for -lresolv` in cgo links (igloo#33). --no-link.
+#
+# probe the SDK a runCommandLocal+stdenv.cc sees on an x86_64-darwin host
+[group: 'explore']
+explore-intel-sdk host="sasha@goldielocks.ts.starbrandshoes.com" nixpkgs="github:NixOS/nixpkgs/nixos-26.05":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ssh "{{ host }}" "export NIX_USER_CONF_FILES=/dev/null; nix --version && \
+      nix build --no-link --print-build-logs --impure --expr \
+        'let pkgs = import (builtins.getFlake \"{{ nixpkgs }}\") { system = \"x86_64-darwin\"; }; in pkgs.runCommandLocal \"sdk-probe\" { nativeBuildInputs = [ pkgs.stdenv.cc ]; } \"echo SDKROOT=\$SDKROOT; ls \$SDKROOT/usr/lib | grep resolv || echo no-libresolv-in-SDKROOT; echo NIX_CFLAGS=\$NIX_CFLAGS_COMPILE; echo NIX_LDFLAGS=\$NIX_LDFLAGS; printf \\\"int main(){return 0;}\\\" > a.c; cc a.c -lresolv -o a && echo LINK-OK; mkdir \$out\"'"
+
 # [explore] Prefetch a URL into the nix store and print its SRI hash.
 # Serves the overlay-pin dev loop: overlays/pins/*.nix src bumps need a
 # fetchurl hash, and sessions have no raw-shell path to nix-prefetch.
