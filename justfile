@@ -314,7 +314,7 @@ explore-lint-warm-cache spinclass=(env_var('HOME') + "/eng/repos/spinclass"):
 #
 # build a consumer package on an x86_64-darwin host against this tree's igloo
 [group: 'explore']
-explore-build-intel consumer pkg="posh" host="sasha@goldielocks.ts.starbrandshoes.com" nixpkgs="github:NixOS/nixpkgs/nixos-26.05":
+explore-build-intel host consumer pkg="posh" nixpkgs="github:NixOS/nixpkgs/nixos-26.05":
     #!/usr/bin/env bash
     set -euo pipefail
     root=$(ssh "{{ host }}" 'echo $HOME/.tmp-igloo-x86')
@@ -334,7 +334,7 @@ explore-build-intel consumer pkg="posh" host="sasha@goldielocks.ts.starbrandshoe
 #
 # build igloo's own attrs on an x86_64-darwin host with nixpkgs overridden
 [group: 'explore']
-explore-build-intel-igloo attr="gomod2nix" host="sasha@goldielocks.ts.starbrandshoes.com" nixpkgs="github:NixOS/nixpkgs/nixos-26.05":
+explore-build-intel-igloo host attr="gomod2nix" nixpkgs="github:NixOS/nixpkgs/nixos-26.05":
     #!/usr/bin/env bash
     set -euo pipefail
     root=$(ssh "{{ host }}" 'echo $HOME/.tmp-igloo-x86')
@@ -355,7 +355,7 @@ explore-build-intel-igloo attr="gomod2nix" host="sasha@goldielocks.ts.starbrands
 #
 # build a godyn package/check on an x86_64-darwin host
 [group: 'explore']
-explore-build-intel-godyn attr="godyn-embed-test" kind="packages" host="sasha@goldielocks.ts.starbrandshoes.com" nixpkgs="github:NixOS/nixpkgs/nixos-26.05":
+explore-build-intel-godyn host attr="godyn-embed-test" kind="packages" nixpkgs="github:NixOS/nixpkgs/nixos-26.05":
     #!/usr/bin/env bash
     set -euo pipefail
     root=$(ssh "{{ host }}" 'echo $HOME/.tmp-igloo-x86')
@@ -372,7 +372,7 @@ explore-build-intel-godyn attr="godyn-embed-test" kind="packages" host="sasha@go
 #
 # probe the SDK a runCommandLocal+stdenv.cc sees on an x86_64-darwin host
 [group: 'explore']
-explore-intel-sdk host="sasha@goldielocks.ts.starbrandshoes.com" nixpkgs="github:NixOS/nixpkgs/nixos-26.05":
+explore-intel-sdk host nixpkgs="github:NixOS/nixpkgs/nixos-26.05":
     #!/usr/bin/env bash
     set -euo pipefail
     ssh "{{ host }}" "export NIX_USER_CONF_FILES=/dev/null; nix --version && \
