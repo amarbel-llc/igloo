@@ -25,6 +25,10 @@
     version = "1.26.8";
     hash = "sha256-Tjm5jkL5RvoFrIvFtxh335fb23y7Gnd7VBZnrXEX/S4=";
   }
+  {
+    version = "1.26.10";
+    hash = "sha256-/WPog7ovK/ypPBZGsx6+9j4rHk0rMXyXidl2po2B828=";
+  }
   # @@GO_TOOLCHAIN_REGISTRY_END@@ — update-go inserts new entries above this
   # line; do not remove this marker, reorder entries, or rewrite an existing one.
 ]
