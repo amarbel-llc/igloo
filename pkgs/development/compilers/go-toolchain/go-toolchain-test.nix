@@ -16,7 +16,7 @@ let
     goToolchain
     go_1_26_3
     go_1_26_6
-    go_1_26_8
+    go_1_26_10
     mkGoToolchain
     ;
   bundle = mkGoToolchain { };
@@ -24,12 +24,12 @@ let
 
   checks = [
     {
-      name = "goToolchain.go = newest (1.26.8)";
-      ok = goToolchain.go.version == "1.26.8";
+      name = "goToolchain.go = newest (1.26.10)";
+      ok = goToolchain.go.version == "1.26.10";
     }
     {
-      name = "goToolchain.go is the go_1_26_8 derivation";
-      ok = goToolchain.go.drvPath == go_1_26_8.drvPath;
+      name = "goToolchain.go is the go_1_26_10 derivation";
+      ok = goToolchain.go.drvPath == go_1_26_10.drvPath;
     }
     {
       name = "go_1_26_3 coexists at 1.26.3";
