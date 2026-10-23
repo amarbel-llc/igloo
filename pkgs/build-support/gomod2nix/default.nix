@@ -1064,6 +1064,15 @@ let
         version = stripVersion modulesStruct.mod.${defaultPackage}.version;
         src = vendorEnv.passthru.sources.${defaultPackage};
       }
+      # No gomod2nix.toml names a default package (a goFlakeInputs-only or
+      # all-local module): the derivation still needs a name. pname falls back
+      # to the module dir's basename above; version to the same resolution the
+      # ldflags use (explicit, version.env, else "dev"). An explicit `version`
+      # or `pname` in attrs still wins through the spread below. See igloo#70.
+      // optionalAttrs (defaultPackage == "") {
+        inherit pname;
+        version = effectiveVersion;
+      }
       // optionalAttrs (hasAttr "subPackages" modulesStruct) {
         inherit (modulesStruct) subPackages;
       }

@@ -1034,6 +1034,22 @@
             [ "$got" = "hello from dep/greet" ] || { echo "buildGoAuto goFlakeInputs mismatch: [$got]" >&2; exit 1; }
             echo OK > $out
           '';
+          # igloo#70: the same fixture's buildGoApplication backend — a module with
+          # goFlakeInputs but no gomod2nix.toml, no `version` and no version.env —
+          # must evaluate (it used to die with "attribute 'name' missing") and run.
+          godyn-auto-goflakeinputs-bga-test =
+            let
+              bga = self.packages.${system}.godyn-auto-goflakeinputs-test.passthru.bga;
+            in
+            pkgs.runCommandLocal "godyn-auto-goflakeinputs-bga-test-check" { } ''
+              got=$("${bga}/bin/app")
+              [ "$got" = "hello from dep/greet" ] || { echo "buildGoApplication goFlakeInputs mismatch: [$got]" >&2; exit 1; }
+              case "${bga.name}" in
+                *-dev) ;;
+                *) echo "expected the derivation name to end in -dev (no version source): ${bga.name}" >&2; exit 1 ;;
+              esac
+              echo OK > $out
+            '';
           godyn-auto-postinstall-test =
             let
               auto = self.packages.${system}.godyn-auto-postinstall-test;
