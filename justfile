@@ -68,7 +68,7 @@ build-eval:
 
     gum log --level info "all changed packages evaluated successfully"
 
-test: test-gomod2nix test-gomod2nix-merge-annotation test-go-toolchain test-godyn
+test: test-gomod2nix test-gomod2nix-merge-annotation test-go-toolchain test-eval-warn test-godyn
 
 # [test] Build every gomod2nix build-support eval-test fixture. These pin
 # buildGoApplication / mkGoEnv / mkGoPkgs behavior (version resolution,
@@ -136,6 +136,33 @@ test-gomod2nix-merge-annotation:
 [group: 'test']
 test-go-toolchain:
     NIXPKGS_ALLOW_UNFREE=1 nix-build --no-out-link pkgs/development/compilers/go-toolchain/go-toolchain-test.nix
+
+# [test] Evaluate the builders that reach stdenv's platform predicates under
+# `abort-on-warn`, so a deprecated `stdenv.isLinux` / `stdenv.isDarwin` (which
+# nixpkgs warns about on every downstream eval, igloo#86) fails the gate
+# instead of nagging every consumer. vm-tests-smoke exercises mkVmChecks;
+# bun-dev exercises mkBunDevShell. Eval only — nothing is built.
+#
+# evaluate the platform-gated builders with nix warnings turned into errors
+[group: 'test']
+test-eval-warn:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    system=$(nix eval --raw --impure --expr 'builtins.currentSystem')
+    failed=()
+    for attr in "checks.${system}.vm-tests-smoke" "devShells.${system}.bun-dev"; do
+        gum log --level info "evaluating $attr with abort-on-warn"
+        if nix eval --raw --option abort-on-warn true "path:.#${attr}.drvPath" > /dev/null; then
+            gum log --level info "$attr ok"
+        else
+            gum log --level error "$attr emitted an evaluation warning"
+            failed+=("$attr")
+        fi
+    done
+    if [[ ${#failed[@]} -gt 0 ]]; then
+        gum log --level error "attrs with warnings:" "${failed[@]}"
+        exit 1
+    fi
 
 # [test] Build every godyn flake check (checks.<system>.godyn-*: build, embed,
 # ldflags, cross-module, buildGoAuto, tests, vet, lint, postInstall fixtures).

@@ -1314,7 +1314,7 @@
                 };
               };
             in
-            if pkgs.stdenv.isLinux then
+            if pkgs.stdenv.hostPlatform.isLinux then
               checks.vm-tests-smoke
             else
               assert checks == { };

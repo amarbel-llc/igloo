@@ -47,7 +47,7 @@ let
       globalTimeout ? 3600,
       defaults ? { },
     }:
-    lib.optionalAttrs stdenv.isLinux (
+    lib.optionalAttrs stdenv.hostPlatform.isLinux (
       lib.mapAttrs (
         name: test:
         testers.runNixOSTest {
