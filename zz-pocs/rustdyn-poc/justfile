@@ -1,0 +1,144 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+poc := justfile_directory()
+# Scratch lives in the worktree's ignored .tmp, never in the tree.
+work := poc / "../../.tmp/rustdyn-poc"
+posh_url := "https://code.linenisgreat.com/posh/archive/master.tar.gz"
+# jq's bin output only: a bare `nixpkgs#jq` prints the man output too.
+jq_bin := "nix build --no-link --print-out-paths 'nixpkgs#jq^bin'"
+
+# Fetch posh (a read-only tarball of master) and the galapagos rev its
+# flake.lock pins; lay out a writable scratch copy with vendor/galapagos
+# populated, the way posh's own flake does in postPatch. Read-only on posh.
+[group('explore')]
+setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    jq=$({{ jq_bin }})/bin/jq
+    mkdir -p {{ work }}
+    posh=$(nix flake prefetch --json "{{ posh_url }}" | "$jq" -r .storePath)
+    gurl=$("$jq" -r '.nodes.galapagos.locked.url' "$posh/flake.lock")
+    gal=$(nix flake prefetch --json "$gurl" | "$jq" -r .storePath)
+    rm -rf {{ work }}/posh
+    cp -r "$posh" {{ work }}/posh && chmod -R u+w {{ work }}/posh
+    mkdir -p {{ work }}/posh/vendor
+    cp -r "$gal" {{ work }}/posh/vendor/galapagos && chmod -R u+w {{ work }}/posh/vendor
+    { echo "posh: $posh"; echo "galapagos: $gal ($gurl)"; } | tee {{ work }}/sources.txt
+
+# Refuse a build when the shared host is short: less than 4 GB available or
+# load1 at 20 or more (the operator's rule for this host).
+[group('explore')]
+guard:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    avail_kb=$(awk '/MemAvailable/ { print $2 }' /proc/meminfo)
+    load1=$(cut -d' ' -f1 /proc/loadavg)
+    echo "MemAvailable=${avail_kb}kB load1=${load1}"
+    (( avail_kb >= 4 * 1024 * 1024 )) && (( ${load1%.*} < 20 ))
+
+# Build the resolver derivation alone and print its summary (packages,
+# workspace members, resolve nodes): the import-from-derivation half.
+[group('explore')]
+graph: guard
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out=$(nix build --impure --no-link --print-out-paths -L --expr \
+      '(import {{ poc }}/poc.nix { poshSrc = {{ work }}/posh; }).graphDrv')
+    cat "$out/summary.json"
+    echo "graph: $out"
+
+# Build one attribute of poc.nix (rustdyn | brp | graphDrv | vendorDir |
+# memberCrates."posh-term" ...) with build logs, and print its store path.
+[group('explore')]
+build attr="rustdyn": guard
+    #!/usr/bin/env bash
+    set -euo pipefail
+    t0=$(date +%s%3N)
+    nix build --impure --no-link --print-out-paths -L --expr \
+      '(import {{ poc }}/poc.nix { poshSrc = {{ work }}/posh; }).{{ attr }}'
+    echo "elapsed: $(( $(date +%s%3N) - t0 )) ms ({{ attr }})"
+
+# Run the built binaries once: the per-crate build must link something that
+# executes and reports the version the build scripts were handed.
+[group('explore')]
+smoke attr="rustdyn":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out=$(nix build --impure --no-link --print-out-paths --expr \
+      '(import {{ poc }}/poc.nix { poshSrc = {{ work }}/posh; }).{{ attr }}')
+    ls -l "$out/bin"
+    "$out/bin/posh" version || "$out/bin/posh" --version
+    "$out/bin/poshterity" --version || true
+
+# Cold build of the per-crate graph, timed: a fresh `coldToken` adds a
+# throwaway --cfg to every rustc invocation, so every crate derivation is new
+# and the whole graph builds from scratch (nothing is deleted from the store;
+# nixgc could not reap the CA outputs here, every one had a live referrer).
+# The baseline's cold number is simply its first `build brp`.
+[group('explore')]
+cold: guard
+    #!/usr/bin/env bash
+    set -euo pipefail
+    token=$(date +%s)
+    t0=$(date +%s%3N)
+    log={{ work }}/cold.$token.log
+    nix build --impure --no-link --print-out-paths -L --expr \
+      "(import {{ poc }}/poc.nix { poshSrc = {{ work }}/posh; coldToken = \"$token\"; }).rustdyn" 2>"$log"
+    echo "elapsed: $(( $(date +%s%3N) - t0 )) ms (cold rustdyn, token $token)"
+    echo "crates built: $(grep -oE '^rust_[^> ]+> Running phase: buildPhase' "$log" | sort -u | wc -l)"
+
+# Run the measurement harness (bench.sh): warm / edit-leaf / comment-leaf for
+# each approach, `runs` samples, JSON to stdout.
+[group('explore')]
+bench runs="3" *approaches:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export PATH="$({{ jq_bin }})/bin:$PATH"
+    bash {{ poc }}/bench.sh {{ work }} {{ runs }} {{ approaches }}
+
+# The same measurement rendered as a markdown table (median ms · rebuilt crates).
+[group('explore')]
+bench-md runs="3" *approaches:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export PATH="$({{ jq_bin }})/bin:$PATH"
+    bash {{ poc }}/bench.sh {{ work }} {{ runs }} {{ approaches }} | jq -r '
+      (.results | map(.approach) | unique) as $a |
+      "| scenario | " + ($a | join(" | ")) + " |",
+      "|" + ("---|" * (($a | length) + 1)),
+      (.results | group_by(.scenario)[]
+        | "| \(.[0].scenario) | " + ([.[] | "\(.ms_median) ms · \(.rebuilds)"] | join(" | ")) + " |")
+    '
+
+# Reproducibility probe: build one member crate, then rebuild it with
+# --rebuild (nix compares the outputs; a CA output that differs is the
+# "non-reproducible rustc output" stop condition).
+[group('explore')]
+repro crate="posh-term": guard
+    #!/usr/bin/env bash
+    set -euo pipefail
+    expr='(import {{ poc }}/poc.nix { poshSrc = {{ work }}/posh; }).memberCrates."{{ crate }}"'
+    out=$(nix build --impure --no-link --print-out-paths --expr "$expr")
+    echo "first build: $out"
+    nix build --impure --no-link --rebuild -L --expr "$expr"
+    echo "reproducible: {{ crate }}"
+
+# Cache probe: copy one member crate's outputs to a file:// binary cache and
+# count the realisation records it wrote (what a CA output needs to be
+# substitutable from a cache).
+[group('explore')]
+cache crate="posh-term": guard
+    #!/usr/bin/env bash
+    set -euo pipefail
+    expr='(import {{ poc }}/poc.nix { poshSrc = {{ work }}/posh; }).memberCrates."{{ crate }}"'
+    outs=$(nix build --impure --no-link --print-out-paths --expr "$expr")
+    rm -rf {{ work }}/cache
+    nix copy --to "file://{{ work }}/cache" $outs
+    echo "nars: $(find {{ work }}/cache/nar -type f | wc -l)"
+    echo "realisations: $(find {{ work }}/cache/realisations -type f 2>/dev/null | wc -l)"
+    find {{ work }}/cache/realisations -type f 2>/dev/null | head
+
+# Remove the scratch copy and caches.
+[group('explore')]
+clean:
+    rm -rf {{ work }}

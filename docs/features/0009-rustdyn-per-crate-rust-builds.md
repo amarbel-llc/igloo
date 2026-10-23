@@ -303,6 +303,28 @@ Stop conditions, any one of which ends the spike with a written reason:
   own per-unit driver exceeds what a first consumer justifies; that is a
   decision point, not a silent pivot.
 
+**Stage 1 results (2026-10-23, `zz-pocs/rustdyn-poc/README.md`).** The spike
+ran on posh (37 crates, 5 members) on one loaded shared host. The resolver
+(`cargo metadata --offline --locked` in a derivation, imported at eval) and a
+~100-line metadata → `buildRustCrate` mapper built the workspace with
+`__contentAddressed` on every crate; the binaries run and report the version
+the build scripts were handed. Cold: 70.4 s for 37 crate derivations against
+53.9 s for `buildRustPackage` (118.6 s before matching cargo's 16 codegen
+units). Warm floor 1.3 s against 1.1 s. A semantic edit in posh-term, the
+root of the cone, rebuilt 4 of 5 members in 36.4 s against 42.0 s. A
+comment-only edit also rebuilt 4: the rlib changes on any byte change to a
+compiled file (theory: rustc records source hashes in the crate metadata), so
+the cutoff never saves the edited crate's own dependent cone. An edit to a
+`tests/*.rs` file rebuilt posh-term alone in 9.2 s and cut off its three
+dependents, against 54.6 s. Reproducibility held: a forced rebuild of every
+crate gave the identical result path, and `nix build --rebuild` of posh-term
+reported no mismatch. `nix copy` of an output path wrote no realisation
+record (the cache question, circus#219, is open). No stop condition fired.
+Verdict: the shape holds, the wall-clock case at posh's size rests on the
+cutoff cases and on the structural gains (per-crate test and lint lanes,
+cross-repo sharing, a non-drifting graph) rather than on code edits in the
+cone root; stage 2 is worth doing and should be measured on a quiet host.
+
 **Stage 2: builder and fixtures in igloo.** `pkgs/build-support/rustdyn/`
 with a `rustdyn(7)` manpage; fixtures under `tests/` mirroring godyn's
 (`multi`, `tests`, `lint`, `postinstall`, `flakeinput`); `buildRustAuto`;
