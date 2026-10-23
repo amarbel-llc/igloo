@@ -89,7 +89,12 @@ let
     }:
     runCommand "merged-go.mod"
       {
-        buildInputs = [ go ];
+        # `go mod edit` runs on the build platform, so the go belongs in
+        # nativeBuildInputs: under a cross pkgs set stdenv splices it to
+        # buildPackages' go, whereas a buildInputs entry is the host-platform
+        # compiler and never reaches PATH ("go: command not found"). See
+        # amarbel-llc/igloo#44 and cross-merged-gomod-test.nix.
+        nativeBuildInputs = [ go ];
       }
       (
         let
