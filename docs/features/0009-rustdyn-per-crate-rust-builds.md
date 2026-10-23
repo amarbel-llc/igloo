@@ -1,13 +1,10 @@
 ---
-status: exploring
+status: proposed
 date: 2026-10-23
 promotion-criteria: >-
-  exploring → proposed: the operator has read this design note and ruled on
-  the decisions in § Decisions for the operator; the spike in § Staged plan
-  (stage 1) has run on posh and reported the measurements it names, and none
-  of its stop conditions fired.
-
-  proposed → experimental: posh builds, tests and lints through rustdyn as an
+  proposed → experimental: the spike in § Staged plan (stage 1) has run on
+  posh and recorded the measurements it names here, with none of its stop
+  conditions fired; then posh builds, tests and lints through rustdyn as an
   opt-in output (`.#posh-native`) from an igloo fixture-backed builder, with
   per-crate `tests`/`checkAll` and a clippy `lintAll`; the first consumer's
   measurements are recorded here.
@@ -322,9 +319,14 @@ hyphence and rust-crap reach posh, prophit and mephisto without git deps or
 variant, the wrapper), smith (git2, generated manpages), tap and tacky off
 rust-overlay if they choose; `rustdyn-test` inner loop.
 
-## 5. Decisions for the operator
+## 5. Decisions (decided 2026-10-23)
 
-Each with the recommendation this reading supports.
+Each was put to the operator with the recommendation this reading supports;
+the operator accepted all nine as recommended (relayed by
+circus/eager-holly/clarabell, 2026-10-23), and the record moved from
+`exploring` to `proposed` on that ruling. The spike in § Staged plan runs
+under these decisions; the "Recommend:" wording below is kept so the
+reasoning stays legible.
 
 - **(a) Reuse `buildRustCrate` or write a per-unit driver?** Recommend:
   reuse `buildRustCrate` for the spike and stage 2. It already owns the parts
