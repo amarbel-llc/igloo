@@ -197,8 +197,9 @@ test-godyn:
 # fixtures. The merge hook never built these (igloo#35): gomod2nix(7) was
 # unrenderable across four green merges. The names come from the flake, so a new
 # check joins the gate automatically. Excluded by the operator's call: godyn-*
-# (test-godyn's lane), the vm-tests-* VM boots (a TCG guest per check; their
-# manpage stays in), and claude-code (packages.default, pinned unfree; igloo#79).
+# (test-godyn's lane) and the vm-tests-* VM boots (a TCG guest per check; their
+# manpage stays in). claude-code (packages.default) is gated here since the
+# stale pin came out (igloo#79); legacyPackages carries allowUnfree.
 #
 # build every non-godyn flake check
 [group: 'test']
@@ -212,7 +213,7 @@ test-flake-checks:
               hasPrefix = p: builtins.substring 0 (builtins.stringLength p) n == p;
               hasSuffix = s: builtins.substring (builtins.stringLength n - builtins.stringLength s) (builtins.stringLength s) n == s;
             in
-            !(hasPrefix "godyn-") && !(hasPrefix "vm-tests-" && !(hasSuffix "-man")) && n != "claude-code"
+            !(hasPrefix "godyn-") && !(hasPrefix "vm-tests-" && !(hasSuffix "-man"))
           ) (builtins.attrNames cs))')
     # an empty list would make `nix build` fall back to the flake's default package
     if [[ ${#names[@]} -eq 0 ]]; then
