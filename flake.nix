@@ -65,28 +65,40 @@
         let
           conformistSrc = pkgs.fetchgit {
             url = "https://code.linenisgreat.com/conformist.git";
-            rev = "025c839dda59e4ff47249e56ea636d7cc262b604"; # v0.1.19
-            hash = "sha256-Ac2CID8/oe4WAsedvfTpjQMjoduKTglJaKraqoczTT0=";
+            rev = "b44d7e41ba87d75ca7f3612ea6e90b0c10ee4a8c"; # v0.1.21
+            hash = "sha256-O5lTHNsCK394bZ1+l8VRmSmyYxs000IFTNal2eD1MR0=";
           };
           # conformist's Nix module library — a pure Nix file with no flake
           # dependency; import directly from the FOD store path.
           conformistLib = import "${conformistSrc}/nix";
-          # No explicit `version`: conformist carries a version.env at its
-          # source root, and buildGoApplication (gomod2nix default.nix,
-          # eng-versioning(7) § VERSION EMBEDDING) auto-reads it via `pwd`
-          # (== src here) as the single source of truth for both the
-          # derivation `version` attr and the `-X main.version` ldflag. A
-          # hardcoded version here previously drifted from conformist's
-          # actual version.env (0.1.17 vs 0.1.18) — this can't drift again.
-          conformistBin = pkgs.buildGoApplication {
+          # conformist cut over to a go.nix manifest at 12ddb8a (FDR 0008): the
+          # fetched tree has no go.mod or gomod2nix.toml, so it is built the way
+          # conformist builds itself — buildGoAuto over `${src}/go.nix` (igloo#76).
+          # Its manifest declares no fleet flakeInputs, so `inputs = { }` and no
+          # goFlakeInputOverrides are needed; version + commit come from
+          # version.env and src.rev (eng-versioning(7)). `strategy = "bga"`
+          # (buildGoApplication from the rendered go.mod, no IFD, no
+          # ca-derivations) because igloo's formatting gate must evaluate on
+          # every system igloo is evaluated on, and godyn is validated on
+          # x86_64-linux only (igloo#33); conformist's own default is godyn.
+          # The git binary is burned in by store path as conformist does for
+          # itself, so the sandboxed formatting check never depends on PATH.
+          conformistBin = pkgs.buildGoAuto {
             pname = "conformist";
             src = conformistSrc;
-            pwd = conformistSrc;
-            modules = "${conformistSrc}/gomod2nix.toml";
+            manifest = "${conformistSrc}/go.nix";
+            inputs = { };
+            strategy = "bga";
             subPackages = [ "." ];
-            go = pkgs.goToolchain.go;
-            GOTOOLCHAIN = "local";
-            doCheck = false;
+            ldflags = [ "-X code.linenisgreat.com/conformist/git.Binary=${pkgs.git}/bin/git" ];
+            bgaArgs = {
+              GOTOOLCHAIN = "local";
+              doCheck = false;
+              # fetchgit carries `rev`, but buildGoAuto forwards the manifest's
+              # commit only to the godyn backend (igloo#91); without this the
+              # bga binary reports "0.1.21+unknown".
+              commit = conformistSrc.rev;
+            };
           };
           conformistEval = conformistLib.evalModule pkgs {
             imports = [
