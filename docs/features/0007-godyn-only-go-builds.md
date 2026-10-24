@@ -1,6 +1,6 @@
 ---
 status: exploring
-date: 2026-09-22
+date: 2026-10-24
 promotion-criteria: |
   exploring → proposed: godyn is the DEFAULT build of at least one fleet
   consumer with a full package (not a bare binary) — spinclass, on
@@ -99,12 +99,12 @@ be authoritative is recorded in FDR 0006 § *Why not fix the devshell?*).
 | Install step | `postInstall` / `nativeBuildInputs`, forwarded by buildGoAuto to both backends | — |
 | Per-package `go test` | `testGraphFile` → `tests` / `checkAll` | cgo/asm tests, test-only third-party deps, `-race`, test-only embeds (igloo#32); no `nativeCheckInputs`-style tools on the test PATH (unverified) |
 | Per-package vet | `vetAll` (toolchain vet, or `vetTool`) | cgo packages and test sources not analyzed |
-| Per-package lint | `buildGodynLint` (godyn-lint: vet + staticcheck defaults, `//nolint`) | `.golangci.yml` not read; x/tools pinned below the type-bearing vetx protocol (igloo#71) |
+| Per-package lint | `buildGodynLint` (godyn-lint: vet + staticcheck defaults, `//nolint`) | `.golangci.yml` not read (igloo#87 tracks golangci-lint parity); the type-bearing vetx protocol landed and x/tools is unpinned (igloo#71 closed, 9a7a651) |
 | Platforms | default on every supported system (`godynSystems`); x86_64-linux proven (two fleet hosts) | darwin / aarch64 builds unvalidated on real builders (igloo#33) |
 | Package graph | committed graph, or derived at eval time from go.mod + gomod2nix.toml when no `graphFile` is given (build and test graphs; igloo#72) | derivation from the nix manifest instead of go.mod (FDR 0008); consumers still committing graphs migrate |
 | Workspace consumers | `-gomod` takes a merged go.mod | go.work consumers (igloo#73) |
 | Nix features | content-addressed derivations | `ca-derivations` on every building host — eng-managed hosts declare it today; circus will own it fleet-wide. the cache side appears missing too: the fleet cache is not known to serve realisations, which would make godyn outputs rebuild rather than substitute (circus#219, unverified) |
-| buildGoAuto's bga backend | builds | eval fails without `version` / `version.env` (igloo#70) |
+| buildGoAuto's bga backend | builds; names its derivation without a `version` / `version.env` (igloo#70 fixed, 793dcbe) | — |
 
 ## Rollout
 
@@ -132,8 +132,9 @@ CLI use buildGoApplication, godyn-gen buildGoModule).
   dependency set; a stale graph builds the wrong file set. The end state is no
   committed graph — derived at eval time from the manifest (FDR 0008), which
   accepts that evaluating another system's packages needs a builder for that
-  system, as goFlakeInputs consumers already do. Until then, a drift check
-  (igloo#72) keeps committed graphs honest.
+  system, as goFlakeInputs consumers already do. igloo#72 (a drift check for
+  committed graphs) was closed by the eval-time graph; a consumer that still
+  commits a graph has no drift gate and should move to the derived graph.
 - **Cold builds.** Per-package derivations cost more than one `go build` from
   cold (spinclass: about 205 derivations). The trade — slower cold,
   much faster incremental, shared per-package cache hits across consumers — is

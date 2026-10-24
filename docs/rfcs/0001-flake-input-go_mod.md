@@ -1,6 +1,6 @@
 ---
-status: draft
-date: 2026-05-23
+status: proposed
+date: 2026-10-24
 promotion-criteria: |
   draft → proposed: at least one producer in this fork publishes the
   dual outputs (`packages.${system}.go-pkgs` and
@@ -1049,9 +1049,10 @@ path.
 
 ### Chains deeper than one level
 
-Depth-1 inheritance does **not** transitively flatten a chain. What
-holds instead is a per-level discipline that, when every party keeps
-it, resolves chains of arbitrary depth:
+Inheritance is transitive (§ *Depth-N inheritance with a
+conflict-guardrail*), but it carries only what each producer *bridges*.
+A per-level discipline is still what makes chains of arbitrary depth
+resolve:
 
 - **(P) Producer duty.** Every producer declares its complete set of
   direct bridged modules in `mkGoPkgs`'s `goFlakeInputs`, so its
@@ -1072,7 +1073,7 @@ Worked example — the fleet's deepest live chain,
 
 - dodder bridges madder directly. madder's passthru (duty P) carries
   madder's *bridged* directs — tap, tommy, crap, hyphence, and piggy
-  once that cutover lands — so dodder inherits those at depth-1.
+  once that cutover lands — so dodder inherits those.
 - dewey shows the other coverage path: madder organically requires
   dewey but does **not** bridge it (madder covers it through its own
   `gomod2nix.toml` pin), so no dewey entry arrives at dodder by
@@ -1129,10 +1130,11 @@ relevant issue.
   Organic transitive deps come in through the producer's
   `gomod2nix.toml`, which the bridge unions with the consumer's
   (consumer wins on conflict). Flake-input-driven transitive deps are
-  inherited from `passthru.goFlakeInputs` at depth-1 only (see §
-  *Multi-producer closures: `follows` + passthru inheritance*).
-  Deeper-than-one-level inheritance — full FOD-regen of the merged
-  module set — is the dedicated tracking issue.
+  inherited from `passthru.goFlakeInputs` transitively (depth-N,
+  amarbel-llc/igloo#58; see § *Multi-producer closures: `follows` +
+  passthru inheritance*). Full FOD-regen of the merged module set —
+  resolving *organic* transitive privates that no producer bridges — is
+  the dedicated tracking issue.
 
 - **Source-only inputs assumed.** *(open.)* `goFlakeInputs` entries
   MUST be derivations whose output is a Go module source tree (own
@@ -1183,14 +1185,14 @@ relevant issue.
   `subPath` semantics into the middleware contract because that would
   couple producer and consumer slicing decisions.
 
-- **Per-package caching is not addressed.** *(deferred to
-  [FDR-0001](../features/0001-numtide-go2nix-overlay-builder.md).)*
-  This RFC defines the *shape* of producer output; cache reuse at
-  Go-package granularity (e.g. when one facade rotates, other facades
-  stay cached in downstream builds) is the concern of the numtide
-  go2nix evaluation. The two compose: this RFC delivers generated
-  source trees, FDR-0001's eventual work caches the resulting package
-  compilations.
+- **Per-package caching is not addressed.** *(deferred to godyn —
+  [FDR-0007](../features/0007-godyn-only-go-builds.md); the numtide
+  evaluation in [FDR-0001](../features/0001-numtide-go2nix-overlay-builder.md)
+  is superseded.)* This RFC defines the *shape* of producer output; cache
+  reuse at Go-package granularity (e.g. when one facade rotates, other
+  facades stay cached in downstream builds) is godyn's concern. The two
+  compose: this RFC delivers source trees, godyn caches the resulting
+  package compilations.
 
 ### Source-filter side
 
@@ -1259,7 +1261,7 @@ doesn't already say.
 4. **Declare your direct bridges in `mkGoPkgs.goFlakeInputs`** —
    exactly the private/co-developed modules in your module's require
    graph, nothing public and proxy-fetchable. This populates
-   `passthru.goFlakeInputs` so consumers inherit at depth-1.
+   `passthru.goFlakeInputs` so consumers inherit them transitively.
    (§ *Multi-producer closures*, duty P)
 5. **Self-consume from `go-pkgs-test`**: point your own Nix Go build
    at the published tree — `buildGoApplication` RECOMMENDED, another
@@ -1297,7 +1299,8 @@ doesn't already say.
 
 ### Proof-of-concept
 
-- POC commit `f99a3ff43278` — the three-phase probe of the
+- POC commit `f99a3ff43278` (pre-rename history; resolves in the archived
+  amarbel-llc/nixpkgs, not in igloo) — the three-phase probe of the
   `require <module> v0.0.0-<sentinel> + replace => ./.flake-inputs/<name>`
   shape at `zz-pocs/goflake-poc/`. Identified the concrete blocker
   (`pwd + "/${value.path}"` eval-time path import) that the bridge

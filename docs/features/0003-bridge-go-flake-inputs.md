@@ -1,7 +1,7 @@
 ---
 status: superseded
 superseded-by: docs/rfcs/0001-flake-input-go_mod.md
-date: 2026-05-23
+date: 2026-10-24
 promotion-criteria: |
   exploring → proposed: at least one downstream Go project in this fork
   (`dagnabit`, `madder`, `maneater`, `dodder`, `chrest`, `nebulous`)
@@ -28,7 +28,8 @@ promotion-criteria: |
 > **Status:** the normative interface specification for the bridge
 > protocol now lives in [RFC 0001](../rfcs/0001-flake-input-go_mod.md).
 > This FDR is preserved for journey context, problem-statement
-> framing, and the POC findings from commit f99a3ff43278. For the
+> framing, and the POC findings from commit f99a3ff43278 (pre-rename history,
+> archived as amarbel-llc/nixpkgs; the hash does not resolve in igloo). For the
 > authoritative MUST/SHOULD/MAY contract on `goFlakeInputs`,
 > `mkGoEnv` parity, and multi-producer closures, see the RFC.
 
@@ -241,7 +242,8 @@ remain to verify against any landed implementation:
   `mkGoPkgs` middleware helper that supply the source trees this FDR's
   `goFlakeInputs` consumes. The two FDRs form the end-to-end
   cross-flake Go composition story.
-- POC: `zz-pocs/goflake-poc/` in this repo. Commit f99a3ff43278.
+- POC: `zz-pocs/goflake-poc/` in this repo. Commit f99a3ff43278 (pre-rename
+  history; resolves in the archived amarbel-llc/nixpkgs, not in igloo).
 - Tracking issue:
   [amarbel-llc/nixpkgs#32](https://github.com/amarbel-llc/nixpkgs/issues/32).
 - Originating exploration:

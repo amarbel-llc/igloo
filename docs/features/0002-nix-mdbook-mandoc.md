@@ -1,6 +1,6 @@
 ---
 status: exploring
-date: 2026-05-02
+date: 2026-10-24
 promotion-criteria: |
   exploring → proposed: the tracer iteration (the `language/` subtree, ~19
   pages) renders cleanly with one converter choice — lowdown, pandoc, or
@@ -38,7 +38,9 @@ protocols, system architecture, advanced operator topics, contributor
 docs. The official build pipeline produces an HTML site and a small set of
 manpages **only for the command reference** (`nix-build(1)`, `nix-store(1)`,
 `nix.conf(5)`, etc., as exposed by `nixpkgs.nix.man` and surfaced in this
-overlay via `packages.<system>.nix-man` per commit `bc09e11ab802`). Roughly
+overlay via `packages.<system>.nix-man` per commit `bc09e11ab802`, pre-rename
+history archived as amarbel-llc/nixpkgs; the check is `nix-man` in igloo's
+flake). Roughly
 95 of the manual's ~145 markdown pages — everything outside `command-ref/`
 and `release-notes/` — exist as **HTML only**. There is no offline,
 shell-native way to read the Nix language reference, the store protocol,
@@ -251,7 +253,8 @@ final API will be settled during the tracer.)
 ## More Information
 
 - **Predecessor commit:** `bc09e11ab802`
-  (`flake: expose nix.man as packages.<system>.nix-man`). Surfaces
+  (`flake: expose nix.man as packages.<system>.nix-man`; pre-rename history —
+  the hash resolves in the archived amarbel-llc/nixpkgs, not in igloo). Surfaces
   upstream's command-reference manpages as a flake package; this FDR
   covers the rest of the manual.
 - **Sibling FDR for the codegen-at-Nix-build-time philosophy:**

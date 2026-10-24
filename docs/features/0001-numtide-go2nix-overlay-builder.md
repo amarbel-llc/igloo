@@ -1,6 +1,6 @@
 ---
-status: exploring
-date: 2026-05-01
+status: superseded by FDR-0007
+date: 2026-10-24
 promotion-criteria: |
   exploring → proposed: a consumer in this fork's downstream Go projects
   (dagnabit, madder, maneater, dodder, chrest, nebulous) commits to using
@@ -25,6 +25,15 @@ promotion-criteria: |
 ---
 
 # Numtide go2nix as an overlay build helper
+
+> **Superseded (2026-10-24):** the question this record explored — a
+> per-package Go builder for the fleet — was answered by building our own
+> (§ *POC validation*, decision of 2026-06-04): godyn, documented in godyn(7)
+> and carried forward by [FDR 0007](./0007-godyn-only-go-builds.md) (godyn as
+> the only way to build Go) and [FDR 0008](./0008-nix-authoritative-go-modules.md).
+> No `pkgs.go2nix.*` attribute was ever exposed. The record stays for the
+> de-risk findings on the numtide plugin, Path B, and `-race`/`-cover`
+> composition, and for the R6 inlining measurement that godyn inherits.
 
 ## Problem Statement
 
@@ -373,7 +382,8 @@ Two strategies are in play, at different points on the ambition axis.
 **Extracted to its own FDR.** See
 [`0003-bridge-go-flake-inputs.md`](./0003-bridge-go-flake-inputs.md).
 The bridge has its own promotion track and POC validation
-(`zz-pocs/goflake-poc/`, commit f99a3ff43278) and is no longer
+(`zz-pocs/goflake-poc/`, commit f99a3ff43278 — pre-rename history,
+archived as amarbel-llc/nixpkgs; the hash does not resolve in igloo) and is no longer
 gated on the broader numtide go2nix exploration in this document. If
 per-package caching (path B) becomes the durable Go-build foundation
 in this fork and subsumes the lockstep problem the bridge solves,

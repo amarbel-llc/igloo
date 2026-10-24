@@ -1,6 +1,6 @@
 ---
 status: experimental
-date: 2026-09-14
+date: 2026-10-24
 promotion-criteria: |
   exploring → proposed: the manifest shape below is settled on one
   fixture: igloo renders a go.mod from it inside a derivation, derives
@@ -161,9 +161,10 @@ lossless for module, go, requires (including `// indirect`), fleet
 require/replace pairs, and path, module and versioned replaces.
 Comments other than `// indirect`, and `toolchain`, `godebug`, `exclude`,
 `retract` and `tool`, are rejected by the go.mod → manifest direction.
-**go.sum:** builds do not need it (vendor mode with `GOSUMDB=off`). Still
-to come: the escape hatch (render into a derivation, `ingest`) and a fleet
-consumer.
+**go.sum:** builds do not need it (vendor mode with `GOSUMDB=off`). The
+escape hatch (`goRun`, `ingest`, `godyn-go`) and the fleet consumers landed
+later the same day — § *Escape hatch* and the spinclass cutover under
+§ *Tracer bullet*.
 
 **Producers (2026-09-14).** `mkGoPkgs` accepts `manifest` (+ `inputs`,
 `goFlakeInputOverrides`): a go.nix producer's `go-pkgs` outputs carry a

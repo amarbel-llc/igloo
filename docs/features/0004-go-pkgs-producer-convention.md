@@ -1,7 +1,7 @@
 ---
 status: superseded
 superseded-by: docs/rfcs/0001-flake-input-go_mod.md
-date: 2026-05-23
+date: 2026-10-24
 promotion-criteria: |
   exploring → proposed: `mkGoPkgs` helper lands in this fork's overlay
   (alongside `buildGoApplication` / `mkGoEnv`), AND at least one
@@ -63,7 +63,7 @@ should not have to opt into machinery they don't need.
 
 ## Interface
 
-See [RFC 0001 § Producer interface](../rfcs/0001-flake-input-go_mod.md#producer-interface-packagessystemgo-pkgs-and-mkgopkgs)
+See [RFC 0001 § Producer interface](../rfcs/0001-flake-input-go_mod.md#producer-interface-dual-go-pkgs-outputs-and-mkgopkgs)
 and [RFC 0001 § Source filtering](../rfcs/0001-flake-input-go_mod.md#source-filtering-gosourcefilter).
 
 ## Examples
@@ -79,9 +79,9 @@ a producer MUST publish both `go-pkgs` (prod shape) and `go-pkgs-test`
 outputs = { self, nixpkgs, ... }:
   let
     pkgs = nixpkgs.legacyPackages.${system};
-    # mkGoPkgs returns { go-pkgs, go-pkgs-test } from a single call.
-    # Until the helper lands in the overlay (deferred per RFC 0001),
-    # see madder#212 for the inline contract test.
+    # mkGoPkgs returns { go-pkgs, go-pkgs-test } from a single call. It is
+    # exported from the overlay (pkgs/build-support/gomod2nix/mk-go-pkgs.nix,
+    # mkGoPkgs(7)); madder#212 was the inline contract test that preceded it.
   in {
     inherit (pkgs.mkGoPkgs { src = self; }) go-pkgs go-pkgs-test;
     packages.${system} = {
@@ -224,12 +224,11 @@ for the consumer-side mechanics and the `follows` alignment pattern.
   generated source trees, FDR-0001's eventual work caches the resulting
   package compilations.
 
-- **No producer has adopted yet.** Status is `exploring`. The
-  promotion-criteria above name purse-first as the likely first
-  adopter (since dagnabit lives there) and madder as the likely first
-  consumer. Until a producer actually commits to the convention,
-  refinements to the helper signature or middleware contract remain on
-  the table.
+- **Adoption (note of 2026-10-24).** Written when no producer had adopted.
+  Since then `mkGoPkgs` landed in the overlay and producers publish the dual
+  outputs — tap, crap, tommy, cutting-garden and nebulous, the last three as
+  go.nix producers (FDR 0008 § tracers). The helper's signature is RFC 0001's;
+  the middleware contract remains deferred there.
 
 ## More Information
 

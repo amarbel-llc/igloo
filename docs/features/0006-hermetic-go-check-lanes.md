@@ -1,6 +1,6 @@
 ---
 status: experimental
-date: 2026-08-26
+date: 2026-10-24
 promotion-criteria: |
   proposed → experimental: [MET 2026-08-26] `buildGoCheck` + `buildGoLint`
   landed in `pkgs/build-support/gomod2nix/default.nix`, and the POC in
@@ -210,8 +210,8 @@ authoritative, bridge-aware checking is the sandbox's job.
   `buildGoCover` in `pkgs/build-support/gomod2nix/default.nix`.
 - Consumer doc: `gomod2nix(7)` (`§ mkGoEnv devshell scope`,
   `§ golangci-lint and the bridge`) documents the devshell limitation
-  this lane resolves; it will be updated to point at the hermetic lane
-  as the recommended path once this lands.
+  this lane resolves and points at the hermetic lane as the recommended
+  path (`§ Hermetic check lanes (buildGoLint / buildGoCheck)`).
 - First expected consumer: spinclass (retires its impure
   `lint-worktree` golangci-lint invocation), motivated by the
   `sc list` → `.../dewey/pkgs/mesa` migration.
