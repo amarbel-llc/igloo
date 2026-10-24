@@ -29,7 +29,12 @@ pkgs.runCommand "bun2nix-lint-stack-up-to-date"
 
     bun2nix --lock-file="$bunLock" --output-file=./bun.nix.regenerated
 
-    if ! diff -u "$bunNix" bun.nix.regenerated; then
+    # Compare content, not the trailing newline: the bun2nix CLI's output
+    # ended without one after the b33e411 input bump while the committed file
+    # keeps the POSIX final newline (bun.nix is excluded from the formatter, so
+    # nothing else normalizes it). `sed '$a\'` appends a newline only when the
+    # last line lacks one. Found by the test-flake-checks lane (igloo#35).
+    if ! diff -u <(sed -e '$a\' "$bunNix") <(sed -e '$a\' bun.nix.regenerated); then
       echo "" >&2
       echo "bun2nix-lint-stack-up-to-date: pkgs/build-support/bun2nix/lint/bun.nix is out of date relative to bun.lock." >&2
       echo "Fix: nix run .#regen-bun2nix-lint-stack, then commit the updated bun.nix." >&2

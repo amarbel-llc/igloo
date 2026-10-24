@@ -68,7 +68,7 @@ build-eval:
 
     gum log --level info "all changed packages evaluated successfully"
 
-test: test-gomod2nix test-gomod2nix-merge-annotation test-go-toolchain test-eval-warn test-godyn
+test: test-gomod2nix test-gomod2nix-merge-annotation test-go-toolchain test-eval-warn test-flake-checks test-godyn
 
 # [test] Build every gomod2nix build-support eval-test fixture. These pin
 # buildGoApplication / mkGoEnv / mkGoPkgs behavior (version resolution,
@@ -190,6 +190,39 @@ test-godyn:
     fi
     gum log --level info "building ${#names[@]} godyn checks"
     nix build --no-link --print-build-logs "${names[@]/#/.#checks.${system}.}"
+
+# [test] Build every other flake check (checks.<system>.*): the manpage renders
+# (gomod2nix-man, godyn-man, go-toolchain-man, vm-tests-man, nixgc-man, nix-man),
+# gomod2nix, go-toolchain-scope, formatting, the bun2nix lint stack and its
+# fixtures. The merge hook never built these (igloo#35): gomod2nix(7) was
+# unrenderable across four green merges. The names come from the flake, so a new
+# check joins the gate automatically. Excluded by the operator's call: godyn-*
+# (test-godyn's lane), the vm-tests-* VM boots (a TCG guest per check; their
+# manpage stays in), and claude-code (packages.default, pinned unfree; igloo#79).
+#
+# build every non-godyn flake check
+[group: 'test']
+test-flake-checks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    system=$(nix eval --raw --impure --expr 'builtins.currentSystem')
+    mapfile -t names < <(nix eval --raw ".#checks.${system}" \
+        --apply 'cs: builtins.concatStringsSep "\n" (builtins.filter (n:
+            let
+              hasPrefix = p: builtins.substring 0 (builtins.stringLength p) n == p;
+              hasSuffix = s: builtins.substring (builtins.stringLength n - builtins.stringLength s) (builtins.stringLength s) n == s;
+            in
+            !(hasPrefix "godyn-") && !(hasPrefix "vm-tests-" && !(hasSuffix "-man")) && n != "claude-code"
+          ) (builtins.attrNames cs))')
+    # an empty list would make `nix build` fall back to the flake's default package
+    if [[ ${#names[@]} -eq 0 ]]; then
+        gum log --level error "no checks.${system}.* left after filtering — the name query is broken"
+        exit 1
+    fi
+    gum log --level info "building ${#names[@]} flake checks: ${names[*]}"
+    SECONDS=0
+    nix build --no-link --print-build-logs "${names[@]/#/.#checks.${system}.}"
+    gum log --level info "built ${#names[@]} flake checks in ${SECONDS}s"
 
 lint: lint-fmt lint-worktree
 
