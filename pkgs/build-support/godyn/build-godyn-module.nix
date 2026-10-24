@@ -1178,7 +1178,12 @@ let
               '[$obj + "/_cgo_gotypes.go"] + ($ARGS.positional | map($obj + "/" + rtrimstr(".go") + ".cgo1.go"))' \
               --args "''${cgofiles[@]}")
           fi
-          jq --arg out "$out" --arg lang ${goVersion} --argjson cgoGo "$cgoGo" '
+          # The stdlib is type-checked at the TOOLCHAIN's language version, not the
+          # consuming module's: a module declaring go 1.26 linted on a 1.27 toolchain
+          # must still see 1.27's stdlib as 1.27 code (internal/poll uses a promoted
+          # field in a struct literal that "requires go1.27 or later"). Found when the
+          # registry moved to 1.27.3 (igloo#89).
+          jq --arg out "$out" --arg lang "go${lib.versions.majorMinor go.version}" --argjson cgoGo "$cgoGo" '
             .Dir as $d | ((.Imports // []) + (.Deps // []) | unique) as $imps | {
               ID: .ImportPath,
               Compiler: "gc",
@@ -1192,7 +1197,15 @@ let
               VetxOnly: true,
               VetxOutput: ($out + "/" + .ImportPath + ".vetx")
             }' <<<"$pkg" > vet.cfg
-          ${toolExe} vet.cfg
+          # unitchecker swallows its errors in VetxOnly mode (exit 1, nothing on
+          # stderr), so a failure here would otherwise leave only jq's broken pipe
+          # in the log; re-run the one package with VetxOnly off to print the error.
+          ${toolExe} vet.cfg || {
+            echo "godyn-${lane}-stdlib-vetx: ${toolExe} failed on $ip; its message, with VetxOnly off:" >&2
+            jq '.VetxOnly = false' vet.cfg > vet.verbose.cfg
+            ${toolExe} vet.verbose.cfg || true
+            exit 1
+          }
         done
         jq --arg out "$out" 'map({key: .ImportPath, value: ($out + "/" + .ImportPath + ".vetx")}) | from_entries' \
           pkgs.json > "$out/index.json"

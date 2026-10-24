@@ -820,3 +820,125 @@ explore-godyn-gomod-acceptance consumer:
         gum log --level error "graphs differ"
         exit 1
     fi
+
+# [debug] Reproduce ONE iteration of godyn's stdlib vetx lane (build-godyn-module.nix
+# stdVetxLane) outside the sandbox with tracing: list std with the registry toolchain,
+# pick the Nth non-cgo package, write its vet.cfg exactly as the lane does, run the
+# lint tool on it and print its exit status. The sandboxed lane dies silently when
+# the tool exits non-zero inside its `while read` loop (jq only reports a broken
+# pipe), so this is how to see what the tool actually says — e.g. after a Go bump
+# (igloo#89, Go 1.27.3).
+#
+# run one package of the godyn-lint stdlib vetx lane with tracing
+[group: 'debug']
+debug-godyn-lint-stdlib-vetx n="0" tool="godyn-lint" vetxonly="true":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    go=$(nix-build --no-out-link -E "(import ./. { }).goToolchain.go")
+    tool=$(nix-build --no-out-link -E "(import ./. { }).{{ tool }}")
+    work=$(mktemp -d)
+    export GOROOT="$go/share/go" HOME="$work" GOCACHE="$work/gocache" \
+      CGO_ENABLED=1 GOTOOLCHAIN=local GOPROXY=off GOFLAGS=
+    export PATH="$go/bin:$PATH"
+    echo "go: $(go version)"; echo "tool: $tool"
+    # does the binary run at all? (-V=full prints its version line, -flags its flag JSON)
+    "$tool/bin/{{ tool }}" -V=full && echo "-V=full exit=0" || echo "-V=full exit=$?"
+    "$tool/bin/{{ tool }}" -flags | head -c 300; echo; echo "-flags exit=${PIPESTATUS[0]}"
+    go list -e -deps -json std \
+      | jq -s 'map(select(.ImportPath != "unsafe" and .Error == null and (.CgoFiles // []) == [] and ((.GoFiles // []) | length) > 0))' > "$work/pkgs.json"
+    pkg=$(jq -c ".[{{ n }}]" "$work/pkgs.json")
+    ip=$(jq -r .ImportPath <<<"$pkg")
+    echo "package: $ip ($(jq -r '.Deps // [] | length' <<<"$pkg") deps; vetx for deps are NOT built here, so a deps-only failure is expected for n > 0)"
+    mkdir -p "$work/out/$(dirname "$ip")"
+    jq --arg out "$work/out" --arg lang "$(go env GOVERSION | sed 's/^go//; s/\.[0-9]*$//')" --argjson cgoGo '[]' --argjson vetxOnly {{ vetxonly }} '
+      .Dir as $d | ((.Imports // []) + (.Deps // []) | unique) as $imps | {
+        ID: .ImportPath, Compiler: "gc", ImportPath: .ImportPath, GoVersion: $lang,
+        GoFiles: ([(.GoFiles // [])[] | $d + "/" + .] + $cgoGo),
+        NonGoFiles: [(.SFiles // [])[] | $d + "/" + .],
+        ImportMap: ((reduce $imps[] as $i ({}; .[$i] = $i)) + (.ImportMap // {})),
+        PackageVetx: (reduce ($imps[] | select(. != "unsafe" and . != "C")) as $i ({}; .[$i] = $out + "/" + $i + ".vetx")),
+        Standard: (reduce $imps[] as $i ({}; .[$i] = true)),
+        VetxOnly: $vetxOnly, VetxOutput: ($out + "/" + .ImportPath + ".vetx") }' <<<"$pkg" > "$work/vet.cfg"
+    cat "$work/vet.cfg"
+    set -x
+    "$tool/bin/{{ tool }}" "$work/vet.cfg" && echo "tool exit=0" || echo "tool exit=$?"
+    ls -la "$work/out" || true
+
+# [debug] Replay the WHOLE godyn stdlib vetx lane (build-godyn-module.nix stdVetxLane,
+# cgo translation included) outside the sandbox, in dependency order, and stop at the
+# first package the tool fails on. unitchecker swallows errors in VetxOnly mode (exit 1,
+# no message — the sandbox log shows only jq's broken pipe), so the failing package is
+# re-run with VetxOnly=false to surface the error text. Minutes; one tool run per
+# stdlib package. Serves the Go-bump loop (igloo#89).
+#
+# replay the godyn-lint stdlib vetx lane and report the first failing package
+[group: 'debug']
+debug-godyn-lint-stdlib-vetx-all tool="godyn-lint" lang="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    go=$(nix-build --no-out-link -E "(import ./. { }).goToolchain.go")
+    tool=$(nix-build --no-out-link -E "(import ./. { }).{{ tool }}")
+    cc=$(nix-build --no-out-link -E "(import ./. { }).stdenv.cc")
+    work=$(mktemp -d)
+    out="$work/out"
+    export GOROOT="$go/share/go" HOME="$work" GOCACHE="$work/gocache" \
+      CGO_ENABLED=1 CC=cc GOTOOLCHAIN=local GOPROXY=off GOFLAGS=
+    export PATH="$go/bin:$cc/bin:$PATH"
+    # GoVersion for the vet.cfg: the lane passes the consuming MODULE's go directive;
+    # default here is the toolchain's own minor. Pass lang=1.26 to mimic a module older
+    # than the toolchain.
+    lang="{{ lang }}"
+    [ -n "$lang" ] || lang=$(go env GOVERSION | sed 's/^go//; s/\.[0-9]*$//')
+    echo "go: $(go version); tool: $tool; cc: $(command -v cc || echo none); GoVersion=$lang"
+    mkdir -p "$out"
+    go list -e -deps -json std \
+      | jq -s 'map(select(.ImportPath != "unsafe" and .Error == null and (((.GoFiles // []) + (.CgoFiles // [])) | length) > 0))' > "$work/pkgs.json"
+    total=$(jq length "$work/pkgs.json")
+    n=0
+    mkcfg() {
+      jq --arg out "$out" --arg lang "$lang" --argjson cgoGo "$cgoGo" --argjson vetxOnly "$1" '
+        .Dir as $d | ((.Imports // []) + (.Deps // []) | unique) as $imps | {
+          ID: .ImportPath, Compiler: "gc", ImportPath: .ImportPath, GoVersion: $lang,
+          GoFiles: ([(.GoFiles // [])[] | $d + "/" + .] + $cgoGo),
+          NonGoFiles: [(.SFiles // [])[] | $d + "/" + .],
+          ImportMap: ((reduce $imps[] as $i ({}; .[$i] = $i)) + (.ImportMap // {})),
+          PackageVetx: (reduce ($imps[] | select(. != "unsafe" and . != "C")) as $i ({}; .[$i] = $out + "/" + $i + ".vetx")),
+          Standard: (reduce $imps[] as $i ({}; .[$i] = true)),
+          VetxOnly: $vetxOnly, VetxOutput: ($out + "/" + .ImportPath + ".vetx") }' <<<"$pkg"
+    }
+    while read -r pkg; do
+      ip=$(jq -r .ImportPath <<<"$pkg")
+      mkdir -p "$(dirname "$out/$ip")"
+      cgoGo='[]'
+      mapfile -t cgofiles < <(jq -r '(.CgoFiles // [])[]' <<<"$pkg")
+      if [ ${#cgofiles[@]} -gt 0 ]; then
+        obj="$work/cgo/$ip"
+        mkdir -p "$obj"
+        flags=()
+        case "$ip" in
+          runtime/cgo) flags=(-import_runtime_cgo=false -import_syscall=false) ;;
+          runtime/race | runtime/msan | runtime/asan) flags=(-import_syscall=false) ;;
+        esac
+        mapfile -t cflags < <(jq -r '((.CgoCPPFLAGS // []) + (.CgoCFLAGS // []))[]' <<<"$pkg")
+        if ! ( cd "$(jq -r .Dir <<<"$pkg")" \
+             && go tool cgo -objdir "$obj" -importpath "$ip" "${flags[@]}" -- -I "$obj" "${cflags[@]}" "${cgofiles[@]}" ); then
+          echo "CGO FAILED: $ip (package #$n of $total)"; exit 1
+        fi
+        cgoGo=$(jq -n --arg obj "$obj" \
+          '[$obj + "/_cgo_gotypes.go"] + ($ARGS.positional | map($obj + "/" + rtrimstr(".go") + ".cgo1.go"))' \
+          --args "${cgofiles[@]}")
+      fi
+      mkcfg true > "$work/vet.cfg"
+      if "$tool/bin/{{ tool }}" "$work/vet.cfg"; then
+        n=$((n + 1))
+      else
+        rc=$?
+        echo "TOOL FAILED: $ip (package #$n of $total), exit=$rc, VetxOnly=true (silent)"
+        echo "--- re-run with VetxOnly=false to surface the error:"
+        mkcfg false > "$work/vet.cfg"
+        "$tool/bin/{{ tool }}" "$work/vet.cfg" || echo "exit=$?"
+        echo "--- vet.cfg:"; cat "$work/vet.cfg"
+        exit 1
+      fi
+    done < <(jq -c '.[]' "$work/pkgs.json")
+    echo "all $n packages OK"

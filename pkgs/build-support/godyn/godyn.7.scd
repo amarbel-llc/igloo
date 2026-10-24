@@ -689,7 +689,9 @@ A tool that declares *passthru.typedVetx* gets that protocol end to end: every
 package's run writes a type-bearing vetx; cgo packages are analyzed from cgo's
 translated sources, which the compile derivation keeps in *$out/cgo*; and the
 standard library gets its own lane — the tool run facts-only over the stdlib in
-dependency order (cgo on, translated as *cmd/go* does), once per tool and
+dependency order (cgo on, translated as *cmd/go* does, at the TOOLCHAIN's language
+version rather than the module's *goVersion*: a 1.27 stdlib is 1.27 code whatever
+the module declares), once per tool and
 toolchain — whose index serves every package's run (*passthru.lintStdVetx*). Graphs from
 a current godyn-gen record each package's stdlib imports (*stdImports*), so a
 run is handed only the stdlib vetx its import closure reaches (a package that
