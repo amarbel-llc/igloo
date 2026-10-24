@@ -17,6 +17,7 @@ let
     go_1_26_3
     go_1_26_6
     go_1_26_10
+    go_1_27_3
     mkGoToolchain
     ;
   bundle = mkGoToolchain { };
@@ -24,12 +25,20 @@ let
 
   checks = [
     {
-      name = "goToolchain.go = newest (1.26.10)";
-      ok = goToolchain.go.version == "1.26.10";
+      name = "goToolchain.go = newest (1.27.3)";
+      ok = goToolchain.go.version == "1.27.3";
     }
     {
-      name = "goToolchain.go is the go_1_26_10 derivation";
-      ok = goToolchain.go.drvPath == go_1_26_10.drvPath;
+      name = "goToolchain.go is the go_1_27_3 derivation";
+      ok = goToolchain.go.drvPath == go_1_27_3.drvPath;
+    }
+    {
+      name = "go_1_26_10 still present (the previous default; consumers may pin it)";
+      ok = go_1_26_10.version == "1.26.10";
+    }
+    {
+      name = "the 1.27 entry builds on a different nixpkgs base than the 1.26 entries";
+      ok = go_1_27_3.drvPath != go_1_26_10.drvPath;
     }
     {
       name = "go_1_26_3 coexists at 1.26.3";

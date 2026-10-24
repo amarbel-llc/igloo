@@ -20,6 +20,7 @@
   # here (and in `bases` below) when the registry first carries that minor.
   go_1_25,
   go_1_26,
+  go_1_27,
 }:
 let
   inherit (import ./mk-go.nix { inherit lib fetchurl; }) mkGo registry newest;
@@ -28,6 +29,7 @@ let
   bases = {
     "1.25" = go_1_25;
     "1.26" = go_1_26;
+    "1.27" = go_1_27;
   };
 
   mkGoToolchain =
