@@ -26,7 +26,7 @@ this note; anything that is a judgement is listed under *Needs a decision*.
 | FDR 0009 rustdyn | proposed | true (this session's record; spike results in `zz-pocs/rustdyn-poc/README.md`) | none |
 | FDR 0010 godyn plan replay | exploring | true: no `planReplay` in tree | none |
 | FDR 0011 VM test lane | testing | true: `mkVmChecks`/`vmTestPrelude` (pkgs/build-support/vm-tests/default.nix), `vm-tests-smoke` check (flake.nix:1316) | none |
-| FDR 0012 toolchain scope | experimental | igloo side true: `go-toolchain-scope` check (flake.nix:867), registry default 1.26.10; fleet migration list is other repos' state | none; see *Not verifiable* |
+| FDR 0012 toolchain scope | experimental | igloo side true: `go-toolchain-scope` check (flake.nix:867), registry default 1.26.10 at audit time (1.27.3 after igloo#89, same day); fleet migration list is other repos' state | none; see *Not verifiable* |
 | RFC 0001 flake-input-go_mod | draft | stale: its own draft → proposed criteria are met (FDR 0003/0004 thinned; `mkGoPkgs` exported, mk-go-pkgs.nix:93; producer/consumer fixtures `godyn-producer-*-test`); leftover depth-1 wording contradicts the depth-N amendment; per-package caching still deferred to the numtide FDR | → `proposed`; wording fixed; normative conflicts need a decision |
 
 ## Fixed in this change (plain drift)
@@ -136,6 +136,27 @@ Dates of every edited record set to 2026-10-24.
    `superseded-by:` field, not the lifecycle's `superseded by FDR-NNNN` form
    (the successor is an RFC, which the form does not anticipate). The design
    index renders them correctly today. Note only.
+
+## Decisions taken (operator, 2026-10-24)
+
+Applied in the same day's follow-up change:
+
+1. **FDR 0007 → proposed** (criterion marked MET; the untracked vet gap is now
+   igloo#90).
+2. **FDR 0008 → testing** (criterion marked MET).
+3. **RFC 0001 → experimental**, with three amendments: § *`mkGoEnv` parity*
+   now says what the merge reaches (the vendor environment and the sandbox,
+   not an ambient `go`) and withdraws the "same module graph as `nix build`"
+   promise; § *The `gomod.nix` convention* is scoped to organic-go.mod
+   consumers; § *`goSourceFilterMiddleware`* no longer shows a
+   `mkGoPkgs.middlewares` argument that does not exist.
+4. **FDR 0006 → superseded by FDR-0007**, with a banner; igloo#62 closed on
+   the devshell argument both records make.
+5. **FDR 0001 superseded** confirmed (item 5 above stands as applied).
+
+Still open: FDR 0002/0005 (idle), the FDR 0003/0004 front-matter form, and
+the re-filing triage for the archived nixpkgs threads
+(`2026-10-24-nixpkgs-issue-refs.md`).
 
 ## Not verifiable from igloo
 

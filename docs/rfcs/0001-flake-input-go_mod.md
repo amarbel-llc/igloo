@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: experimental
 date: 2026-10-24
 promotion-criteria: |
   draft → proposed: at least one producer in this fork publishes the
@@ -7,9 +7,12 @@ promotion-criteria: |
   `packages.${system}.go-pkgs-test`) per § *Producer interface*; FDR-0003
   and FDR-0004 are thinned to reference this RFC for normative spec.
 
-  proposed → experimental: madder ships the inline-`mkGoPkgs` contract
-  test (madder#212) and a consumer builds successfully against both
-  outputs (`go-pkgs` for prod, `go-pkgs-test` for test-running).
+  proposed → experimental: [MET 2026-10-24 — madder#212 per § mkGoPkgs
+  helper; igloo's godyn-producer-*-test fixtures build consumers against
+  both outputs; operator's call, FDR/RFC audit] madder ships the
+  inline-`mkGoPkgs` contract test (madder#212) and a consumer builds
+  successfully against both outputs (`go-pkgs` for prod, `go-pkgs-test`
+  for test-running).
 
   experimental → testing: lazy-trees interaction and mkGoEnv parity for
   the filtered outputs are empirically verified; `pkgs.mkGoPkgs` is
@@ -163,11 +166,23 @@ the flake input's rev as recorded in `flake.lock`.
 ### `mkGoEnv` parity
 
 Implementations MUST apply identical merge semantics in `mkGoEnv` as
-in `buildGoApplication`. A consumer's `nix develop` shell MUST see the
-same module graph as `nix build`. Implementing only the build-side
-silently reintroduces lockstep drift through the back door: editors
-and language servers in the devshell see one set of replace targets
-while the build sees another.
+in `buildGoApplication`: the devshell's vendor environment is assembled
+from the same merged module table, so its organic dependencies and its
+bridged `replace` targets agree with `nix build`.
+
+> **Amended (2026-10-24; FDR 0006, igloo#62).** The merged `go.mod`
+> reaches only what Nix places — `mkGoEnv`'s vendor environment and the
+> `nix build` sandbox. It does NOT reach an ambient `go`, `gopls` or
+> `golangci-lint` run against the checkout: Go anchors module resolution
+> on the runtime working-directory path, which no store artifact can carry
+> (FDR 0006 § *Why not fix the devshell?*; gomod2nix(7) § *mkGoEnv devshell
+> scope*). Ambient tools resolve a bridged module only at its organic,
+> proxy-reachable `require` version. Authoritative, bridge-aware building,
+> testing and checking is the sandbox's job — `buildGoCheck` /
+> `buildGoLint` for buildGoApplication consumers, godyn's lanes (FDR 0007)
+> otherwise. An earlier revision of this section promised the devshell
+> "the same module graph as `nix build`"; that promise is withdrawn, not
+> merely unmet.
 
 ### Out-of-Nix builds
 
@@ -720,21 +735,29 @@ a 1-line `src -> src` wrapper around `goSourceFilter`:
 goSourceFilterMiddleware = src: goSourceFilter { inherit src; };
 ```
 
-It exists so the filter composes naturally into the
-`mkGoPkgs.middlewares` pipeline without forcing producers to write the
-closure themselves:
+It exists so the filter composes as one `src -> src` step of a middleware
+pipeline without forcing producers to write the closure themselves.
+`mkGoPkgs` itself takes no `middlewares` argument — that helper is
+deferred (§ *Producers with codegen (deferred)*) — so today the
+middleware form serves producers that inline their pipeline and publish
+the result directly:
 
 ```nix
-packages.${system}.go-pkgs = pkgs.mkGoPkgs {
-  src = self;
-  middlewares = [
-    pkgs.goSourceFilterMiddleware
-    # ... other middlewares ...
-  ];
-};
+packages.${system}.go-pkgs = lib.foldl' (src: mw: mw src) self [
+  pkgs.goSourceFilterMiddleware
+  # ... other middlewares ...
+];
 ```
 
 ## The `gomod.nix` convention
+
+> **Scope (2026-10-24).** This convention applies to consumers that keep an
+> organic `go.mod` and `gomod2nix.toml`. A go.nix consumer (FDR 0008) has
+> neither: its manifest's `flakeInputs` entries stand in for the consumer
+> half of `gomod.nix` and for the eval-time merge this RFC specifies, and its
+> producer half is `mkGoPkgs { manifest; inputs; }`. spinclass removed its
+> `gomod.nix` at its cutover. The rest of this section is unchanged for
+> organic-go.mod consumers.
 
 `gomod.nix` is the **Nix interface to `go.mod`** — a single colocation
 file that captures the flake's Go-side surface in Nix terms.

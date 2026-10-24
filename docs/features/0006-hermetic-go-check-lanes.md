@@ -1,5 +1,5 @@
 ---
-status: experimental
+status: superseded by FDR-0007
 date: 2026-10-24
 promotion-criteria: |
   proposed → experimental: [MET 2026-08-26] `buildGoCheck` + `buildGoLint`
@@ -21,6 +21,18 @@ promotion-criteria: |
 ---
 
 # Hermetic Go check/lint lanes (buildGoCheck / buildGoLint)
+
+> **Superseded (2026-10-24):** the whole-module hermetic lanes gave way to
+> godyn's per-package test, vet and lint lanes
+> ([FDR 0007](./0007-godyn-only-go-builds.md); godyn(7) § TESTS, VET, LINT) as
+> consumers cut over to go.nix (FDR 0008). spinclass, the consumer this
+> record's promotion criterion named, retired golangci-lint for godyn-lint
+> instead of adopting `buildGoLint`, so that criterion can no longer be met.
+> `buildGoCheck`, `buildGoLint` and `mkGoLintCacheEnv` stay in
+> `pkgs/build-support/gomod2nix/default.nix` and gomod2nix(7) for
+> buildGoApplication consumers. The record keeps the design and
+> § *Why not fix the devshell?*, which FDR 0007 and RFC 0001 cite; igloo#62
+> closes with this change on that argument.
 
 ## Problem Statement
 

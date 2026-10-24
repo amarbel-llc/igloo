@@ -1,5 +1,5 @@
 ---
-status: experimental
+status: testing
 date: 2026-10-24
 promotion-criteria: |
   exploring → proposed: the manifest shape below is settled on one
@@ -17,7 +17,10 @@ promotion-criteria: |
   committed go.mod, go.sum and gomod2nix.toml removed. gopls and dlv are
   out of scope.
 
-  experimental → testing: dependency updates happen only through the
+  experimental → testing: [MET 2026-10-24 — six go.nix consumers (spinclass,
+  tommy, crap, cutting-garden, nebulous, conformist); godyn-manifest-test
+  asserts the third-party module compiles at its own go directive;
+  operator's call, FDR/RFC audit] dependency updates happen only through the
   manifest (directly or via ingest) on at least two consumers; each
   third-party module's own Go language version reaches its compiles.
 

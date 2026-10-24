@@ -1,8 +1,11 @@
 ---
-status: exploring
+status: proposed
 date: 2026-10-24
 promotion-criteria: |
-  exploring → proposed: godyn is the DEFAULT build of at least one fleet
+  exploring → proposed: [MET 2026-10-24 — spinclass 13d42af/104a5a0 and
+  conformist 12ddb8a build with buildGoAuto's default strategy, godyn on
+  godynSystems; gaps tracked in igloo#33 #34 #73 #75 #77 #78 #82 #85 #87 #88
+  #90 and circus#219; operator's call, FDR/RFC audit] godyn is the DEFAULT build of at least one fleet
   consumer with a full package (not a bare binary) — spinclass, on
   x86_64-linux — using the postInstall install step, with
   buildGoApplication demoted to a named escape hatch; and the known gaps
