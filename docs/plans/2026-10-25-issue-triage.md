@@ -123,4 +123,12 @@ The rest of (b), plus the two (a) items that were waiting on a ruling.
   pointer once it lands there. Landed as amarbel-llc/circus#379 (R, relayed
   by circus/eager-holly, 2026-10-25); the close waits on GitHub's rate limit.
 - **#61 / rustdyn stage 2:** approved by the operator the same day (relayed by
-  circus/eager-holly); stage 2 proceeds under FDR 0009 § Staged plan.
+  circus/eager-holly); stage 2 proceeds under FDR 0009 § Staged plan. Done
+  the same day (`docs/plans/2026-10-25-rustdyn-stage2.md` § Outcome).
+
+The issue tracker moved to the Forgejo (`linenisgreat/igloo` on
+code.linenisgreat.com) during the day; GitHub is a read-only mirror. The
+decisions above were applied there on 2026-10-25 (V): #75 and #20 closed, #63
+retitled to the Zig registry, #87 #85 #82 #81 #78 #64 #42 carry the decision as
+a comment. #87 closes once godyn(7) lists the golangci-lint delta; #64's
+donor-side doppelgang issue is still to file.
