@@ -14,9 +14,17 @@ this tree or on this host, **R** read in an issue or another repo's record,
 | #53 | ldflagsX key naming a package-main symbol | fixed in ec60569 with a fixture (V), in the merge in flight | done |
 | #34 (item 5) | flaky-test re-run knob | `passthru.testWith` already takes per-run test flags, so `-test.count=2` yields a new run derivation (R: godyn(7) § TESTS); verify, then close the item or add the one-line knob | small |
 | #90 | vet/lint do not analyze test sources; toolchain-vet skips cgo | the test-variant archives exist (godyn(7) § TESTS), so a per-test-variant run is the existing run shape over different inputs; a fixture with a `_test.go` finding is the test | medium |
-| #73 | godyn-gen -gomod for go.work consumers | fixture-driven (a two-member workspace); FDR 0008 says one go.nix per module is the end state, so this may be a "document the migration" item instead | medium |
-| #88 | frozen, no-resolve mode for godyn-go | a flag on the escape hatch plus a fixture asserting no network/`go get`; design is in the issue | medium |
 | #77 (main) | aarch64 static link falls back to host gcc | reproducible only with a cross Go toolchain build (heavy on this host); the side-finding is fixed in ec60569 | large |
+
+Re-read after the first pass (2026-10-25, later): **#73** reframes itself, in
+its last comment, into a multi-module fixture at repository root with a
+sibling path replace between two go.nix modules — buildGodynModule renders
+go.mod at `src`'s root, so a `../sib` replace needs a module-root/`src`-root
+split that does not exist yet (I); that is design, not a night's fixture, so
+it moves to (b). **#88** asks for `go test` run natively outside the sandbox,
+which FDR 0008 declared unsupported (the same scope line as gopls/dlv); the
+go.nix rewrite it reports is the escape hatch's documented ingest, not a bug
+(answered on the issue). It moves to (b).
 
 ## (b) Needs a decision (options)
 
@@ -27,6 +35,8 @@ this tree or on this host, **R** read in an issue or another repo's record,
 | #25 | nixpkgs→igloo reference sweep | close with `2026-10-24-nixpkgs-issue-refs.md` (no map exists), or retitle to "triage the 25 still-open archived threads" |
 | #87 | golangci-lint parity for godyn-lint | accept godyn-lint's suite as the fleet standard; port specific linters; or keep buildGoLint for consumers that need parity |
 | #85 | gopls/dlv without a committed go.mod | FDR 0008 descoped them; a POC needs a direction (rendered module + -modfile vs a gopls from a derivation) |
+| #88 | frozen, no-resolve native `go test` through godyn-go | widen FDR 0008's scope to a native frozen mode (render go.mod/go.sum + vendor to scratch, `-mod=vendor`, no ingest), or keep tests in the sandbox and give godyn-test a way to put the module's own binary on the test PATH |
+| #73 | multi-module repository with sibling path replaces (purse-first's shape) | a module-root/`src`-root split for go.nix modules (where the rendered go.mod lands vs. what the derivation sees), or one `src` per module with the sibling as a flake-input-style bridge |
 | #82 | input bump invalidates per-package vet closures (~100 min gates) | shared vet cache across consumers (the fleet cache, see readiness note), facts-only runs for third-party packages skipped when unchanged, or accept |
 | #81 | RFC for a standard godyn tree | write it (who owns: igloo) or fold into conformist's eng-go template |
 | #78 | static-build lane (cgo-free stdlib variant) | build `godynStdlib` twice (cgo on/off) behind `buildGoStatic`, or keep bga for static release artifacts |
