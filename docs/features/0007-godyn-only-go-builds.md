@@ -106,7 +106,7 @@ be authoritative is recorded in FDR 0006 § *Why not fix the devshell?*).
 | Platforms | default on every supported system (`godynSystems`); x86_64-linux proven (two fleet hosts) | darwin / aarch64 builds unvalidated on real builders (igloo#33) |
 | Package graph | committed graph, or derived at eval time from go.mod + gomod2nix.toml when no `graphFile` is given (build and test graphs; igloo#72) | derivation from the nix manifest instead of go.mod (FDR 0008); consumers still committing graphs migrate |
 | Workspace consumers | `-gomod` takes a merged go.mod | go.work consumers (igloo#73) |
-| Nix features | content-addressed derivations | `ca-derivations` on every building host — eng-managed hosts declare it today; circus will own it fleet-wide. the cache side appears missing too: the fleet cache is not known to serve realisations, which would make godyn outputs rebuild rather than substitute (circus#219, unverified) |
+| Nix features | content-addressed derivations | `ca-derivations` on every building host — eng-managed hosts declare it today; circus will own it fleet-wide. The cache side is verified for one host's outputs (2026-10-25): the fleet cache serves a godyn compile's NAR *and* its signed CA realisation record (`docs/plans/2026-10-25-godyn-consumer-readiness.md` § (b)); whether every building host uploads is circus#219's remaining question |
 | buildGoAuto's bga backend | builds; names its derivation without a `version` / `version.env` (igloo#70 fixed, 793dcbe) | — |
 
 ## Rollout
@@ -147,9 +147,10 @@ CLI use buildGoApplication, godyn-gen buildGoModule).
   A host or CI runner without it fails at evaluation. The cache must also
   *serve* realisation records, not only NARs: without the drv-output →
   store-path mapping a client cannot address a CA output and rebuilds from
-  source. The fleet cache appears not to serve them, which would mean no
-  consumer has ever substituted a godyn output; that has not been verified
-  against its deployment (circus#219).
+  source. Verified 2026-10-25 for an output built on flic: the fleet cache
+  (`nix.starbrandshoes.com`) serves the realisation record and the signed NAR
+  (`docs/plans/2026-10-25-godyn-consumer-readiness.md` § (b)). Open: which
+  hosts upload, so which consumers actually substitute (circus#219).
 - **golangci-lint parity.** The godyn lint runs analyzers, not golangci-lint:
   linters outside the go/analysis framework, formatters, and golangci-lint
   configuration do not carry over. Whether that gap is acceptable, or needs a
@@ -174,4 +175,5 @@ CLI use buildGoApplication, godyn-gen buildGoModule).
 - Issues: igloo#32 (tests), igloo#33 (platforms), igloo#70 (bga eval),
   igloo#71 (vetx protocol), igloo#72 (graph drift check), igloo#73 (go.work
   consumers), igloo#77 (bga static cross-link), igloo#78 (no static lane),
-  circus#219 (the fleet cache serves no CA realisations).
+  circus#219 (which hosts upload godyn outputs and realisations to the fleet
+  cache; it does serve them for flic's builds, verified 2026-10-25).

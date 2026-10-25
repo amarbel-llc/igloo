@@ -950,3 +950,53 @@ debug-godyn-lint-stdlib-vetx-all tool="godyn-lint" lang="":
       fi
     done < <(jq -c '.[]' "$work/pkgs.json")
     echo "all $n packages OK"
+
+# [explore] What this host's nix will substitute from and which experimental
+# features are on — the two facts a godyn consumer needs (ca-derivations, IFD)
+# and the cache question (does any substituter serve CA realisations?). Read-only.
+#
+# print the host's substituters, trusted keys and experimental features
+[group: 'explore']
+explore-nix-config:
+    nix config show | grep -E '^(substituters|extra-substituters|trusted-substituters|trusted-public-keys|experimental-features|allow-import-from-derivation|system|extra-platforms|builders) '
+
+# [explore] Ask a binary cache whether it holds a derivation's CA realisation and
+# the output path it maps to (`nix realisation info --store`), then whether it
+# holds that output's NAR (`nix path-info --store`). A godyn output substitutes
+# only when BOTH answer; a cache that serves NARs but no realisations makes
+# every consumer rebuild (FDR 0007 § ca-derivations, circus#219). Read-only; no
+# build is started (`--no-build`-equivalent: realisation info reads the cache).
+# store defaults to the host's first substituter.
+#
+# check a cache for a derivation's CA realisation and output NAR
+[group: 'explore']
+explore-cache-has drv store="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    store="{{ store }}"
+    [ -n "$store" ] || store=$(nix config show substituters | awk '{print $1}')
+    echo "store: $store"
+    echo "--- local realisation:"
+    nix realisation info "{{ drv }}^out" --json | jq -c '.[] | {id, outPath}'
+    id=$(nix realisation info "{{ drv }}^out" --json | jq -r '.[0].id')
+    out=$(nix realisation info "{{ drv }}^out" --json | jq -r '.[0].outPath')
+    hash="${out%%-*}"
+    # A binary cache has no .drv, so ask over its own protocol: the realisation by
+    # id (realisations/<id>.doi) and the NAR by store-path hash (<hash>.narinfo).
+    probe() {
+        code=$(curl -sS -o /dev/null -w '%{http_code}' "$1" || echo "curl-failed")
+        case "$code" in
+            200) echo "served (HTTP 200)" ;;
+            *) echo "NOT served (HTTP $code)" ;;
+        esac
+    }
+    echo "--- cache info:"
+    curl -sS "$store/nix-cache-info" || echo "(no nix-cache-info)"
+    echo "--- control (a hash no store has) — must be NOT served, or the cache answers everything:"
+    probe "$store/00000000000000000000000000000000.narinfo"
+    echo "--- realisation $id in $store:"
+    probe "$store/realisations/$id.doi"
+    curl -sS "$store/realisations/$id.doi" | jq -c '{id, outPath}' 2>/dev/null || true
+    echo "--- NAR for $out in $store:"
+    probe "$store/$hash.narinfo"
+    curl -sS "$store/$hash.narinfo" | grep -E '^(StorePath|NarSize|CA|Sig):' || true
