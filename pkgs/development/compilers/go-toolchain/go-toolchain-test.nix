@@ -22,8 +22,18 @@ let
     ;
   bundle = mkGoToolchain { };
   pinned = mkGoToolchain { version = "1.26.3"; };
+  registry = import ./registry.nix;
 
-  checks = [
+  # Every registry entry must resolve through mkGoToolchain, i.e. its Go minor
+  # must have a nixpkgs base in default.nix's `bases` (or be a fork entry). The
+  # 1.27.3 registration (igloo#89) failed at first build for want of the 1.27
+  # base; this makes that an eval-test failure instead.
+  baseChecks = map (e: {
+    name = "registry ${e.version} has a nixpkgs base (bases in default.nix)";
+    ok = (mkGoToolchain { inherit (e) version; }).go.version == e.version;
+  }) registry;
+
+  checks = baseChecks ++ [
     {
       name = "goToolchain.go = newest (1.27.3)";
       ok = goToolchain.go.version == "1.27.3";

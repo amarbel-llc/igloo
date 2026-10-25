@@ -467,6 +467,14 @@ update-go version:
         gum log --level error "go $ver already in $reg — registry is append-only; not rewriting"
         exit 1
     fi
+    # A new minor also needs its nixpkgs base in default.nix (`bases` + the
+    # function args) or the entry evaluates to a throw (igloo#89, 1.27).
+    minor="${ver%.*}"
+    bases="pkgs/development/compilers/go-toolchain/default.nix"
+    if ! grep -qF "\"$minor\" = go_" "$bases"; then
+        gum log --level error "go $minor has no nixpkgs base in $bases — add \"$minor\" = go_$(printf '%s' "$minor" | tr . _); to \`bases\` (and go_$(printf '%s' "$minor" | tr . _) to the function args) first; see go-toolchain(7)"
+        exit 1
+    fi
     hash=$(nix store prefetch-file --json "https://go.dev/dl/go$ver.src.tar.gz" | jq -r .hash)
     tmp=$(mktemp)
     awk -v ver="$ver" -v hash="$hash" '
