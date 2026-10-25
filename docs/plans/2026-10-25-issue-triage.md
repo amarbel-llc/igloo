@@ -74,3 +74,19 @@ go.nix rewrite it reports is the escape hatch's documented ingest, not a bug
 
 Everything in (b) goes to the decision sheet; (c) is other sessions' lanes; (a)
 is worked in table order after the merge in flight lands.
+
+## Decisions taken (operator, 2026-10-25)
+
+- **#90 defaults:** fold the test variants into `vetAll` / `lintAll` now
+  (parity with `go vet ./...`); consumers may see new findings in their tests
+  on the next igloo bump. Done in this change; `vetTestsAll` / `lintTestsAll`
+  remain as the tests-only view.
+- **#88:** keep FDR 0008's scope — tests that need the module's own binary get
+  it in the sandbox through a second instance in `nativeCheckInputs`
+  (godyn(7) § TESTS, the `selfbin` fixture). A native frozen mode is the
+  fallback only if that proves unworkable for a real consumer.
+- **#73:** the module-root / src-root split for go.nix modules (a repository
+  root `src` with a module directory, sibling path replaces resolving inside
+  it, sibling manifests rendered). Next item.
+- **Housekeeping:** #29, #25, #41, #39, #26 closed as superseded / resolved;
+  #11, #10, #5, #4, #3, #2 closed here as eng-level with pointer comments.

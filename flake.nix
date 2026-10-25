@@ -635,6 +635,32 @@
             tests = true;
             nativeCheckInputs = [ pkgs.hello ];
           };
+          # igloo#90: a package clean under vet whose _test.go carries a printf
+          # misuse; derived graphs (tests = true). The test-variant run reports it.
+          godyn-vet-tests-bait-test = pkgs.buildGodynModule {
+            pname = "godyn-vet-tests-bait-test";
+            src = ./pkgs/build-support/godyn/tests/vettests;
+            modules = ./pkgs/build-support/godyn/tests/vettests/gomod2nix.toml;
+            version = "0.0.0";
+            tests = true;
+          };
+          # igloo#88: a test that drives the module's OWN binary. Two instances of
+          # the same module: the binary, and the tests with that binary on PATH via
+          # nativeCheckInputs (compiles shared, CA). No ambient go, no native mode.
+          godyn-selfbin-test = pkgs.buildGodynModule {
+            pname = "godyn-selfbin-test";
+            src = ./pkgs/build-support/godyn/tests/selfbin;
+            modules = ./pkgs/build-support/godyn/tests/selfbin/gomod2nix.toml;
+            version = "0.0.0";
+          };
+          godyn-selfbin-tests-test = pkgs.buildGodynModule {
+            pname = "godyn-selfbin-tests-test";
+            src = ./pkgs/build-support/godyn/tests/selfbin;
+            modules = ./pkgs/build-support/godyn/tests/selfbin/gomod2nix.toml;
+            version = "0.0.0";
+            tests = true;
+            nativeCheckInputs = [ self.packages.${system}.godyn-selfbin-test ];
+          };
           # binary naming: like `go install` on both backends by default; binaryNames
           # overrides it on both, for a subdir main and for the module-root main.
           godyn-binary-name-test = pkgs.buildGoAuto {
@@ -1131,18 +1157,35 @@
             ];
           };
           godyn-vet-bridged-test = self.packages.${system}.godyn-cross-source.passthru.vetAll;
-          # igloo#90: test sources are analyzed as the package's test variant. gotest's
-          # root_test.go carries a printf misuse that `go test` tolerates; the variant
-          # run must report it (its non-test vet stays clean: godyn-vet-clean-test),
-          # and a clean package's variant runs green on both lanes.
+          # igloo#90: test sources are analyzed as the package's test variant. The
+          # vettests fixture's _test.go carries a printf misuse `go test` tolerates:
+          # the variant run reports it while the package's own run stays green; and
+          # vetAll / lintAll now include the variants (gotest's are clean, so its
+          # aggregates stay green and must list them).
           godyn-vet-tests-finding-test = pkgs.testers.testBuildFailure' {
-            drv = self.packages.${system}.godyn-gotest-test.passthru.vetTests."example.com/gotest";
+            drv = self.packages.${system}.godyn-vet-tests-bait-test.passthru.vetTests."example.com/vettests";
             expectedBuilderLogEntries = [ "Sprintf format %d has arg" ];
           };
-          godyn-vet-tests-clean-test =
-            self.packages.${system}.godyn-gotest-test.passthru.vetTests."example.com/gotest/mid";
-          godyn-lint-tests-clean-test =
-            self.packages.${system}.godyn-gotest-test.passthru.lintTests."example.com/gotest/mid";
+          godyn-vet-tests-package-clean-test =
+            self.packages.${system}.godyn-vet-tests-bait-test.passthru.vet."example.com/vettests";
+          godyn-vet-tests-in-all-test = pkgs.runCommandLocal "godyn-vet-tests-in-all-test-check" { } ''
+            for lane in ${self.packages.${system}.godyn-gotest-test.passthru.vetAll} ${
+              self.packages.${system}.godyn-gotest-test.passthru.lintAll
+            }; do
+              grep -qx "ok example.com/gotest/mid \[test variant\]" "$lane" \
+                || { echo "$lane does not list mid's test variant" >&2; cat "$lane" >&2; exit 1; }
+            done
+            echo OK > $out
+          '';
+          # igloo#88: the module's own binary on the test run's PATH via a second
+          # instance in nativeCheckInputs; the test execs it.
+          godyn-selfbin-tests-test = pkgs.runCommandLocal "godyn-selfbin-tests-test-check" { } ''
+            grep -qx "ok example.com/selfbin" ${
+              self.packages.${system}.godyn-selfbin-tests-test.passthru.checkAll
+            } \
+              || { echo "the test could not run the module's own binary from PATH" >&2; exit 1; }
+            echo OK > $out
+          '';
           # eval-time graph: the derived-graph build runs, and its graph equals the
           # committed one godyn-gen -gomod produced for the same module.
           godyn-derived-graph-test =

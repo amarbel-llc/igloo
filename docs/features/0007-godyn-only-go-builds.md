@@ -101,7 +101,7 @@ be authoritative is recorded in FDR 0006 § *Why not fix the devshell?*).
 | Static binaries | none — `godynStdlib` is CGO_ENABLED=1, so every per-package compile links against a cgo stdlib | a cgo-free stdlib variant behind a `buildGoStatic` (igloo#78); static release artifacts go through bga today, itself broken when cross-compiling (igloo#77) |
 | Install step | `postInstall` / `nativeBuildInputs`, forwarded by buildGoAuto to both backends | — |
 | Per-package `go test` | `testGraphFile` → `tests` / `checkAll` | cgo/asm tests, test-only third-party deps, `-race`, test-only embeds (igloo#32); no `nativeCheckInputs`-style tools on the test PATH (unverified) |
-| Per-package vet | `vetAll` (toolchain vet, or `vetTool`) | cgo packages and test sources not analyzed |
+| Per-package vet | `vetAll` (toolchain vet, or `vetTool`); since 2026-10-25 it also runs each package's in-package test variant (igloo#90) | cgo packages, external test packages and cgo packages' test variants not analyzed (igloo#90) |
 | Per-package lint | `buildGodynLint` (godyn-lint: vet + staticcheck defaults, `//nolint`) | `.golangci.yml` not read (igloo#87 tracks golangci-lint parity); the type-bearing vetx protocol landed and x/tools is unpinned (igloo#71 closed, 9a7a651) |
 | Platforms | default on every supported system (`godynSystems`); x86_64-linux proven (two fleet hosts) | darwin / aarch64 builds unvalidated on real builders (igloo#33) |
 | Package graph | committed graph, or derived at eval time from go.mod + gomod2nix.toml when no `graphFile` is given (build and test graphs; igloo#72) | derivation from the nix manifest instead of go.mod (FDR 0008); consumers still committing graphs migrate |

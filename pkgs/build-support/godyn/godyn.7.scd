@@ -453,7 +453,12 @@ Arguments:
   fixtures that need the same *vendor/* (null for an all-local module).
 - *nativeCheckInputs* — tools on PATH for every per-package test run (e.g. git),
   as in buildGoApplication's check phase; *buildGoAuto* forwards it to both
-  backends.
+  backends. A test that drives the module's OWN binary (an integration test
+  of a CLI) gets it the same way: build the module once as the product and a
+  second time with *tests = true* and the first instance in
+  *nativeCheckInputs* — the compiles are shared (content-addressed), only the
+  test runs are added — and have the test exec the binary by name from PATH
+  rather than building it with an ambient *go* (igloo#88).
 - *subPackages* entries are also passed to *godyn-gen* as package patterns, so a
   main under *testdata/* (which *./...* skips) can be selected, as with
   buildGoApplication.
@@ -661,14 +666,13 @@ packages are not analyzed yet. The analyzers default to the toolchain's own
 unitchecker binary) to run a different analyzer suite through the same wiring.
 
 Passthru surface: *vet.<importPath>* (the local packages' vet derivations),
-*vetAll* (one manifest realising every local package's vet),
-*vetTests.<importPath>* and *vetTestsAll* (the test-variant runs and their
-manifest — a separate aggregate, so adopting them is a consumer's choice).
-Wire them into flake checks:
+*vetTests.<importPath>* (the test-variant runs), *vetAll* (one manifest
+realising every local package's vet AND its test variant's — what *go vet
+./...* covers; a finding in a \_test.go fails it) and *vetTestsAll* (the
+test variants alone). Wire vetAll into flake checks:
 
 ```
 checks.<system>.myapp-vet = myapp.passthru.vetAll;
-checks.<system>.myapp-vet-tests = myapp.passthru.vetTestsAll;
 ```
 
 # LINT

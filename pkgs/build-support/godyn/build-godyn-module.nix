@@ -1386,9 +1386,15 @@ let
       inherit local stdVetx;
       runs = drvs;
       tests = testDrvs;
+      # all: every local package's run AND its test variant's, as `go vet ./...`
+      # analyzes both (operator's call, 2026-10-25); testsAll is the tests-only view.
       all = runCommandLocal "godyn-${pname}-${lane}" { } (
         ": > $out\n"
         + lib.concatMapStringsSep "\n" (ip: "cat ${local.${ip}}/result >> $out") (builtins.attrNames local)
+        + "\n"
+        + lib.concatMapStringsSep "\n" (ip: "cat ${testDrvs.${ip}}/result >> $out") (
+          builtins.attrNames testDrvs
+        )
       );
       testsAll = runCommandLocal "godyn-${pname}-${lane}-tests" { } (
         ": > $out\n"
