@@ -120,6 +120,7 @@ The rest of (b), plus the two (a) items that were waiting on a ruling.
   leave it open until a Zig consumer appears.
 - **#42:** blocked on a darwin builder, alongside #33.
 - **#20:** hand to circus/eng through the coordinator; igloo closes #20 with a
-  pointer once it lands there.
+  pointer once it lands there. Landed as amarbel-llc/circus#379 (R, relayed
+  by circus/eager-holly, 2026-10-25); the close waits on GitHub's rate limit.
 - **#61 / rustdyn stage 2:** approved by the operator the same day (relayed by
   circus/eager-holly); stage 2 proceeds under FDR 0009 § Staged plan.

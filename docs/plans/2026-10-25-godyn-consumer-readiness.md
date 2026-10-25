@@ -44,6 +44,22 @@ needs to substitute a godyn output instead of rebuilding it (FDR 0007 §
 Limitations said this was "not verified"; it is now verified positive for
 this host's outputs, and the FDR is updated in the same change).
 
+**Qualifier (V, 2026-10-25 15:20–15:35 UTC, `just explore-cache-has-pkg` and
+`just explore-cache-has-local`):** that holds for the outputs the uploader
+selects, not for everything flic builds. The two `godyn-multimod-test`
+compiles built on flic around 14:30 and again in the #73 merge gate around
+14:50 had no realisation on the cache at 15:20. Of 150 spinclass
+`godyn-compile-*` derivations found as `.drv` files in flic's store, 148 with
+a local realisation had none on the cache, 1 was fully served (realisation,
+signed narinfo, fetchable NAR), 1 had never been realised here. Of troupe's
+116 `godyn-compile-*` derivations in the store, all realised here, 5 were
+fully served and 111 had no realisation on the cache. flic's
+effective nix config has an empty `post-build-hook` (V, `just
+explore-nix-config`), so the upload is not a per-build hook; what it is, on
+what trigger, and with what selection rule is circus's record (FDR 0031) and
+was handed to the coordinator. Until that is known, a consumer host should be
+expected to rebuild most of a godyn package's per-package closure.
+
 What this does **not** establish, and what needs a host:
 
 - **How the output got there.** Something uploads flic's builds to the cache

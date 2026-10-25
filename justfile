@@ -958,7 +958,7 @@ debug-godyn-lint-stdlib-vetx-all tool="godyn-lint" lang="":
 # print the host's substituters, trusted keys and experimental features
 [group: 'explore']
 explore-nix-config:
-    nix config show | grep -E '^(substituters|extra-substituters|trusted-substituters|trusted-public-keys|experimental-features|allow-import-from-derivation|system|extra-platforms|builders) '
+    nix config show | grep -E '^(substituters|extra-substituters|trusted-substituters|trusted-public-keys|experimental-features|allow-import-from-derivation|system|extra-platforms|builders|post-build-hook|secret-key-files) '
 
 # [explore] Ask a binary cache whether it holds a derivation's CA realisation and
 # the output path it maps to (`nix realisation info --store`), then whether it
@@ -1000,3 +1000,108 @@ explore-cache-has drv store="":
     echo "--- NAR for $out in $store:"
     probe "$store/$hash.narinfo"
     curl -sS "$store/$hash.narinfo" | grep -E '^(StorePath|NarSize|CA|Sig):' || true
+
+# [explore] The package-level form of explore-cache-has: take any godyn (or
+# rustdyn) package installable, walk its derivation closure for the floating
+# content-addressed derivations (every per-package compile, analysis and test
+# run), and ask a binary cache three questions per derivation: is the CA
+# realisation served and does it map to the output path this host resolved;
+# is the output's narinfo served and signed; is the NAR it names fetchable. A
+# consumer host substitutes a package only when all three hold for every
+# derivation in its cone (FDR 0007 § ca-derivations, circus#219). Read-only on
+# the cache; evaluating the installable may run its graph derivation (IFD).
+# Derivations this host never built have no local realisation and are reported
+# as such, not as cache misses. `limit` caps the derivations probed (0 = all).
+#
+# check a cache for every CA derivation of a package: realisation, signed narinfo, NAR
+[group: 'explore']
+explore-cache-has-pkg installable store="" limit="0":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    store="{{ store }}"
+    # Default to the fleet cache: the first configured substituter that is not
+    # cache.nixos.org (which never holds a godyn output), else the first one.
+    [ -n "$store" ] || store=$(nix config show substituters | tr ' ' '\n' | grep -v cache.nixos.org | head -n1)
+    [ -n "$store" ] || store=$(nix config show substituters | awk '{print $1}')
+    work=$(mktemp -d "${TMPDIR:-/tmp}/cache-has-pkg.XXXXXX")
+    echo "store: $store"
+    echo "installable: {{ installable }}"
+    nix derivation show -r "{{ installable }}" > "$work/drvs.json"
+    # A floating CA output has a hashAlgo but no fixed hash in the .drv.
+    # Newer nix wraps the map as {derivations: {<hash>-name.drv: ...}, version};
+    # older nix is the flat {/nix/store/...drv: ...} map. Normalise to the latter.
+    jq '(if has("derivations") then .derivations else . end)
+        | with_entries(.key |= (if startswith("/") then . else "/nix/store/" + . end))' \
+        "$work/drvs.json" > "$work/drvmap.json"
+    jq -r 'to_entries[] | select(.value.outputs.out.hashAlgo? != null and .value.outputs.out.hash? == null) | .key' \
+        "$work/drvmap.json" > "$work/ca.txt"
+    total=$(wc -l < "$work/ca.txt")
+    echo "derivations in closure: $(jq length "$work/drvmap.json"); floating CA: $total"
+    if [ "{{ limit }}" != "0" ]; then head -n "{{ limit }}" "$work/ca.txt" > "$work/ca.lim"; mv "$work/ca.lim" "$work/ca.txt"; fi
+    just explore-cache-has-drvs "$work/ca.txt" "$store"
+
+# [explore] Probe the local store's own .drv files by name instead of evaluating
+# a flake: other sessions build their repos on this host, so `*godyn-compile-*
+# troupe*` finds troupe's per-package compiles without IFD or a build. Only
+# derivations this host realised have a local realisation to compare; the
+# rest are reported as such. Hands the list to explore-cache-has-drvs.
+#
+# check a cache for the CA derivations whose .drv names match a pattern
+[group: 'explore']
+explore-cache-has-local pattern store="" limit="0":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    work=$(mktemp -d "${TMPDIR:-/tmp}/cache-has-local.XXXXXX")
+    # find exits non-zero when a transient *.drv.chroot dir vanishes mid-walk; the listing is still complete.
+    { find /nix/store -maxdepth 1 -name "*{{ pattern }}*.drv" 2>/dev/null || true; } | sort > "$work/drvs.txt"
+    echo "pattern: {{ pattern }}; matching .drv files: $(wc -l < "$work/drvs.txt")"
+    if [ "{{ limit }}" != "0" ]; then head -n "{{ limit }}" "$work/drvs.txt" > "$work/lim"; mv "$work/lim" "$work/drvs.txt"; fi
+    just explore-cache-has-drvs "$work/drvs.txt" "{{ store }}"
+
+# [explore] The probing loop behind explore-cache-has-pkg and -local: one .drv
+# path per line in `drvlist`; per derivation, the local realisation (id, outPath),
+# then the cache's realisations/<id>.doi (served? same outPath?), the output's
+# narinfo (served? signed?), and the NAR it names (fetchable?). Exit 1 on any
+# cache miss; "no local realisation" is informational.
+#
+# check a cache for each CA derivation listed in a file
+[group: 'explore']
+explore-cache-has-drvs drvlist store="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    store="{{ store }}"
+    [ -n "$store" ] || store=$(nix config show substituters | tr ' ' '\n' | grep -v cache.nixos.org | head -n1)
+    [ -n "$store" ] || store=$(nix config show substituters | awk '{print $1}')
+    work=$(mktemp -d "${TMPDIR:-/tmp}/cache-has-drvs.XXXXXX")
+    echo "store: $store"
+    code() { curl -sS -o "$2" -w '%{http_code}' "$1" 2>/dev/null || echo "000"; }
+    n_ok=0 n_nolocal=0 n_noreal=0 n_wrongout=0 n_nonar=0 n_unsigned=0 n_nofetch=0
+    while IFS= read -r drv; do
+        name=$(basename "$drv" .drv); name=${name#*-}
+        if ! nix realisation info "$drv^out" --json > "$work/real.json" 2>/dev/null; then
+            n_nolocal=$((n_nolocal + 1)); echo "NO-LOCAL-REALISATION  $name"; continue
+        fi
+        id=$(jq -r '.[0].id' "$work/real.json"); out=$(jq -r '.[0].outPath' "$work/real.json")
+        hash=$(basename "$out"); hash=${hash%%-*}
+        if [ "$(code "$store/realisations/$id.doi" "$work/doi.json")" != "200" ]; then
+            n_noreal=$((n_noreal + 1)); echo "NO-REALISATION        $name"; continue
+        fi
+        cacheout=$(jq -r '.outPath' "$work/doi.json")
+        if [ "$cacheout" != "$out" ] && [ "$cacheout" != "$(basename "$out")" ]; then
+            n_wrongout=$((n_wrongout + 1)); echo "WRONG-OUTPATH         $name local=$out cache=$cacheout"; continue
+        fi
+        if [ "$(code "$store/$hash.narinfo" "$work/narinfo")" != "200" ]; then
+            n_nonar=$((n_nonar + 1)); echo "NO-NARINFO            $name"; continue
+        fi
+        if ! grep -q '^Sig: ' "$work/narinfo"; then
+            n_unsigned=$((n_unsigned + 1)); echo "UNSIGNED              $name"; continue
+        fi
+        url=$(sed -n 's/^URL: //p' "$work/narinfo")
+        if [ "$(curl -sS -o /dev/null -I -w '%{http_code}' "$store/$url" 2>/dev/null || echo 000)" != "200" ]; then
+            n_nofetch=$((n_nofetch + 1)); echo "NAR-NOT-FETCHABLE     $name $url"; continue
+        fi
+        n_ok=$((n_ok + 1))
+    done < "{{ drvlist }}"
+    echo "--- summary ($store):"
+    echo "probed=$(wc -l < "{{ drvlist }}") ok=$n_ok no-local-realisation=$n_nolocal no-realisation=$n_noreal wrong-outpath=$n_wrongout no-narinfo=$n_nonar unsigned=$n_unsigned nar-not-fetchable=$n_nofetch"
+    [ "$n_noreal$n_wrongout$n_nonar$n_unsigned$n_nofetch" = "00000" ]
