@@ -173,23 +173,7 @@ test-eval-warn:
 #
 # build every godyn flake check
 [group: 'test']
-test-godyn:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    system=$(nix eval --raw --impure --expr 'builtins.currentSystem')
-    if [[ "$system" != x86_64-linux ]]; then
-        gum log --level warn "skipping godyn checks on $system (godyn validated on x86_64-linux only, igloo#33)"
-        exit 0
-    fi
-    mapfile -t names < <(nix eval --raw ".#checks.${system}" \
-        --apply 'cs: builtins.concatStringsSep "\n" (builtins.filter (n: builtins.substring 0 6 n == "godyn-") (builtins.attrNames cs))')
-    # an empty list would make `nix build` fall back to the flake's default package
-    if [[ ${#names[@]} -eq 0 ]]; then
-        gum log --level error "no checks.${system}.godyn-* found — the name query is broken"
-        exit 1
-    fi
-    gum log --level info "building ${#names[@]} godyn checks"
-    nix build --no-link --print-build-logs "${names[@]/#/.#checks.${system}.}"
+test-godyn: (_test-checks-prefix "godyn-")
 
 # [test] Build every rustdyn flake check (checks.<system>.rustdyn-*: the multi,
 # tests, tests-fail, lint, lint-fail, postinstall and buildRustAuto fixtures and
@@ -199,21 +183,29 @@ test-godyn:
 #
 # build every rustdyn flake check
 [group: 'test']
-test-rustdyn:
+test-rustdyn: (_test-checks-prefix "rustdyn-")
+
+# The per-builder check lane behind test-godyn and test-rustdyn: every
+# checks.<system>.<prefix>* in one `nix build`, skipped off x86_64-linux (the
+# builders are validated there only, igloo#33). `nix config show system` is the
+# evaluating system without an evaluator run.
+[private]
+_test-checks-prefix prefix:
     #!/usr/bin/env bash
     set -euo pipefail
-    system=$(nix eval --raw --impure --expr 'builtins.currentSystem')
+    system=$(nix config show system)
     if [[ "$system" != x86_64-linux ]]; then
-        gum log --level warn "skipping rustdyn checks on $system (rustdyn validated on x86_64-linux only)"
+        gum log --level warn "skipping {{ prefix }}* checks on $system (validated on x86_64-linux only, igloo#33)"
         exit 0
     fi
     mapfile -t names < <(nix eval --raw ".#checks.${system}" \
-        --apply 'cs: builtins.concatStringsSep "\n" (builtins.filter (n: builtins.substring 0 8 n == "rustdyn-") (builtins.attrNames cs))')
+        --apply 'cs: builtins.concatStringsSep "\n" (builtins.filter (n: builtins.substring 0 (builtins.stringLength "{{ prefix }}") n == "{{ prefix }}") (builtins.attrNames cs))')
+    # an empty list would make `nix build` fall back to the flake's default package
     if [[ ${#names[@]} -eq 0 ]]; then
-        gum log --level error "no checks.${system}.rustdyn-* found — the name query is broken"
+        gum log --level error "no checks.${system}.{{ prefix }}* found — the name query is broken"
         exit 1
     fi
-    gum log --level info "building ${#names[@]} rustdyn checks: ${names[*]}"
+    gum log --level info "building ${#names[@]} {{ prefix }}* checks: ${names[*]}"
     nix build --no-link --print-build-logs "${names[@]/#/.#checks.${system}.}"
 
 # [test] Build every other flake check (checks.<system>.*): the manpage renders
@@ -976,6 +968,15 @@ debug-godyn-lint-stdlib-vetx-all tool="godyn-lint" lang="":
     done < <(jq -c '.[]' "$work/pkgs.json")
     echo "all $n packages OK"
 
+# The fleet binary cache for the cache probes: the first configured substituter
+# that is not cache.nixos.org (which never holds a godyn or rustdyn output),
+# else the first one.
+fleet_store := "{ nix config show substituters | tr ' ' '\\n' | grep -v cache.nixos.org | head -n1 | grep . || nix config show substituters | awk '{print $1}'; }"
+
+# `nix derivation show` JSON normalised to the flat {/nix/store/<drv>: {...}} map:
+# newer nix wraps it as {derivations: {<hash>-name.drv: ...}, version}.
+drvmap_jq := '(if has("derivations") then .derivations else . end) | with_entries(.key |= (if startswith("/") then . else "/nix/store/" + . end))'
+
 # [explore] What this host's nix will substitute from and which experimental
 # features are on — the two facts a godyn consumer needs (ca-derivations, IFD)
 # and the cache question (does any substituter serve CA realisations?). Read-only.
@@ -999,7 +1000,7 @@ explore-cache-has drv store="":
     #!/usr/bin/env bash
     set -euo pipefail
     store="{{ store }}"
-    [ -n "$store" ] || store=$(nix config show substituters | awk '{print $1}')
+    [ -n "$store" ] || store=$({{ fleet_store }})
     echo "store: $store"
     echo "--- local realisation:"
     nix realisation info "{{ drv }}^out" --json | jq -c '.[] | {id, outPath}'
@@ -1043,36 +1044,25 @@ explore-cache-has drv store="":
 explore-cache-has-pkg installable store="" limit="0":
     #!/usr/bin/env bash
     set -euo pipefail
-    store="{{ store }}"
-    # Default to the fleet cache: the first configured substituter that is not
-    # cache.nixos.org (which never holds a godyn output), else the first one.
-    [ -n "$store" ] || store=$(nix config show substituters | tr ' ' '\n' | grep -v cache.nixos.org | head -n1)
-    [ -n "$store" ] || store=$(nix config show substituters | awk '{print $1}')
     work=$(mktemp -d "${TMPDIR:-/tmp}/cache-has-pkg.XXXXXX")
-    echo "store: $store"
     echo "installable: {{ installable }}"
-    nix derivation show -r "{{ installable }}" > "$work/drvs.json"
-    # A floating CA output has a hashAlgo but no fixed hash in the .drv.
-    # Newer nix wraps the map as {derivations: {<hash>-name.drv: ...}, version};
-    # older nix is the flat {/nix/store/...drv: ...} map. Normalise to the latter.
-    jq '(if has("derivations") then .derivations else . end)
-        | with_entries(.key |= (if startswith("/") then . else "/nix/store/" + . end))' \
-        "$work/drvs.json" > "$work/drvmap.json"
-    jq -r 'to_entries[] | select(.value.outputs.out.hashAlgo? != null and .value.outputs.out.hash? == null) | .key' \
-        "$work/drvmap.json" > "$work/ca.txt"
-    total=$(wc -l < "$work/ca.txt")
-    echo "derivations in closure: $(jq length "$work/drvmap.json"); floating CA: $total"
-    # The outputs the closure actually links (each derivation's inputDrvs name the
-    # outputs it takes); a build registers realisations only for those, and a
+    nix derivation show -r "{{ installable }}" | jq '{{ drvmap_jq }}' > "$work/drvmap.json"
+    # A floating CA output has a hashAlgo but no fixed hash in the .drv. The
+    # outputs the closure actually links are the ones each derivation's
+    # inputDrvs name; a build registers realisations only for those, and a
     # consumer substitutes only those. Emit `<drv>^out,lib` per CA derivation.
-    jq -r '.[] | ((.inputs.drvs // .inputDrvs // {}) | to_entries[])
-             | (if (.key | startswith("/")) then .key else "/nix/store/" + .key end) as $d
-             | (if (.value | type) == "array" then .value else .value.outputs end)[]
-             | "\($d)\t\(.)"' "$work/drvmap.json" | sort -u > "$work/wanted.tsv"
-    awk 'NR == FNR { ca[$0] = 1; next } ($1 in ca) { outs[$1] = (outs[$1] ? outs[$1] "," $2 : $2) }
-         END { for (d in outs) print d "^" outs[d] }' "$work/ca.txt" "$work/wanted.tsv" | sort > "$work/ca-outs.txt"
+    jq -r '
+        def norm: if startswith("/") then . else "/nix/store/" + . end;
+        . as $m
+        | ($m | with_entries(select(.value.outputs.out.hashAlgo? != null and .value.outputs.out.hash? == null))) as $ca
+        | ("derivations in closure: \($m | length); floating CA: \($ca | length)" | stderr | empty),
+          ( [ $m[] | ((.inputs.drvs // .inputDrvs // {}) | to_entries[])
+                   | { d: (.key | norm), outs: (if (.value | type) == "array" then .value else .value.outputs end) } ]
+            | group_by(.d) | map(select(.[0].d as $d | $ca | has($d)))
+            | map("\(.[0].d)^\([.[].outs[]] | unique | join(","))") | sort | .[] )' \
+        "$work/drvmap.json" > "$work/ca-outs.txt"
     if [ "{{ limit }}" != "0" ]; then head -n "{{ limit }}" "$work/ca-outs.txt" > "$work/ca.lim"; mv "$work/ca.lim" "$work/ca-outs.txt"; fi
-    just explore-cache-has-drvs "$work/ca-outs.txt" "$store"
+    just explore-cache-has-drvs "$work/ca-outs.txt" "{{ store }}"
 
 # [explore] Debug one derivation of a package's closure: the .drv paths whose
 # names match `pattern`, each one's outputs as nix shows them, and the local
@@ -1085,11 +1075,9 @@ explore-realisation installable pattern:
     #!/usr/bin/env bash
     set -euo pipefail
     work=$(mktemp -d "${TMPDIR:-/tmp}/realisation.XXXXXX")
-    nix derivation show -r "{{ installable }}" > "$work/drvs.json"
-    jq -r '(if has("derivations") then .derivations else . end) | to_entries[]
-             | select(.key | contains("{{ pattern }}"))
-             | (if (.key | startswith("/")) then .key else "/nix/store/" + .key end) + "\t" + (.value.outputs | tojson)' \
-        "$work/drvs.json" | while IFS=$'\t' read -r drv outs; do
+    nix derivation show -r "{{ installable }}" | jq '{{ drvmap_jq }}' > "$work/drvmap.json"
+    jq -r 'to_entries[] | select(.key | contains("{{ pattern }}")) | .key + "\t" + (.value.outputs | tojson)' \
+        "$work/drvmap.json" | while IFS=$'\t' read -r drv outs; do
         echo "--- $drv"
         echo "outputs: $outs"
         for o in $(jq -r 'keys[]' <<<"$outs"); do
@@ -1129,8 +1117,7 @@ explore-cache-has-drvs drvlist store="":
     #!/usr/bin/env bash
     set -euo pipefail
     store="{{ store }}"
-    [ -n "$store" ] || store=$(nix config show substituters | tr ' ' '\n' | grep -v cache.nixos.org | head -n1)
-    [ -n "$store" ] || store=$(nix config show substituters | awk '{print $1}')
+    [ -n "$store" ] || store=$({{ fleet_store }})
     work=$(mktemp -d "${TMPDIR:-/tmp}/cache-has-drvs.XXXXXX")
     echo "store: $store"
     code() { curl -sS -o "$2" -w '%{http_code}' "$1" 2>/dev/null || echo "000"; }
@@ -1144,15 +1131,15 @@ explore-cache-has-drvs drvlist store="":
     while IFS= read -r line; do
         drv=${line%%^*}; outs=${line#*^}; [ "$outs" != "$line" ] || outs='*'
         if [ "$outs" = '*' ]; then
-            outs=$(nix derivation show "$drv" | jq -r '(if has("derivations") then .derivations else . end) | .[] | .outputs | keys | join(",")')
+            outs=$(nix derivation show "$drv" | jq -r '{{ drvmap_jq }} | .[] | .outputs | keys | join(",")')
         fi
         for o in ${outs//,/ }; do
         name=$(basename "$drv" .drv); name="${name#*-}^$o"
-        if ! nix realisation info "$drv^$o" --json > "$work/real.json" 2>"$work/real.err" || [ "$(jq length "$work/real.json")" = 0 ]; then
+        if ! nix realisation info "$drv^$o" --json > "$work/real.json" 2>"$work/real.err" \
+            || ! IFS=$'\t' read -r id out < <(jq -r '.[0] // empty | "\(.id)\t\(.outPath)"' "$work/real.json"); then
             n_nolocal=$((n_nolocal + 1)); echo "NO-LOCAL-REALISATION  $name ($(tail -n1 "$work/real.err" | cut -c1-120))"; continue
         fi
-        id=$(jq -r '.[0].id' "$work/real.json"); out=$(jq -r '.[0].outPath' "$work/real.json")
-        hash=$(basename "$out"); hash=${hash%%-*}
+        hash=${out##*/}; hash=${hash%%-*}
         if [ "$(code "$store/realisations/$id.doi" "$work/doi.json")" != "200" ]; then
             n_noreal=$((n_noreal + 1)); echo "NO-REALISATION        $name"; continue
         fi

@@ -15,8 +15,6 @@
   rustc,
   cargo,
   clippy,
-  jq,
-  defaultCrateOverrides,
 }:
 let
   defaultRustc = rustc;
@@ -49,11 +47,11 @@ in
   rustc ? defaultRustc,
   cargo ? defaultCargo,
   clippy ? defaultClippy,
-  # buildRustCrate knobs applied to every crate: nixpkgs' per-crate native-input
-  # table (openssl-sys, libgit2-sys, ...), cargo's release-profile codegen units
-  # (buildRustCrate's own default of 1 is far slower), release vs debug, extra
-  # rustc flags.
-  crateOverrides ? defaultCrateOverrides,
+  # buildRustCrate knobs applied to every crate: a per-crate native-input table
+  # (null keeps buildRustCrate's own, nixpkgs' defaultCrateOverrides: openssl-sys,
+  # libgit2-sys, ...), cargo's release-profile codegen units (buildRustCrate's
+  # own default of 1 is far slower), release vs debug, extra rustc flags.
+  crateOverrides ? null,
   codegenUnits ? 16,
   release ? true,
   extraRustcOpts ? [ ],
@@ -70,9 +68,9 @@ in
   postInstall ? "",
   # Tests (decision h): per member, one derivation building the lib harness,
   # each tests/*.rs harness and the member's bins (for CARGO_BIN_EXE_*), then
-  # one CA run derivation per harness; `tests = true` makes checkAll realise
-  # every run. testEnv is exported to the runs; nativeCheckInputs are on their
-  # PATH.
+  # one CA run derivation per harness; `tests = true` makes the package depend
+  # on checkAll (every run). testEnv is exported to the runs; nativeCheckInputs
+  # are on their PATH.
   tests ? false,
   testEnv ? { },
   nativeCheckInputs ? [ ],
@@ -85,6 +83,11 @@ in
   meta ? { },
 }:
 let
+  # A path literal stays a path and a flake input (a store-path string with
+  # context) stays a string: both keep the "copy / depend on this" semantics an
+  # interpolation needs. `toString` would drop that, and importCargoLock's
+  # `ln -s ${lockFile}` would then dangle inside the sandbox (V: the brp twin
+  # failed in cargoSetupPostUnpackHook when this was a toString).
   joinPath =
     base: sub:
     if sub == "" then
@@ -114,6 +117,8 @@ let
     else
       "dev";
   pnameUpper = lib.toUpper (lib.replaceStrings [ "-" ] [ "_" ] pname);
+  # The environment every member build (and its build script) sees; also what
+  # buildRustAuto hands to the buildRustPackage backend.
   memberEnvAll = {
     RUSTDYN_VERSION = resolvedVersion;
     RUSTDYN_COMMIT = commit;
@@ -134,56 +139,51 @@ let
     inherit lockFile outputHashes allowBuiltinFetchGit;
   };
 
-  # The Cargo-relevant tree: everything under the workspace dir except build
-  # output and the git dir. The resolver depends on all of it (any edit re-runs
-  # cargo metadata, sub-second); member compiles depend only on their own dir.
+  # What cargo metadata reads: manifests, the lock, cargo config and the Rust
+  # source names that drive target discovery. Everything else (docs, data,
+  # build output, the git dir) stays out, so a README edit does not re-run the
+  # eval-time resolver. Member compiles depend only on their own directory.
   tree = builtins.path {
     path = srcRoot;
     name = "${pname}-cargo-tree";
     filter =
-      path: _type:
+      path: type:
       let
         b = baseNameOf path;
       in
-      b != "target" && b != ".git";
+      if type == "directory" then
+        b != "target" && b != ".git"
+      else
+        lib.elem b [
+          "Cargo.toml"
+          "Cargo.lock"
+          "config.toml"
+        ]
+        || lib.hasSuffix ".rs" b;
   };
 
   # The resolver (godyn-gen's analog): cargo metadata, offline and locked, in
   # the vendored tree. Its JSON is imported at eval time (IFD, FDR 0008 §
   # Decision); passthru.graphFile hands the same JSON to dagnabit.
-  graphDrv =
-    runCommand "${pname}-rustdyn-graph"
-      {
-        nativeBuildInputs = [
-          cargo
-          jq
-        ];
-      }
-      ''
-        cp -r ${tree} source
-        chmod -R u+w source
-        # cargo finds .cargo/config.toml by walking up from the manifest; the
-        # vendor config names the directory "cargo-vendor-dir" beside .cargo.
-        ln -s ${vendorDir} cargo-vendor-dir
-        mkdir .cargo
-        cp ${vendorDir}/.cargo/config.toml .cargo/config.toml
-        export HOME=$PWD CARGO_HOME=$PWD/cargo-home
-        mkdir -p $out
-        (cd source && cargo metadata --format-version 1 --offline --locked) > $out/metadata.json
-        jq '{ packages: (.packages | length), members: (.workspace_members | length), nodes: (.resolve.nodes | length) }' \
-          $out/metadata.json > $out/summary.json
-      '';
+  graphDrv = runCommand "${pname}-rustdyn-graph" { nativeBuildInputs = [ cargo ]; } ''
+    cp -r ${tree} source
+    chmod -R u+w source
+    # cargo finds .cargo/config.toml by walking up from the manifest; the
+    # vendor config names the directory "cargo-vendor-dir" beside .cargo.
+    ln -s ${vendorDir} cargo-vendor-dir
+    mkdir .cargo
+    cp ${vendorDir}/.cargo/config.toml .cargo/config.toml
+    export HOME=$PWD CARGO_HOME=$PWD/cargo-home
+    mkdir -p $out
+    (cd source && cargo metadata --format-version 1 --offline --locked) > $out/metadata.json
+  '';
   readJSON = f: builtins.fromJSON (builtins.unsafeDiscardStringContext (builtins.readFile f));
   graph = readJSON "${graphDrv}/metadata.json";
   wsRoot = graph.workspace_root;
 
-  byId = lib.listToAttrs (map (p: lib.nameValuePair p.id p) graph.packages);
   nodeById = lib.listToAttrs (map (n: lib.nameValuePair n.id n) graph.resolve.nodes);
-  isMember = p: lib.elem p.id graph.workspace_members;
-  members = lib.filter isMember graph.packages;
+  memberIds = lib.genAttrs graph.workspace_members (_: true);
   manifestDir = p: dirOf p.manifest_path;
-  # A member's directory relative to the workspace root ("" for a root package).
-  relDir = p: if manifestDir p == wsRoot then "" else lib.removePrefix (wsRoot + "/") (manifestDir p);
   relTo = p: path: lib.removePrefix (manifestDir p + "/") path;
 
   libKinds = [
@@ -194,147 +194,144 @@ let
     "staticlib"
     "proc-macro"
   ];
-  libTarget = p: lib.findFirst (t: lib.any (k: lib.elem k libKinds) t.kind) null p.targets;
-  buildTarget = p: lib.findFirst (t: t.kind == [ "custom-build" ]) null p.targets;
-  binTargets = p: lib.filter (t: t.kind == [ "bin" ]) p.targets;
-  testTargets = p: lib.filter (t: t.kind == [ "test" ]) p.targets;
-  isProcMacro =
+  # Everything the per-crate derivations need from one package, computed once.
+  describe =
     p:
     let
-      t = libTarget p;
+      lt = lib.findFirst (t: lib.any (k: lib.elem k libKinds) t.kind) null p.targets;
+      bt = lib.findFirst (t: t.kind == [ "custom-build" ]) null p.targets;
+      node = nodeById.${p.id};
+      depsOfKind = kind: lib.filter (d: lib.any (k: k.kind == kind) d.dep_kinds) node.deps;
     in
-    t != null && lib.elem "proc-macro" t.kind;
-  # The name rustc sees in --extern: the lib target's name (cargo already
-  # underscores it), else the package name underscored.
-  externName =
-    p:
-    let
-      t = libTarget p;
-    in
-    lib.replaceStrings [ "-" ] [ "_" ] (if t == null then p.name else t.name);
+    {
+      pkg = p;
+      inherit (p) name version;
+      member = memberIds ? ${p.id};
+      # The member's directory relative to the workspace root ("" for a root package).
+      dir = if manifestDir p == wsRoot then "" else lib.removePrefix (wsRoot + "/") (manifestDir p);
+      inherit lt bt;
+      # The name rustc sees in --extern: the lib target's name (cargo already
+      # underscores it), else the package name underscored.
+      extern = lib.replaceStrings [ "-" ] [ "_" ] (if lt == null then p.name else lt.name);
+      procMacro = lt != null && lib.elem "proc-macro" lt.kind;
+      bins = lib.filter (t: t.kind == [ "bin" ]) p.targets;
+      testTargets = lib.filter (t: t.kind == [ "test" ]) p.targets;
+      inherit (node) features;
+      # Resolve-graph edges by kind: null is a normal dependency, "build" a
+      # build-script dependency, "dev" a test-only one. A dependency's target
+      # cfg() is not evaluated (every edge is included; FDR 0009 § 1).
+      normalDeps = depsOfKind null;
+      buildDeps = depsOfKind "build";
+      devDeps = depsOfKind "dev";
+    };
+  byId = lib.listToAttrs (map (p: lib.nameValuePair p.id (describe p)) graph.packages);
+  members = lib.filter (c: c.member) (lib.attrValues byId);
+  byMember = lib.listToAttrs (map (c: lib.nameValuePair c.name c) members);
 
   # Source per crate. A member is a filtered copy of its own directory under
-  # src, so only that crate's edits reach its derivation. A vendored crate is a
+  # src (hashed once per member, shared by its compile, test and lint variants),
+  # so only that crate's edits reach its derivation. A vendored crate is a
   # small content-addressed copy of the vendor dir's <name>-<version> entry: a
   # lock change changes this copy derivation but not its output, so the compile
   # derivation resolves to the same inputs and keeps its realisation (and two
   # repos with the same crate converge on the same compile).
-  memberSrc =
-    p:
+  memberSrcs = lib.mapAttrs (
+    _: c:
     builtins.path {
-      path = joinPath srcRoot (relDir p);
-      name = "${pname}-src-${p.name}";
+      path = joinPath srcRoot c.dir;
+      name = "${pname}-src-${c.name}";
       filter = path: _: baseNameOf path != "target";
-    };
+    }
+  ) byMember;
   vendoredSrc =
-    p:
-    runCommand "rustdyn-src-${p.name}-${p.version}" (caAttrs // { preferLocalBuild = true; }) ''
-      cp -rL --no-preserve=mode ${vendorDir}/${p.name}-${p.version} $out
+    c:
+    runCommand "rustdyn-src-${c.name}-${c.version}" (caAttrs // { preferLocalBuild = true; }) ''
+      cp -rL --no-preserve=mode ${vendorDir}/${c.name}-${c.version} $out
     '';
-  srcOf = p: if p.source == null then memberSrc p else vendoredSrc p;
+  srcOf = c: if c.member then memberSrcs.${c.name} else vendoredSrc c;
 
-  # Resolve-graph edges by dependency kind: null is a normal dependency,
-  # "build" a build-script dependency, "dev" a test-only one. A dependency's
-  # target cfg() is not evaluated (every edge is included; FDR 0009 § 1).
-  depsOfKind = p: kind: lib.filter (d: lib.any (k: k.kind == kind) d.dep_kinds) nodeById.${p.id}.deps;
   renamesOf =
-    _p: deps:
+    deps:
     lib.listToAttrs (
       lib.concatMap (
         d:
         let
-          dp = byId.${d.pkg};
+          dc = byId.${d.pkg};
         in
-        lib.optional (d.name != externName dp) (lib.nameValuePair dp.name d.name)
+        lib.optional (d.name != dc.extern) (lib.nameValuePair dc.name d.name)
       ) deps
     );
 
   # The buildRustCrate attribute set for one crate (its coarsest unit: lib,
-  # bins and build script in one derivation). `withDev` adds the dev
-  # dependencies, for the test variant.
+  # bins and build script in one derivation). `kind` names the derivation
+  # (crate | testbin | lint); `withDev` adds the dev dependencies for tests.
   mkCrate =
-    p: withDev:
+    kind: withDev: c:
     let
-      normal = depsOfKind p null ++ lib.optionals withDev (depsOfKind p "dev");
-      build = depsOfKind p "build";
-      lt = libTarget p;
-      bt = buildTarget p;
+      normal = c.normalDeps ++ lib.optionals withDev c.devDeps;
     in
     {
-      crateName = p.name;
-      inherit (p) version edition;
+      name = "rustdyn-${kind}-${c.name}-${c.version}";
+      crateName = c.name;
+      inherit (c.pkg) version edition;
       rust = rustc;
       inherit cargo release codegenUnits;
-      src = srcOf p;
-      libName = externName p;
-      features = nodeById.${p.id}.features;
-      procMacro = isProcMacro p;
+      src = srcOf c;
+      libName = c.extern;
+      inherit (c) features procMacro;
       # Only workspace members link binaries; a dependency's bins are noise.
       crateBin =
-        if isMember p then
+        if c.member then
           map (t: {
             inherit (t) name;
-            path = relTo p t.src_path;
-          }) (binTargets p)
+            path = relTo c.pkg t.src_path;
+          }) c.bins
         else
           [ ];
-      build = if bt != null then relTo p bt.src_path else "";
+      build = if c.bt != null then relTo c.pkg c.bt.src_path else "";
       dependencies = map (d: crates.${d.pkg}) normal;
-      buildDependencies = map (d: crates.${d.pkg}) build;
-      crateRenames = renamesOf p (normal ++ build);
+      buildDependencies = map (d: crates.${d.pkg}) c.buildDeps;
+      crateRenames = renamesOf (normal ++ c.buildDeps);
       inherit extraRustcOpts;
     }
     // caAttrs
-    // lib.optionalAttrs (lt != null) {
-      libPath = relTo p lt.src_path;
-      type = lt.crate_types;
+    // lib.optionalAttrs (c.lt != null) {
+      libPath = relTo c.pkg c.lt.src_path;
+      type = c.lt.crate_types;
     }
-    // lib.optionalAttrs (p.links != null) { inherit (p) links; }
-    // lib.optionalAttrs (isMember p) ({ inherit buildInputs; } // memberEnvAll);
+    // lib.optionalAttrs (c.pkg.links != null) { inherit (c.pkg) links; }
+    // lib.optionalAttrs c.member ({ inherit buildInputs; } // memberEnvAll);
 
-  mkCrateDrv = attrs: (buildRustCrate attrs).override { inherit crateOverrides; };
+  mkCrateDrv =
+    attrs:
+    if crateOverrides == null then
+      buildRustCrate attrs
+    else
+      (buildRustCrate attrs).override { inherit crateOverrides; };
+  forMembers = f: lib.mapAttrs (_: f) byMember;
 
-  crates = lib.mapAttrs (
-    _: p: mkCrateDrv (mkCrate p false // { name = "rustdyn-crate-${p.name}-${p.version}"; })
-  ) byId;
-  memberCrates = lib.listToAttrs (map (p: lib.nameValuePair p.name crates.${p.id}) members);
+  crates = lib.mapAttrs (_: c: mkCrateDrv (mkCrate "crate" false c)) byId;
+  memberCrates = forMembers (c: crates.${c.pkg.id});
 
   # -- tests --
   # One derivation per member builds every harness (lib tests, tests/*.rs, the
   # bins' own unit tests) plus the real bins for CARGO_BIN_EXE_<name>, which
   # buildRustCrate bakes into the harnesses at compile time.
-  testBins = lib.listToAttrs (
-    map (
-      p:
-      lib.nameValuePair p.name (
-        mkCrateDrv (
-          mkCrate p true
-          // {
-            buildTests = true;
-            name = "rustdyn-testbin-${p.name}-${p.version}";
-          }
-        )
-      )
-    ) members
-  );
+  testBins = forMembers (c: mkCrateDrv (mkCrate "testbin" true c // { buildTests = true; }));
   # The harness binaries buildRustCrate installs under $out/tests, by name:
   # the lib harness is <libname>-<metadata>, a tests/<t>.rs harness is <t>,
   # a bin's unit-test harness is the bin's name.
   harnessesOf =
-    p:
-    let
-      tb = testBins.${p.name};
-    in
-    lib.optional (libTarget p != null) "${externName p}-${tb.metadata}"
-    ++ map (t: t.name) (testTargets p)
-    ++ map (t: t.name) (binTargets p);
-  # A run: the harness executed from a copy of the member's source (cargo runs
-  # tests with the package root as cwd and CARGO_MANIFEST_DIR set); pass/fail
-  # is the build result, the log is the output. Content-addressed, so an
-  # unchanged test cone never re-runs; flags make a different run.
+    c:
+    lib.optional (c.lt != null) "${c.extern}-${testBins.${c.name}.metadata}"
+    ++ map (t: t.name) (c.testTargets ++ c.bins);
+  # A run: the harness executed from a writable copy of the member's source
+  # (cargo runs tests with the package root as cwd and CARGO_MANIFEST_DIR set);
+  # pass/fail is the build result, the log is the output. Content-addressed, so
+  # an unchanged test cone never re-runs; flags make a different run.
   mkRun =
-    p: harness: flags:
-    runCommand "rustdyn-test-${p.name}-${harness}"
+    c: harness: flags:
+    runCommand "rustdyn-test-${c.name}-${harness}"
       (
         caAttrs
         // {
@@ -344,24 +341,17 @@ let
         // testEnv
       )
       ''
-        cp -r ${memberSrc p} src
+        cp -r ${memberSrcs.${c.name}} src
         chmod -R u+w src
         cd src
         export CARGO_MANIFEST_DIR=$PWD
         set -o pipefail
-        ${testBins.${p.name}}/tests/${harness} ${lib.escapeShellArgs flags} 2>&1 | tee "$NIX_BUILD_TOP/log"
+        ${testBins.${c.name}}/tests/${harness} ${lib.escapeShellArgs flags} 2>&1 | tee "$NIX_BUILD_TOP/log"
         mkdir -p $out
         cp "$NIX_BUILD_TOP/log" $out/log
-        echo "ok ${p.name}/${harness}" > $out/result
+        echo "ok ${c.name}/${harness}" > $out/result
       '';
-  testRuns = lib.listToAttrs (
-    map (
-      p:
-      lib.nameValuePair p.name (
-        lib.listToAttrs (map (h: lib.nameValuePair h (mkRun p h [ ])) (harnessesOf p))
-      )
-    ) members
-  );
+  testRuns = forMembers (c: lib.genAttrs (harnessesOf c) (h: mkRun c h [ ]));
   allRuns = lib.concatMap lib.attrValues (lib.attrValues testRuns);
   checkAll = runCommandLocal "${pname}-rustdyn-check-all" { } ''
     cat ${lib.concatMapStringsSep " " (r: "${r}/result") allRuns} > $out
@@ -373,13 +363,11 @@ let
       testFlags ? [ ],
     }:
     let
-      p = lib.findFirst (
-        p: p.name == crate
-      ) (throw "rustdyn: ${crate} is not a workspace member of ${pname}") members;
-      hs = if harness != null then [ harness ] else harnessesOf p;
+      c = byMember.${crate} or (throw "rustdyn: ${crate} is not a workspace member of ${pname}");
+      hs = if harness != null then [ harness ] else harnessesOf c;
     in
     runCommandLocal "${pname}-rustdyn-test-with-${crate}" { } ''
-      cat ${lib.concatMapStringsSep " " (h: "${mkRun p h testFlags}/result") hs} > $out
+      cat ${lib.concatMapStringsSep " " (h: "${mkRun c h testFlags}/result") hs} > $out
     '';
 
   # -- lint --
@@ -398,37 +386,34 @@ let
   '';
   # buildRustCrate caps lints at `allow` unless told otherwise; `forbid` leaves
   # them at their declared levels so -D warnings fails the build.
-  lint = lib.listToAttrs (
-    map (
-      p:
-      lib.nameValuePair p.name (
-        mkCrateDrv (
-          mkCrate p false
-          // {
-            rust = clippyShim;
-            capLints = "forbid";
-            extraRustcOpts = extraRustcOpts ++ clippyArgs;
-            name = "rustdyn-lint-${p.name}-${p.version}";
-          }
-        )
-      )
-    ) members
+  lint = forMembers (
+    c:
+    mkCrateDrv (
+      mkCrate "lint" false c
+      // {
+        rust = clippyShim;
+        capLints = "forbid";
+        extraRustcOpts = extraRustcOpts ++ clippyArgs;
+      }
+    )
   );
-  lintAll = runCommandLocal "${pname}-rustdyn-lint-all" { } ''
-    ${lib.concatMapStringsSep "\n" (p: "echo 'ok ${p.name}' >> $out  # ${lint.${p.name}}") members}
+  lintAll = runCommandLocal "${pname}-rustdyn-lint-all" { lints = lib.attrValues lint; } ''
+    ${lib.concatMapStringsSep "\n" (c: "echo 'ok ${c.name}' >> $out") members}
   '';
 
   # -- install --
   memberBins = lib.concatMap (
-    p:
+    c:
     map (t: {
       inherit (t) name;
-      crate = crates.${p.id};
-    }) (binTargets p)
+      crate = crates.${c.pkg.id};
+    }) c.bins
   ) members;
   installedBins =
     if bins == null then memberBins else lib.filter (b: lib.elem b.name bins) memberBins;
-  installDrv = stdenv.mkDerivation {
+in
+stdenv.mkDerivation (
+  {
     inherit pname;
     version = resolvedVersion;
     dontUnpack = true;
@@ -448,6 +433,7 @@ let
       version = resolvedVersion;
       inherit
         commit
+        lockFile
         graph
         vendorDir
         testBins
@@ -456,27 +442,22 @@ let
         lint
         lintAll
         ;
+      env = memberEnvAll;
       graphFile = "${graphDrv}/metadata.json";
       # Per-member derivations and every crate by package id (for a lint lane or
       # dagnabit to hang off the same store paths).
       crates = memberCrates;
       allCrates = crates;
-      members = map (p: p.name) members;
-      memberDirs = lib.listToAttrs (map (p: lib.nameValuePair p.name (relDir p)) members);
+      members = map (c: c.name) members;
+      memberDirs = forMembers (c: c.dir);
       tests = testRuns;
     };
     meta = {
       mainProgram = pname;
     }
     // meta;
-  };
-in
-# `tests = true` realises every run as part of the package.
-if tests then
-  installDrv.overrideAttrs (_old: {
-    # A reference is enough: the runs are inputs of the install derivation, so
-    # a failing test fails the package.
-    rustdynCheckAll = checkAll;
-  })
-else
-  installDrv
+  }
+  # `tests = true`: the runs are declared inputs of the install derivation, so a
+  # failing test fails the package.
+  // lib.optionalAttrs tests { rustdynCheckAll = checkAll; }
+)

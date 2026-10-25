@@ -90,21 +90,9 @@ final: _: {
     rustdynSystems
     ;
 
-  # rustdyn(7) man page (scdoc), validated as a flake check. Mirrors godyn-man.
-  rustdyn-man = final.stdenvNoCC.mkDerivation {
+  rustdyn-man = final.mkScdocMan {
     pname = "rustdyn-man";
-    version = "0.1.0";
     src = ../pkgs/build-support/rustdyn;
-    nativeBuildInputs = [ final.scdoc ];
-    dontUnpack = true;
-    dontBuild = true;
-    installPhase = ''
-      mkdir -p $out/share/man/man7
-      for f in $src/*.7.scd; do
-        [ -e "$f" ] || continue
-        scdoc < "$f" > "$out/share/man/man7/$(basename "$f" .scd)"
-      done
-    '';
   };
 
   # nixgc — targeted Nix store GC CLI (extracted + generalized from spinclass's
@@ -112,72 +100,57 @@ final: _: {
   # paths, keeping anything a live GC root holds.
   nixgc = final.callPackage ../pkgs/build-support/nixgc { };
 
-  nixgc-man = final.stdenvNoCC.mkDerivation {
+  # mkScdocMan — render a directory's `*.<section>.scd` sources with scdoc into
+  # share/man/man<section>. Each builder's man derivation below is one call;
+  # wired as a flake check so a syntax error in a page fails the pre-merge hook
+  # instead of silently shipping (eng-manpages(7) § SCDOC PATTERN).
+  mkScdocMan =
+    {
+      pname,
+      src,
+      version ? "0.1.0",
+      sections ? [ 7 ],
+    }:
+    final.stdenvNoCC.mkDerivation {
+      inherit pname version src;
+      nativeBuildInputs = [ final.scdoc ];
+      dontUnpack = true;
+      dontBuild = true;
+      installPhase = final.lib.concatMapStringsSep "\n" (s: ''
+        mkdir -p $out/share/man/man${s}
+        for f in $src/*.${s}.scd; do
+          [ -e "$f" ] || continue
+          scdoc < "$f" > "$out/share/man/man${s}/$(basename "$f" .scd)"
+        done
+      '') (map toString sections);
+    };
+
+  nixgc-man = final.mkScdocMan {
     pname = "nixgc-man";
-    version = "0.1.0";
     src = ../pkgs/build-support/nixgc;
-    nativeBuildInputs = [ final.scdoc ];
-    dontUnpack = true;
-    dontBuild = true;
-    installPhase = ''
-      mkdir -p $out/share/man/man1
-      for f in $src/*.1.scd; do
-        [ -e "$f" ] || continue
-        scdoc < "$f" > "$out/share/man/man1/$(basename "$f" .scd)"
-      done
-    '';
+    sections = [ 1 ];
   };
 
   gomod2nix = final.callPackage ../pkgs/build-support/gomod2nix/cli {
     inherit (final) buildGoApplication go;
   };
 
-  # Validates the scdoc man page sources under
-  # pkgs/build-support/gomod2nix/. Exposed as a flake check so syntax
-  # errors in *.7.scd are caught by the pre-merge hook rather than
-  # silently shipped. See eng-manpages(7) § SCDOC PATTERN.
-  gomod2nix-man = final.stdenvNoCC.mkDerivation {
+  # gomod2nix(7), mkGoPkgs(7), goSourceFilter(7) and the CLI's pages.
+  gomod2nix-man = final.mkScdocMan {
     pname = "gomod2nix-man";
     version = final.gomod2nix.version or "0.0.0";
     src = ../pkgs/build-support/gomod2nix;
-    nativeBuildInputs = [ final.scdoc ];
-    dontUnpack = true;
-    dontBuild = true;
-    installPhase = ''
-      mkdir -p $out/share/man/man1
-      mkdir -p $out/share/man/man5
-      mkdir -p $out/share/man/man7
-      for f in $src/*.1.scd; do
-        [ -e "$f" ] || continue
-        scdoc < "$f" > "$out/share/man/man1/$(basename "$f" .scd)"
-      done
-      for f in $src/*.5.scd; do
-        [ -e "$f" ] || continue
-        scdoc < "$f" > "$out/share/man/man5/$(basename "$f" .scd)"
-      done
-      for f in $src/*.7.scd; do
-        [ -e "$f" ] || continue
-        scdoc < "$f" > "$out/share/man/man7/$(basename "$f" .scd)"
-      done
-    '';
+    sections = [
+      1
+      5
+      7
+    ];
   };
 
-  # go-toolchain(7) man page (scdoc), validated as a flake check so syntax
-  # errors are caught by the pre-merge hook. Mirrors gomod2nix-man.
-  go-toolchain-man = final.stdenvNoCC.mkDerivation {
+  go-toolchain-man = final.mkScdocMan {
     pname = "go-toolchain-man";
     version = "0.0.0";
     src = ../pkgs/development/compilers/go-toolchain;
-    nativeBuildInputs = [ final.scdoc ];
-    dontUnpack = true;
-    dontBuild = true;
-    installPhase = ''
-      mkdir -p $out/share/man/man7
-      for f in $src/*.7.scd; do
-        [ -e "$f" ] || continue
-        scdoc < "$f" > "$out/share/man/man7/$(basename "$f" .scd)"
-      done
-    '';
   };
 
   # vm-tests — NixOS VM integration checks for fleet repos (FDR 0011,
@@ -189,38 +162,13 @@ final: _: {
     vmTestPrelude
     ;
 
-  # vm-tests(7) man page (scdoc), validated as a flake check. Mirrors godyn-man.
-  vm-tests-man = final.stdenvNoCC.mkDerivation {
+  vm-tests-man = final.mkScdocMan {
     pname = "vm-tests-man";
-    version = "0.1.0";
     src = ../pkgs/build-support/vm-tests;
-    nativeBuildInputs = [ final.scdoc ];
-    dontUnpack = true;
-    dontBuild = true;
-    installPhase = ''
-      mkdir -p $out/share/man/man7
-      for f in $src/*.7.scd; do
-        [ -e "$f" ] || continue
-        scdoc < "$f" > "$out/share/man/man7/$(basename "$f" .scd)"
-      done
-    '';
   };
 
-  # godyn(7) man page (scdoc), validated as a flake check so syntax errors are
-  # caught by the pre-merge hook. Mirrors gomod2nix-man.
-  godyn-man = final.stdenvNoCC.mkDerivation {
+  godyn-man = final.mkScdocMan {
     pname = "godyn-man";
-    version = "0.1.0";
     src = ../pkgs/build-support/godyn;
-    nativeBuildInputs = [ final.scdoc ];
-    dontUnpack = true;
-    dontBuild = true;
-    installPhase = ''
-      mkdir -p $out/share/man/man7
-      for f in $src/*.7.scd; do
-        [ -e "$f" ] || continue
-        scdoc < "$f" > "$out/share/man/man7/$(basename "$f" .scd)"
-      done
-    '';
   };
 }
