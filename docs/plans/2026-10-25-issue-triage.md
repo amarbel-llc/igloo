@@ -126,6 +126,28 @@ The rest of (b), plus the two (a) items that were waiting on a ruling.
   circus/eager-holly); stage 2 proceeds under FDR 0009 § Staged plan. Done
   the same day (`docs/plans/2026-10-25-rustdyn-stage2.md` § Outcome).
 
+## Blocked on the cache answer (refresh, 2026-10-25 evening)
+
+The same day's probes (`docs/plans/2026-10-25-godyn-consumer-readiness.md`
+§ (b)) showed the fleet cache holds almost none of flic's CA outputs and flic
+has no post-build hook; circus/smooth-myrtle owns the question (FDR 0031).
+Until it answers, these wait or carry a qualifier:
+
+- **#82 mitigation (1)** (vet runs substituted from the fleet cache): no
+  effect until uploads are reliable; mitigation (2), facts-only runs for
+  unchanged third-party packages, is independent and can proceed.
+- **FDR 0007 § ca-derivations / readiness note § (b)**: "the cache serves CA
+  realisations" holds only for the outputs the uploader selects; the note
+  carries the qualifier, the FDR's line should once the mechanism is known.
+- **rustdyn stage 3** (posh opt-in): the cross-repo sharing argument in FDR
+  0009 assumes substitution; the per-crate test and lint lanes do not, so the
+  opt-in itself can proceed, the sharing claim cannot be made.
+- **troupe/tier-5 consumer bump**: a host other than the builder rebuilds
+  the per-package closure (minutes) instead of substituting.
+
+Not blocked: #90 halves, #78 static stdlib, #81 RFC, #64 copy (local, done
+except Nix wiring), #88 fallback, the version.env helper.
+
 The issue tracker moved to the Forgejo (`linenisgreat/igloo` on
 code.linenisgreat.com) during the day; GitHub is a read-only mirror. The
 decisions above were applied there on 2026-10-25 (V): #75 and #20 closed, #63

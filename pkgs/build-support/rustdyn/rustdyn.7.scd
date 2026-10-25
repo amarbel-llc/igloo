@@ -180,6 +180,27 @@ next machine.
   *required-features*, no nextest, no flake-input crate protocol yet (stage
   3).
 
+What stage 2 (2026-10-25) exercised and what it did not, labelled V (seen
+in a check), R (read in a record), I (inferred):
+
+- V: path dependencies between members, a build script reading the version
+  env, per-harness tests with *CARGO\_BIN\_EXE* and a fixture file, the
+  clippy lane on members, rename and *postInstall*, both selector backends,
+  on x86\_64-linux, with no registry or git dependency in any fixture.
+- R: registry crates (37 of them, one proc-macro, build scripts in five
+  crates) built through the same mapper in the stage 1 spike on posh.
+- I: native dependencies (openssl-sys, libgit2-sys, pcsc) through
+  *crateOverrides*: buildRustCrate's table should carry them, nothing here
+  has run it; proc-macro crates with their own build script; git
+  dependencies through *outputHashes* or *allowBuiltinFetchGit*; a workspace
+  under *workspaceDir*; a root-package workspace. Each needs a fixture or a
+  consumer before it is claimed.
+- Cache: the fixtures' outputs were not on the fleet cache when probed (V),
+  consistent with the same day's godyn finding; whether a second host can
+  substitute a rustdyn build at all is open until circus settles how flic's
+  builds are uploaded (FDR 0031). Until then, treat cross-host reuse as
+  unproven.
+
 # SEE ALSO
 
 godyn(7), gomod2nix(7), *docs/features/0009-rustdyn-per-crate-rust-builds.md*,
