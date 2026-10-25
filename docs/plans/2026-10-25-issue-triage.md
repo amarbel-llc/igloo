@@ -126,6 +126,23 @@ The rest of (b), plus the two (a) items that were waiting on a ruling.
   circus/eager-holly); stage 2 proceeds under FDR 0009 § Staged plan. Done
   the same day (`docs/plans/2026-10-25-rustdyn-stage2.md` § Outcome).
 
+## Decisions taken (operator, 2026-10-25, third round)
+
+- **RFC 0002 / rustdyn:** producer output `packages.<system>.crates`, one
+  output with tests included, workspace-root granularity with the consumer
+  naming the member (godyn's shape). **Decision (c) of FDR 0009 is
+  reversed:** no tracked Cargo.toml or Cargo.lock; a `cargo.nix` per
+  workspace root is the manifest and both files are rendered at eval (the
+  go.nix shape), with an escape hatch for `cargo add`/`update` and no
+  ambient cargo in the dev loop (rust-analyzer is a later POC, igloo#85's
+  shape). Flake-input crates are cargo.nix entries; transitive ones are
+  inherited through the producer output's `passthru.flakeInputs`. Sequencing:
+  **stage 2.5** (the manifest half, in igloo, fixtures first) before posh's
+  opt-in; started the same evening.
+- **nixedit (#64):** keep the subdirectory module path
+  `code.linenisgreat.com/igloo/pkgs/build-support/nixedit`; write the FDR
+  now, before the Nix wiring.
+
 ## Blocked on the cache answer (refresh, 2026-10-25 evening)
 
 The same day's probes (`docs/plans/2026-10-25-godyn-consumer-readiness.md`

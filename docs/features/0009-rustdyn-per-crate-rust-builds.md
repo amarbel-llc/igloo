@@ -357,6 +357,17 @@ day: the uploader on flic is selective or rare; circus's lane). Measurements
 against `buildRustPackage` on posh wait for a quiet host (the spike's
 harness, § Stage 1 results, is the like-for-like run).
 
+**Stage 2.5: the cargo.nix manifest (decided 2026-10-25).** The go.nix
+half for Rust: `cargo.nix` at the workspace root holds the workspace and
+member manifests as Nix attribute sets (the TOML tables, one to one), the
+lock as data, and `flakeInputs` for fleet crates; rustdyn renders
+Cargo.toml per member and Cargo.lock into the tree it hands the resolver,
+rejects a tracked Cargo.toml or Cargo.lock, ingests a rendered pair back
+into cargo.nix (`builtins.fromTOML`), and offers the escape hatch
+(`cargoRun`, `ingest`, a `rustdyn-cargo` CLI) for `cargo add`/`update`.
+Fixtures mirror stage 2's on cargo.nix; checks `rustdyn-manifest-*`.
+RFC 0002 specifies the flake-input half.
+
 **Stage 3: posh opt-in, then default.** `.#posh-native` next to the
 buildRustPackage output, its checks moved to `checkAll` / `lintAll`; the
 flake-input crate protocol (an RFC, sibling to RFC 0001) so galapagos,
@@ -399,6 +410,17 @@ reasoning stays legible.
   lane) runs ambient cargo in every repo. A nix manifest is limited to
   `flakeInputs` for fleet crates, which is the one thing Cargo.lock cannot
   express without a git dependency.
+
+  **Reversed by the operator on 2026-10-25** (after stage 2 landed on a
+  tracked Cargo.toml/Cargo.lock): a `cargo.nix` per workspace root is the
+  manifest, Cargo.toml and Cargo.lock are rendered from it at evaluation
+  time and tracked by no repository, `cargo add`/`update` run through an
+  escape hatch that writes cargo.nix back, and ambient cargo leaves the dev
+  loop as the Go toolchain did under FDR 0008 (rust-analyzer over a
+  rendered tree is a later POC, igloo#85's shape). This is stage 2.5 below;
+  the design note is `docs/plans/2026-10-25-rustdyn-stage25-cargo-nix.md`.
+  The stage 2 builder keeps accepting a tracked manifest until the
+  consumers have cut over.
 - **(d) Toolchain source.** Recommend: igloo's nixpkgs `rustc` / `cargo` by
   default, overridable per consumer; no registry until a consumer needs a
   release nixpkgs lacks. tap and tacky keep rust-overlay if they want it.
