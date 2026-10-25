@@ -163,7 +163,11 @@ next machine.
   *codegenUnits*; LTO and strip settings in Cargo.toml are not applied.
 - A workspace member's derivation sources only its own directory; a member
   that reads files outside it (*include\_str!("../../x")*) needs those files
-  inside the member dir or in a path dependency.
+  inside the member dir or in a path dependency. A path dependency that is not
+  a workspace member (or a dependency outside the workspace root) is not
+  supported: only members and crates in the vendor directory have a source.
+- A bin target and a *tests/\*.rs* file with the same name share one harness
+  name; give them different names.
 - rustc re-embeds source hashes in the rlib, so a comment-only edit to a
   compiled file still rebuilds the crate's dependents; the cutoff saves
   edits outside the compiled set (tests, docs, data) and everything outside

@@ -23,6 +23,16 @@
 let
   native = buildRustdynWorkspace (removeAttrs args [ "strategy" ]);
   workspaceDir = args.workspaceDir or "";
+  # The install-step knobs rustdyn applies itself, replayed on cargo's install:
+  # keep only the `bins` asked for, then rename.
+  keepBins = lib.optional ((args.bins or null) != null) ''
+    for b in $out/bin/*; do
+      case "$(basename "$b")" in
+        ${lib.concatMapStringsSep "|" lib.escapeShellArg args.bins}) ;;
+        *) rm -f "$b" ;;
+      esac
+    done
+  '';
   renames = lib.mapAttrsToList (from: to: "mv $out/bin/${from} $out/bin/${to}") (
     args.binaryNames or { }
   );
@@ -39,7 +49,7 @@ let
       buildInputs = args.buildInputs or [ ];
       nativeBuildInputs = args.nativeBuildInputs or [ ];
       nativeCheckInputs = args.nativeCheckInputs or [ ];
-      postInstall = lib.concatStringsSep "\n" (renames ++ [ (args.postInstall or "") ]);
+      postInstall = lib.concatStringsSep "\n" (keepBins ++ renames ++ [ (args.postInstall or "") ]);
       env = native.passthru.env // (args.testEnv or { });
       meta = {
         mainProgram = args.pname;

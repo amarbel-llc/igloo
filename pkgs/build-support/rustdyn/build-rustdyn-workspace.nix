@@ -168,6 +168,9 @@ let
   graphDrv = runCommand "${pname}-rustdyn-graph" { nativeBuildInputs = [ cargo ]; } ''
     cp -r ${tree} source
     chmod -R u+w source
+    # The lock the vendor dir was built from is the lock cargo resolves against,
+    # also when `cargoLock` names one outside the tree.
+    cp --no-preserve=mode ${lockFile} source/Cargo.lock
     # cargo finds .cargo/config.toml by walking up from the manifest; the
     # vendor config names the directory "cargo-vendor-dir" beside .cargo.
     ln -s ${vendorDir} cargo-vendor-dir
@@ -202,6 +205,7 @@ let
       bt = lib.findFirst (t: t.kind == [ "custom-build" ]) null p.targets;
       node = nodeById.${p.id};
       depsOfKind = kind: lib.filter (d: lib.any (k: k.kind == kind) d.dep_kinds) node.deps;
+      normal = depsOfKind null;
     in
     {
       pkg = p;
@@ -220,9 +224,10 @@ let
       # Resolve-graph edges by kind: null is a normal dependency, "build" a
       # build-script dependency, "dev" a test-only one. A dependency's target
       # cfg() is not evaluated (every edge is included; FDR 0009 § 1).
-      normalDeps = depsOfKind null;
+      normalDeps = normal;
       buildDeps = depsOfKind "build";
-      devDeps = depsOfKind "dev";
+      # A crate that is both a normal and a dev dependency is linked once.
+      devDeps = lib.filter (d: !lib.any (n: n.pkg == d.pkg) normal) (depsOfKind "dev");
     };
   byId = lib.listToAttrs (map (p: lib.nameValuePair p.id (describe p)) graph.packages);
   members = lib.filter (c: c.member) (lib.attrValues byId);
@@ -240,7 +245,8 @@ let
     builtins.path {
       path = joinPath srcRoot c.dir;
       name = "${pname}-src-${c.name}";
-      filter = path: _: baseNameOf path != "target";
+      # A root package's directory is the whole checkout: keep the git dir out.
+      filter = path: _: baseNameOf path != "target" && baseNameOf path != ".git";
     }
   ) byMember;
   vendoredSrc =
@@ -398,6 +404,7 @@ let
     )
   );
   lintAll = runCommandLocal "${pname}-rustdyn-lint-all" { lints = lib.attrValues lint; } ''
+    touch $out
     ${lib.concatMapStringsSep "\n" (c: "echo 'ok ${c.name}' >> $out") members}
   '';
 
