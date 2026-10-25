@@ -409,6 +409,29 @@
             version = "0.0.0";
             subPackages = [ "." ];
           };
+          # A vet lane whose tool fails SILENTLY on facts-only (VetxOnly) runs, as
+          # unitchecker does: the per-package run must surface the message by
+          # re-running the package with VetxOnly off (the stub then prints it).
+          godyn-vet-silent-stub-test = pkgs.buildGodynModule {
+            pname = "godyn-vet-silent-stub-test";
+            src = ./pkgs/build-support/godyn/tests/manifest;
+            manifest = ./pkgs/build-support/godyn/tests/manifest/go.nix;
+            inputs.dep.packages.${system}.go-pkgs = ./pkgs/build-support/godyn/tests/cross;
+            version = "0.0.0";
+            subPackages = [ "." ];
+            vetTool = pkgs.writeShellApplication {
+              name = "silent-vet";
+              runtimeInputs = [ pkgs.jq ];
+              text = ''
+                cfg="$1"
+                if [ "$(jq -r .VetxOnly "$cfg")" = true ]; then
+                  exit 1
+                fi
+                echo "STUB-VERBOSE: refusing $(jq -r .ImportPath "$cfg")" >&2
+                exit 1
+              '';
+            };
+          };
           # flake-input-go_mod producers under godyn: q and p publish go-pkgs via
           # mkGoPkgs (p's carries goFlakeInputs for q). godyn builds consumer c from
           # a derived graph declaring ONLY p — q must be inherited — and builds p
@@ -1094,6 +1117,19 @@
           # a clean multi-package module vets green (gotest: local cross-package
           # imports), and a bridged dependency is vetted facts-only.
           godyn-vet-clean-test = self.packages.${system}.godyn-gotest-test.passthru.vetAll;
+          # A facts-only (third-party) run whose tool fails silently must still put
+          # the tool's message in the log, by re-running with VetxOnly off.
+          godyn-vet-silent-failure-test = pkgs.testers.testBuildFailure' {
+            # a LEAF third-party package: testBuildFailure' sees only the wrapped
+            # derivation's own builder, and a package with facts-only deps would
+            # fail in a dependency first
+            drv =
+              self.packages.${system}.godyn-vet-silent-stub-test.passthru.vetRuns."github.com/google/go-cmp/cmp/internal/flags";
+            expectedBuilderLogEntries = [
+              "re-running with VetxOnly off"
+              "STUB-VERBOSE: refusing github.com/google/go-cmp/cmp/internal/flags"
+            ];
+          };
           godyn-vet-bridged-test = self.packages.${system}.godyn-cross-source.passthru.vetAll;
           # eval-time graph: the derived-graph build runs, and its graph equals the
           # committed one godyn-gen -gomod produced for the same module.

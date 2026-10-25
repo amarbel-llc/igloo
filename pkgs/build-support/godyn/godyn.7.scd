@@ -702,7 +702,11 @@ protocol and is fed exactly as before (igloo#71).
 staticcheck's own *//lint:ignore* directives are not honored. Pass *lintTool*
 (a unitchecker binary) to run a different suite.
 
-Passthru surface: *lint.<importPath>* and *lintAll*, like vet.
+Passthru surface: *lint.<importPath>* and *lintAll*, like vet. Both lanes also
+expose *vetRuns* / *lintRuns*: EVERY package's run derivation by import path,
+the facts-only runs of third-party and bridged packages included, for
+inspecting one run. A facts-only run that fails is re-run with VetxOnly off so
+the tool's message reaches the log (unitchecker is silent in VetxOnly mode).
 *pkgs.buildGodynLint* takes buildGodynModule's arguments and returns *lintAll*
 directly — the flake-checks shape:
 

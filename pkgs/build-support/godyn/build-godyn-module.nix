@@ -1281,7 +1281,17 @@ let
                 mkdir -p "$out"
                 ${outWritableProbe}
                 ${mergeCfg} > vet.cfg
-                ${toolExe} vet.cfg
+                # unitchecker exits 1 without a message when it fails in VetxOnly
+                # mode (third-party and bridged packages run that way), so re-run
+                # the failed package with VetxOnly off to get the error into the log.
+                ${toolExe} vet.cfg || {
+                  if [ "$(jq -r .VetxOnly vet.cfg)" = true ]; then
+                    echo "godyn-${lane}: ${toolExe} failed on ${importPath} (VetxOnly run, no message); re-running with VetxOnly off:" >&2
+                    jq '.VetxOnly = false' vet.cfg > vet.verbose.cfg
+                    ${toolExe} vet.verbose.cfg || true
+                  fi
+                  exit 1
+                }
                 ${lib.optionalString typedVetx ''jq --arg s "${stdVetx}" '[.PackageVetx[] | select(startswith($s))] | length' vet.cfg > "$out/stdvetx.count"''}
                 [ -e vet.out ] || : > vet.out
                 mv vet.out "$out/vet.out"
@@ -1294,7 +1304,10 @@ let
       local = lib.filterAttrs (ip: _: byImport.${ip}.local) drvs;
     in
     {
+      # runs: every package's run derivation by import path, third-party and
+      # bridged (facts-only) ones included — for inspecting a single run.
       inherit local stdVetx;
+      runs = drvs;
       all = runCommandLocal "godyn-${pname}-${lane}" { } (
         ": > $out\n"
         + lib.concatMapStringsSep "\n" (ip: "cat ${local.${ip}}/result >> $out") (builtins.attrNames local)
@@ -1813,8 +1826,10 @@ installed.overrideAttrs (old: {
     # path (a finding fails the build), and each lane's manifest for flake checks.
     vet = vetLane.local;
     vetAll = vetLane.all;
+    vetRuns = vetLane.runs;
     lint = lintLane.local;
     lintAll = lintLane.all;
+    lintRuns = lintLane.runs;
     # the lint tool's stdlib vetx lane (type-bearing vetx tools only; igloo#71)
     lintStdVetx = lintLane.stdVetx;
     # the graphs this build used: the committed files, or the derived ones (FDR 0008)
