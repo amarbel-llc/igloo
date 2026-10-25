@@ -650,17 +650,25 @@ package are vetted, and an edit re-vets only the edited package and its
 dependents.
 
 Local packages report findings — any finding fails the build. Third-party and
-bridged packages run facts-only (their findings are not yours to fix). Only
-non-test sources are vetted. The analyzers default to the toolchain's own
+bridged packages run facts-only (their findings are not yours to fix). The
+package runs analyze non-test sources; test sources are analyzed by the
+TEST-VARIANT runs (igloo#90): for every package the test graph lists with
+in-package \_test.go files, one more run over the package's sources plus
+those files, against the variant's test-inclusive imports — what *go vet ./...*
+sees. External test packages (*package foo_test*) and the variants of cgo
+packages are not analyzed yet. The analyzers default to the toolchain's own
 *go tool vet*; pass *vetTool* (a derivation whose mainProgram is a
 unitchecker binary) to run a different analyzer suite through the same wiring.
 
-Passthru surface: *vet.<importPath>* (the local packages' vet derivations) and
-*vetAll* (one manifest realising every local package's vet). Wire vetAll into
-flake checks:
+Passthru surface: *vet.<importPath>* (the local packages' vet derivations),
+*vetAll* (one manifest realising every local package's vet),
+*vetTests.<importPath>* and *vetTestsAll* (the test-variant runs and their
+manifest — a separate aggregate, so adopting them is a consumer's choice).
+Wire them into flake checks:
 
 ```
 checks.<system>.myapp-vet = myapp.passthru.vetAll;
+checks.<system>.myapp-vet-tests = myapp.passthru.vetTestsAll;
 ```
 
 # LINT
@@ -702,7 +710,8 @@ protocol and is fed exactly as before (igloo#71).
 staticcheck's own *//lint:ignore* directives are not honored. Pass *lintTool*
 (a unitchecker binary) to run a different suite.
 
-Passthru surface: *lint.<importPath>* and *lintAll*, like vet. Both lanes also
+Passthru surface: *lint.<importPath>*, *lintAll*, *lintTests.<importPath>* and
+*lintTestsAll*, like vet. Both lanes also
 expose *vetRuns* / *lintRuns*: EVERY package's run derivation by import path,
 the facts-only runs of third-party and bridged packages included, for
 inspecting one run. A facts-only run that fails is re-run with VetxOnly off so
@@ -721,9 +730,10 @@ checks.<system>.myapp-lint = pkgs.buildGodynLint {
 
 # LIMITATIONS
 
-Vet and lint: test sources are not analyzed. The toolchain-vet lane (the older
-vetx protocol) skips cgo packages; the lint lane analyzes them from cgo's
-translated sources. Under a type-bearing vetx tool (see LINT), archive-bridged
+Vet and lint: test sources are analyzed only as in-package test variants
+(*vetTests* / *lintTests*); external test packages and the variants of cgo
+packages are not (igloo#90). The toolchain-vet lane (the older vetx protocol)
+skips cgo packages; the lint lane analyzes them from cgo's translated sources. Under a type-bearing vetx tool (see LINT), archive-bridged
 packages cannot be analyzed — there are no sources — so their importers fail.
 
 Tests: a cgo or asm package's own tests are not yet supported (igloo#32), nor is

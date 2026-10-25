@@ -1131,6 +1131,18 @@
             ];
           };
           godyn-vet-bridged-test = self.packages.${system}.godyn-cross-source.passthru.vetAll;
+          # igloo#90: test sources are analyzed as the package's test variant. gotest's
+          # root_test.go carries a printf misuse that `go test` tolerates; the variant
+          # run must report it (its non-test vet stays clean: godyn-vet-clean-test),
+          # and a clean package's variant runs green on both lanes.
+          godyn-vet-tests-finding-test = pkgs.testers.testBuildFailure' {
+            drv = self.packages.${system}.godyn-gotest-test.passthru.vetTests."example.com/gotest";
+            expectedBuilderLogEntries = [ "Sprintf format %d has arg" ];
+          };
+          godyn-vet-tests-clean-test =
+            self.packages.${system}.godyn-gotest-test.passthru.vetTests."example.com/gotest/mid";
+          godyn-lint-tests-clean-test =
+            self.packages.${system}.godyn-gotest-test.passthru.lintTests."example.com/gotest/mid";
           # eval-time graph: the derived-graph build runs, and its graph equals the
           # committed one godyn-gen -gomod produced for the same module.
           godyn-derived-graph-test =
