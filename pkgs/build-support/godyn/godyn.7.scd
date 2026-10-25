@@ -725,6 +725,22 @@ protocol and is fed exactly as before (igloo#71).
 staticcheck's own *//lint:ignore* directives are not honored. Pass *lintTool*
 (a unitchecker binary) to run a different suite.
 
+godyn-lint's suite is the fleet's lint standard (igloo#87, operator decision
+2026-10-25); parity with golangci-lint's "standard" set is not a goal. What a
+consumer migrating from golangci-lint loses, so it can decide up front:
+
+- *ineffassign* and *unused* (U1000) are not run; a consumer that wants either
+  ports it as an analyzer into its own *lintTool*.
+- Exclusion rules from *.golangci.yml* (path, message text, linter) have no
+  counterpart; the only suppression is *//nolint* in the source.
+- Generated files are skipped by the *// Code generated ... DO NOT EDIT.*
+  header only, not by golangci-lint's wider generated-file heuristics.
+- *errcheck* and the rest of golangci-lint's optional linters were never part
+  of the fleet standard and are not run.
+
+Test sources are analyzed (*lintTests*, included in *lintAll*), as golangci-lint
+does by default.
+
 Passthru surface: *lint.<importPath>*, *lintAll*, *lintTests.<importPath>* and
 *lintTestsAll*, like vet. Both lanes also
 expose *vetRuns* / *lintRuns*: EVERY package's run derivation by import path,
