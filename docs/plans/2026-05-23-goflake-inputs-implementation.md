@@ -28,7 +28,7 @@ suppressing). No migration commits to undo.
 **Background to read first:**
 - Design: `docs/plans/2026-05-23-goflake-inputs-design.md`
 - FDR: `docs/features/0003-bridge-go-flake-inputs.md`
-- POC: `zz-pocs/goflake-poc/README.md` + commit f99a3ff43278
+- POC: `zz-pocs/goflake-poc/README.md` + commit f99a3ff43278 (pre-rename history; the hash resolves in the archived amarbel-llc/nixpkgs, not in igloo)
 - Tracking issue: [amarbel-llc/nixpkgs#32](https://github.com/amarbel-llc/nixpkgs/issues/32)
 - Existing builder: `pkgs/build-support/gomod2nix/default.nix`
   (focus: `mkVendorEnv`, `buildGoApplication`, `mkGoEnv`,

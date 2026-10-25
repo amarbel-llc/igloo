@@ -60,5 +60,5 @@ Chosen option: **Vendor + check in**, because it gives transitive reproducibilit
 
 ## More Information
 
-* amarbel-llc/nixpkgs#52 — the issue this ADR backs; lint plumbing landed in commit 088f67bc126c (originally written in amarbel-llc/bun#7, then ported here as part of the Bun-fork dissolution tracked in amarbel-llc/nixpkgs#57).
+* amarbel-llc/nixpkgs#52 — the issue this ADR backs; lint plumbing landed in commit 088f67bc126c (pre-rename history: the hash resolves in the archived amarbel-llc/nixpkgs, not in igloo; originally written in amarbel-llc/bun#7, then ported here as part of the Bun-fork dissolution tracked in amarbel-llc/nixpkgs#57).
 * amarbel-llc/nixpkgs#11 — root-cause triage that motivated the lint rule (the 8 KiB stdout truncation that turned out to be `process.exit()` racing the kernel pipe drain).

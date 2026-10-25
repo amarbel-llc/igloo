@@ -3,7 +3,7 @@
 **Date:** 2026-05-23
 **Tracks:** [amarbel-llc/nixpkgs#32](https://github.com/amarbel-llc/nixpkgs/issues/32)
 **FDR:** `docs/features/0003-bridge-go-flake-inputs.md`
-**POC:** `zz-pocs/goflake-poc/` (commit f99a3ff43278)
+**POC:** `zz-pocs/goflake-poc/` (commit f99a3ff43278 — pre-rename history; the hash resolves in the archived amarbel-llc/nixpkgs, not in igloo)
 
 ## Scope
 

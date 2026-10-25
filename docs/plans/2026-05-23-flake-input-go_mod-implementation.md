@@ -325,7 +325,7 @@ Three items from the design doc:
 
 - FDR-0003 (`docs/features/0003-bridge-go-flake-inputs.md`) — journey, problem statement, POC findings
 - FDR-0004 (`docs/features/0004-go-pkgs-producer-convention.md`) — journey, problem statement
-- POC commit `f99a3ff43278` at `zz-pocs/goflake-poc/`
+- POC commit `f99a3ff43278` at `zz-pocs/goflake-poc/` (pre-rename history; the hash resolves in the archived amarbel-llc/nixpkgs, not in igloo)
 - Issues #39 (gomod.nix convention), #40 (filtered go-pkgs), #41 (linter follow-up)
 - Tracking: nixpkgs#32 (consumer-side implementation), nixpkgs#35 (mkGoPkgs / middleware), nixpkgs#36 (transitive resolution)
 
