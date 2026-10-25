@@ -775,6 +775,20 @@ recompiling a cgo, asm or archive-bridged package against a test variant. A pure
 package whose tests reach cgo packages is supported: its test binary links
 externally with *cc*, like a cgo main.
 
+Toolchain and analyzer compatibility (as of the Go 1.27.3 registry default,
+2026-10-25): the compile, link and toolchain-vet lanes use the registry
+toolchain (go-toolchain(7)), so nothing outside nix has to agree with it. The
+lint lane's tool is built against golang.org/x/tools v0.50.0 (godyn-lint's
+go.mod); from v0.50 the unitchecker reads imports' types from vetx files, so
+the lanes supply a vetx for every import, stdlib included, and type-check the
+stdlib at the toolchain's language version, not the module's (both observed on
+1.27.3). A consumer's own tool (*vetTool*, *lintTool*) is subject to the same
+rule: an x/tools older than the Go release may fail to read the toolchain's
+export data (the symptom seen in a go/packages consumer on 1.27.3 was a
+"package without types was imported" error; reported, not reproduced here),
+so bump x/tools with the Go release. golangci-lint's go/packages loader is
+the same class and is why the superseded buildGoLint lane is not gated here.
+
 go:embed patterns resolve per pattern only in graphs from a current godyn-gen; older
 graphs support literal and trailing-*\** patterns (see above).
 

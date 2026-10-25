@@ -387,7 +387,9 @@ workspace); the ingest and `renderCargoNix` round trips are asserted in
 fixture is its first run), so no fixture has a registry dependency yet and
 a registry crate's lock entry has only been tested as data.
 
-**Stage 3: posh opt-in, then default.** `.#posh-native` next to the
+**Stage 3: posh opt-in, then default** (prerequisites and the opt-in shape
+after the cargo.nix reversal: `docs/plans/2026-10-25-rustdyn-stage3-posh-prereqs.md`).
+`.#posh-native` next to the
 buildRustPackage output, its checks moved to `checkAll` / `lintAll`; the
 flake-input crate protocol (an RFC, sibling to RFC 0001) so galapagos,
 hyphence and rust-crap reach posh, prophit and mephisto without git deps or

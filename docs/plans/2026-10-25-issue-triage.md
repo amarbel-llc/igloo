@@ -146,13 +146,28 @@ The rest of (b), plus the two (a) items that were waiting on a ruling.
 ## Blocked on the cache answer (refresh, 2026-10-25 evening)
 
 The same day's probes (`docs/plans/2026-10-25-godyn-consumer-readiness.md`
-§ (b)) showed the fleet cache holds almost none of flic's CA outputs and flic
-has no post-build hook; circus/smooth-myrtle owns the question (FDR 0031).
-Until it answers, these wait or carry a qualifier:
+§ (b)) showed the fleet cache holds almost none of flic's CA outputs. circus
+answered the same night (R, circus#385): the watcher uploads everything, the
+cache's 6-hour GC window evicts what no root holds, and godyn compiles are in
+no root. The fixes are circus#383 (`system/flic` root), circus#385
+(`build-graph/<host>` roots, refreshed on deploy) and circus#384 (measure the
+fill rate, widen the window with an ENOSPC guard). Until #383 and #385 land,
+these wait or carry a qualifier:
 
-- **#82 mitigation (1)** (vet runs substituted from the fleet cache): no
-  effect until uploads are reliable; mitigation (2), facts-only runs for
-  unchanged third-party packages, is independent and can proceed.
+- **#82 mitigation (1)** (vet runs substituted from the fleet cache): takes
+  effect once a host's build graph is rooted (circus#385) — the vet run
+  derivations are in the build graph `deploy-cache-push-build-closure` pushes,
+  so they ride along for free. Options recorded for #82, in order:
+  (a) nothing in igloo: rely on #385's root and measure; (b) if the roots
+  cover only deployed hosts' graphs, a consumer repo's gate pushes its own
+  vet closure under a `build-graph/<repo>` root (a circus recipe, not igloo);
+  (c) mitigation (2), facts-only runs for unchanged third-party packages,
+  which is independent of the cache and the only one igloo implements.
+  Measurement plan: after #385 lands, bump an input in cutting-garden (the
+  ~100 min case) on one host, then on a second host run `just
+  explore-cache-has-pkg` over `.#default.passthru.vetAll` (expect every
+  `godyn-vet-*` served) and time the gate; the before number is #82's 100
+  min, the after number decides whether (c) is still worth building.
 - **FDR 0007 § ca-derivations / readiness note § (b)**: "the cache serves CA
   realisations" holds only for the outputs the uploader selects; the note
   carries the qualifier, the FDR's line should once the mechanism is known.

@@ -55,10 +55,23 @@ signed narinfo, fetchable NAR), 1 had never been realised here. Of troupe's
 116 `godyn-compile-*` derivations in the store, all realised here, 5 were
 fully served and 111 had no realisation on the cache. flic's
 effective nix config has an empty `post-build-hook` (V, `just
-explore-nix-config`), so the upload is not a per-build hook; what it is, on
-what trigger, and with what selection rule is circus's record (FDR 0031) and
-was handed to the coordinator. Until that is known, a consumer host should be
-expected to rebuild most of a godyn package's per-package closure.
+explore-nix-config`), so the upload is not a per-build hook.
+
+**Explained the same evening (R, circus#385, filed from circus's
+`debug-cache-roots`):** the uploader is a watcher that uploaded all 347 godyn
+compiles flic built; the cache runs a 6-hour GC window (circus
+`krone/configuration.nix`, chosen after the uploader filled ~4–5 GB/h into a
+100 GB volume) and nothing roots the compile outputs, so every one registered
+before the window's edge was evicted (404 for narinfo and realisation) and
+every one since was served. So the probes above measured eviction, not
+selection: an output is served for roughly six hours after upload. The fixes
+are circus's: pin each host's system closure (`system/flic`, circus#383),
+root each deployed host's build graph (`build-graph/<host>`, circus#385),
+then widen the window to a measured value with an ENOSPC guard (circus#384).
+Until #383 and #385 land, a consumer host substitutes a godyn package only
+within hours of the builder's upload and rebuilds the per-package closure
+otherwise. `just explore-cache-has-pkg` is the acceptance probe for #385: a
+compile in a rooted build graph must still be served after a sweep.
 
 What this does **not** establish, and what needs a host:
 
