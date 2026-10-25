@@ -80,8 +80,9 @@ directories, from cargo.nix).
 In the consumer's cargo.nix (FDR 0009 stage 2.5 defines the file):
 
     {
+      flakeInputs.galapagos = { input = "galapagos"; subPath = "v2-rust"; };
       members."crates/posh".dependencies = {
-        galapagos = { flakeInput = "galapagos"; subPath = "v2-rust"; };
+        galapagos = { flakeInput = "galapagos"; };
         posh-term = { member = true; };
         serde = { version = "1"; features = [ "derive" ]; };
       };

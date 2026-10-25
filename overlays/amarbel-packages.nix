@@ -87,6 +87,7 @@ final: _: {
   inherit (final.callPackage ../pkgs/build-support/rustdyn { })
     buildRustdynWorkspace
     buildRustAuto
+    rustdynManifest
     rustdynSystems
     ;
 

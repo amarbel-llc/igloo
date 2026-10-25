@@ -240,6 +240,14 @@
             pname = "multi";
             src = ./pkgs/build-support/rustdyn/tests/multi;
           };
+          # cargo.nix (FDR 0009 stage 2.5): the multi workspace with no tracked
+          # Cargo.toml or Cargo.lock; the manifest is rendered for both backends,
+          # the version comes from version.env.
+          rustdyn-manifest-test = pkgs.buildRustAuto {
+            pname = "manifest";
+            src = ./pkgs/build-support/rustdyn/tests/manifest;
+            manifest = ./pkgs/build-support/rustdyn/tests/manifest/cargo.nix;
+          };
 
           # -- godyn build-test fixtures --
           # Exercise buildGodynModule's two productionization features end to end:
@@ -1361,6 +1369,45 @@
               done
               echo OK > $out
             '';
+          # cargo.nix: both backends build from the rendered tree and print the
+          # version.env version; the rendered tree reads back into the manifest
+          # (versions filled in) — the render/ingest round trip.
+          rustdyn-manifest-test =
+            let
+              built = self.packages.${system}.rustdyn-manifest-test;
+              manifest = import ./pkgs/build-support/rustdyn/tests/manifest/cargo.nix;
+              m = pkgs.rustdynManifest;
+              roundTrip = m.ingestRendered built.passthru.cargoSrc;
+              expected = m.normalize manifest "1.2.3";
+            in
+            assert built.passthru.cargoResolved.members.app.package.version == "1.2.3";
+            assert built.passthru.cargoResolved.members.app.dependencies.greet.path == "../greet";
+            assert roundTrip.workspace == expected.workspace;
+            assert roundTrip.members == expected.members;
+            assert roundTrip.lock == expected.lock;
+            pkgs.runCommandLocal "rustdyn-manifest-test-check" { } ''
+              for b in ${built.passthru.native}/bin/app ${built.passthru.brp}/bin/app; do
+                got=$("$b")
+                [ "$got" = "hello from greet 1.2.3+unknown" ] || { echo "$b printed [$got]" >&2; exit 1; }
+              done
+              [ -e ${built.passthru.cargoSrc}/Cargo.lock ] && [ -e ${built.passthru.cargoSrc}/app/Cargo.toml ]
+              echo OK > $out
+            '';
+          # cargo.nix beside a tracked Cargo.toml is refused at evaluation time.
+          rustdyn-manifest-tracked-test =
+            let
+              attempt = builtins.tryEval (
+                builtins.seq
+                  (pkgs.rustdynManifest.withCargoManifest {
+                    pname = "multi";
+                    src = ./pkgs/build-support/rustdyn/tests/multi;
+                    manifest = ./pkgs/build-support/rustdyn/tests/manifest/cargo.nix;
+                  }).src.drvPath
+                  true
+              );
+            in
+            assert !attempt.success;
+            pkgs.runCommandLocal "rustdyn-manifest-tracked-test-ok" { } "echo OK > $out";
           # igloo#73: the module below the repository root builds on both backends
           # and links its path-replaced sibling.
           godyn-multimod-test =

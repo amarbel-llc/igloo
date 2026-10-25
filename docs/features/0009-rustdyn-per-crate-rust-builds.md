@@ -368,6 +368,19 @@ into cargo.nix (`builtins.fromTOML`), and offers the escape hatch
 Fixtures mirror stage 2's on cargo.nix; checks `rustdyn-manifest-*`.
 RFC 0002 specifies the flake-input half.
 
+*Stage 2.5 results (2026-10-25, same evening):* `rustdynManifest`
+(normalize, resolve, render, ingestRendered, withCargoManifest) landed;
+`manifest = ./cargo.nix` on `buildRustdynWorkspace` and `buildRustAuto`
+renders the tree for both backends. The `manifest` fixture (the `multi`
+workspace with no tracked Cargo.toml or Cargo.lock, versions from
+version.env) builds on both backends and prints the version (V); the
+rendered tree reads back equal to the normalized manifest, workspace,
+members and lock (V); a cargo.nix beside a tracked Cargo.toml is refused at
+evaluation (V). Not yet: the escape hatch (`cargoRun`, `rustdyn-cargo`,
+ingest of a produced Cargo.lock), so a registry crate's lock entry still
+comes from a Cargo.lock cargo produced elsewhere, and no fixture has a
+registry dependency yet (the first needs one network fetch).
+
 **Stage 3: posh opt-in, then default.** `.#posh-native` next to the
 buildRustPackage output, its checks moved to `checkAll` / `lintAll`; the
 flake-input crate protocol (an RFC, sibling to RFC 0001) so galapagos,

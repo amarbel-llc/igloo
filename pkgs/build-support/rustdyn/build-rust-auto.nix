@@ -15,13 +15,17 @@
   rustPlatform,
   buildRustdynWorkspace,
   rustdynSystems,
+  rustdynManifest,
 }:
 {
   strategy ? null,
   ...
-}@args:
+}@rawArgs:
 let
-  native = buildRustdynWorkspace (removeAttrs args [ "strategy" ]);
+  # A cargo.nix manifest is rendered once here, so both backends read the same
+  # tree (and `workspaceDir` is already folded into it).
+  args = rustdynManifest.withCargoManifest (removeAttrs rawArgs [ "strategy" ]);
+  native = buildRustdynWorkspace args;
   workspaceDir = args.workspaceDir or "";
   # The install-step knobs rustdyn applies itself, replayed on cargo's install:
   # keep only the `bins` asked for, then rename.

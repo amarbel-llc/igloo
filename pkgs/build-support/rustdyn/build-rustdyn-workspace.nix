@@ -81,6 +81,9 @@ in
     "warnings"
   ],
   meta ? { },
+  # Merged into passthru last; the cargo.nix wrapper (manifest.nix) adds its
+  # manifest, resolved form, rendered tree and flakeInputs here.
+  extraPassthru ? { },
 }:
 let
   # A path literal stays a path and a flake input (a store-path string with
@@ -447,7 +450,8 @@ stdenv.mkDerivation (
       members = map (c: c.name) members;
       memberDirs = forMembers (c: c.dir);
       tests = testRuns;
-    };
+    }
+    // extraPassthru;
     meta = {
       mainProgram = pname;
     }

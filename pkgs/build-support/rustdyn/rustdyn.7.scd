@@ -16,8 +16,11 @@ derivation with *\_\_contentAddressed = true*: its dependencies' rlibs are
 interpolated by store path, so nix records the edges, and a byte-identical
 rlib keeps its store hash and lets its dependents stay cached (early cutoff).
 
-Cargo.toml and Cargo.lock stay authoritative and in the checkout, and ambient
-cargo stays supported for the dev loop (FDR 0009, decision c). rustdyn adds
+The manifest is a *cargo.nix* at the workspace root (CARGO.NIX MANIFEST
+below): Cargo.toml and Cargo.lock are rendered from it at evaluation time
+and tracked by no repository, as go.nix replaced go.mod for godyn (FDR 0009
+decision c, reversed 2026-10-25; the stage 2 form with a tracked Cargo.toml
+and Cargo.lock still builds until consumers have cut over). rustdyn adds
 what buildRustPackage cannot: per-crate rebuilds, per-crate test and clippy
 lanes, crate outputs shared across repositories, and a graph that cannot
 drift because nothing generated is committed.
@@ -65,6 +68,56 @@ The result is the install derivation; the per-crate work hangs off its
 - *tests.<member>.<harness>*, *testBins.<member>*, *checkAll*, *testWith*.
 - *lint.<member>*, *lintAll*.
 - *version*, *commit*, *vendorDir*, *backend* (*"rustdyn"*).
+
+# CARGO.NIX MANIFEST
+
+*manifest = ./cargo.nix* (a path or the attribute set itself) on
+*buildRustdynWorkspace* or *buildRustAuto* replaces a tracked Cargo.toml and
+Cargo.lock; every other argument is unchanged, and *inputs* names the flake
+inputs the manifest's *flakeInputs* refer to:
+
+```
+pkgs.buildRustAuto {
+  pname = "posh";
+  src = self;
+  manifest = ./cargo.nix;
+  inputs = { inherit galapagos hyphence crap; };
+}
+```
+
+The file holds cargo's own tables as Nix (TOML and Nix share a data model),
+plus two rustdyn keys and one rustdyn table:
+
+- *workspace*: the workspace root's Cargo.toml as data (*workspace.members*,
+  *profile*, *patch*, ...).
+- *members.<dir>*: that member's Cargo.toml as data. *package.version* may be
+  left out: the fleet version (an explicit *version*, else *version.env*,
+  else "dev") is filled in. A dependency *{ member = true; }* is rendered as
+  a relative *path* to the member of that name; *{ flakeInput = "<name>"; }*
+  is rendered as a *path* into the flake input's *packages.<system>.crates*
+  output (RFC 0002), under *flakeInputs.<name>.subPath*. A member at the
+  workspace root is keyed *"."* and shares the root Cargo.toml.
+- *lock*: Cargo.lock as data (*version*, *package* with each registry
+  crate's *checksum*); members' versions are filled in like
+  *package.version*. Written by the escape hatch, not by hand.
+- *flakeInputs.<name> = { input; subPath ? ""; }*: the fleet crates from
+  flake inputs; *input* names an entry of the builder call's *inputs*.
+
+rustdyn renders the root and member Cargo.toml files and Cargo.lock into a
+copy of *src* (*passthru.cargoSrc*) and builds from that tree on both
+backends. A tracked Cargo.toml or Cargo.lock anywhere the renderer writes is
+refused at evaluation: cargo.nix is the manifest, and a stale tracked file
+would silently lose to it.
+
+*pkgs.rustdynManifest* is the library behind it: *normalize* (versions
+filled in), *resolve* (the rendered form, *passthru.cargoResolved*),
+*render*, *ingestRendered <tree>* (a rendered or any cargo tree back into
+the manifest's shape, member paths folded to *member = true*; *flakeInputs*
+cannot be recovered from store paths and comes back empty), and
+*withCargoManifest* (the builders' entry point). The escape hatch for
+*cargo add* and *cargo update* over a rendered tree (*cargoRun*,
+*rustdyn-cargo*) is not written yet; until it is, a registry crate's lock
+entry and checksum are taken from a Cargo.lock cargo produced elsewhere.
 
 # buildRustAuto (selector)
 

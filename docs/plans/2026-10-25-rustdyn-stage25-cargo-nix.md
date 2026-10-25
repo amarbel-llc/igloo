@@ -30,7 +30,7 @@ and the escape hatch's ingest is a `fromTOML` per file.
         dependencies = {
           serde = { version = "1"; features = [ "derive" ]; };
           posh-term = { member = true; };                                # path = "../posh-term", written by the renderer
-          galapagos = { flakeInput = "galapagos"; subPath = "v2-rust"; };  # RFC 0002: path = "<input>/v2-rust"
+          galapagos = { flakeInput = "galapagos"; };                       # RFC 0002: path = "<input's crates output>/<flakeInputs.galapagos.subPath>"
         };
         dev-dependencies = { };
         build-dependencies = { };
