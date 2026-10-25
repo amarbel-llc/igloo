@@ -89,6 +89,7 @@ final: _: {
     buildRustAuto
     rustdynManifest
     rustdynSystems
+    rustdyn-cargo
     ;
 
   rustdyn-man = final.mkScdocMan {

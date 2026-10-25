@@ -87,8 +87,21 @@ let
   chosen = if useNative then native else brp;
 in
 chosen.overrideAttrs (old: {
-  passthru = (old.passthru or { }) // {
-    inherit native brp;
-    backend = if useNative then "rustdyn" else "brp";
-  };
+  passthru =
+    (old.passthru or { })
+    # the cargo.nix surface rides along whichever backend was chosen
+    // lib.optionalAttrs (native.passthru ? cargoRun) {
+      inherit (native.passthru)
+        cargoManifest
+        cargoResolved
+        cargoSrc
+        cargoRun
+        ingest
+        flakeInputs
+        ;
+    }
+    // {
+      inherit native brp;
+      backend = if useNative then "rustdyn" else "brp";
+    };
 })

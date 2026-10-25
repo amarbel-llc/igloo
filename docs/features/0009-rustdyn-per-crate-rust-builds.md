@@ -376,10 +376,16 @@ workspace with no tracked Cargo.toml or Cargo.lock, versions from
 version.env) builds on both backends and prints the version (V); the
 rendered tree reads back equal to the normalized manifest, workspace,
 members and lock (V); a cargo.nix beside a tracked Cargo.toml is refused at
-evaluation (V). Not yet: the escape hatch (`cargoRun`, `rustdyn-cargo`,
-ingest of a produced Cargo.lock), so a registry crate's lock entry still
-comes from a Cargo.lock cargo produced elsewhere, and no fixture has a
-registry dependency yet (the first needs one network fetch).
+evaluation (V). The escape hatch followed the same evening: `passthru.cargoRun`
+(an impure derivation over the rendered tree handing back the manifests and
+a patch), `passthru.ingest` (`ingestTree`: member and flake-input paths
+folded back, the fleet version dropped, the previous `flakeInputs` kept) and
+the `rustdyn-cargo` CLI (`godyn-go`'s shape, `-I` for migrating a tracked
+workspace); the ingest and `renderCargoNix` round trips are asserted in
+`rustdyn-manifest-test` (V) and the CLI builds (V). Not exercised: a real
+`cargoRun` (it needs the network; the first registry dependency of a
+fixture is its first run), so no fixture has a registry dependency yet and
+a registry crate's lock entry has only been tested as data.
 
 **Stage 3: posh opt-in, then default.** `.#posh-native` next to the
 buildRustPackage output, its checks moved to `checkAll` / `lintAll`; the

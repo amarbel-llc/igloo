@@ -19,6 +19,9 @@ rec {
   # manifest into the tree the builder reads, read a tree back into a manifest,
   # and reject a tracked Cargo.toml or Cargo.lock beside a cargo.nix.
   rustdynManifest = callPackage ./manifest.nix { };
+  # rustdyn-cargo: the escape hatch CLI — runs a cargo command in passthru.cargoRun,
+  # applies its patch, and rewrites cargo.nix from passthru.ingest.
+  rustdyn-cargo = callPackage ./cargo-cli.nix { };
   buildRustdynWorkspaceFromArgs = callPackage ./build-rustdyn-workspace.nix { };
   # A cargo.nix consumer passes manifest (+ inputs) instead of a tracked
   # Cargo.toml/Cargo.lock; every other argument is unchanged.

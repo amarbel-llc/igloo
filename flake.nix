@@ -258,6 +258,7 @@
             godyn-gen
             godyn-go
             godyn-test
+            rustdyn-cargo
             nixgc
             ;
           godyn-embed-test = pkgs.buildGodynModule {
@@ -1385,6 +1386,16 @@
             assert roundTrip.workspace == expected.workspace;
             assert roundTrip.members == expected.members;
             assert roundTrip.lock == expected.lock;
+            # ingestTree (the CLI's -I and the escape hatch's ingest) drops the
+            # fleet version again, so the file round-trips too; and the printed
+            # cargo.nix re-imports equal to the manifest.
+            assert
+              m.ingestTree {
+                tree = built.passthru.cargoSrc;
+                version = "1.2.3";
+                seed = manifest;
+              } == manifest;
+            assert import (builtins.toFile "cargo.nix" (m.renderCargoNix manifest)) == manifest;
             pkgs.runCommandLocal "rustdyn-manifest-test-check" { } ''
               for b in ${built.passthru.native}/bin/app ${built.passthru.brp}/bin/app; do
                 got=$("$b")

@@ -7,11 +7,17 @@
 #   <dep> = { flakeInput = "<name>"; }    -> path = "<the input's crates output>/<subPath>"
 # with `flakeInputs.<name> = { input; subPath ? ""; }` naming the flake input
 # (RFC 0002). A tracked Cargo.toml or Cargo.lock beside a cargo.nix is refused.
+# The escape hatch (cargoRun, ingest, rustdyn-cargo) runs cargo commands that
+# need the network or rewrite the manifests inside an impure derivation and
+# writes cargo.nix back.
 {
   lib,
   stdenv,
   formats,
   runCommandLocal,
+  cargo,
+  git,
+  cacert,
 }:
 let
   toml = formats.toml { };
@@ -46,6 +52,30 @@ let
       parts = lib.replicate (lib.length f - common) ".." ++ lib.drop common t;
     in
     if parts == [ ] then "." else lib.concatStringsSep "/" parts;
+  # Apply `f name dep` to every dependency entry of a member manifest: the three
+  # dependency tables at the top and under each `target.<cfg>`.
+  mapDeps =
+    f: mm:
+    let
+      onTables =
+        tables:
+        tables
+        // lib.listToAttrs (
+          map (t: lib.nameValuePair t (lib.mapAttrs f tables.${t})) (lib.filter (t: tables ? ${t}) depTables)
+        );
+    in
+    onTables mm // lib.optionalAttrs (mm ? target) { target = lib.mapAttrs (_: onTables) mm.target; };
+  packageTables = [
+    "package"
+    "dependencies"
+    "dev-dependencies"
+    "build-dependencies"
+    "features"
+    "lib"
+    "bin"
+    "target"
+    "lints"
+  ];
 in
 rec {
   load = m: if builtins.isAttrs m then m else import m;
@@ -72,9 +102,38 @@ rec {
       };
     };
 
+  # The inverse: drop the versions equal to the fleet version so the file keeps
+  # version.env as the one source (what ingest writes).
+  denormalize =
+    manifest: version:
+    let
+      members = manifest.members or { };
+      memberNames = lib.mapAttrsToList (_: m: m.package.name) members;
+      strip =
+        m:
+        m
+        // {
+          package =
+            if (m.package.version or null) == version then removeAttrs m.package [ "version" ] else m.package;
+        };
+    in
+    manifest
+    // {
+      members = lib.mapAttrs (_: strip) members;
+      lock = (manifest.lock or { }) // {
+        package = map (
+          p:
+          if lib.elem p.name memberNames && (p.version or null) == version then
+            removeAttrs p [ "version" ]
+          else
+            p
+        ) ((manifest.lock or { }).package or [ ]);
+      };
+    };
+
   # The rendered form: member and flake-input dependencies as path dependencies,
-  # a root package folded into the workspace's Cargo.toml. `cratesOf name` maps
-  # a flakeInputs entry to the store path its crate is sourced from.
+  # a root package folded into the workspace's Cargo.toml. `cratesOf name fi`
+  # maps a flakeInputs entry to the store path its crate is sourced from.
   resolve =
     {
       manifest,
@@ -87,6 +146,13 @@ rec {
       nameToDir = lib.listToAttrs (
         lib.mapAttrsToList (dir: mm: lib.nameValuePair mm.package.name dir) members
       );
+      flakePathOf =
+        name: fi:
+        let
+          sub = fi.subPath or "";
+        in
+        "${cratesOf name fi}" + lib.optionalString (sub != "" && sub != ".") "/${sub}";
+      flakePaths = lib.mapAttrs flakePathOf (m.flakeInputs or { });
       rewriteDep =
         fromDir: name: dep:
         if !(lib.isAttrs dep) then
@@ -100,33 +166,15 @@ rec {
             );
           }
         else if dep ? flakeInput then
-          let
-            fi =
-              m.flakeInputs.${dep.flakeInput}
-                or (throw "rustdyn: dependency ${name} names flakeInput \"${dep.flakeInput}\", which cargo.nix's flakeInputs does not declare");
-            sub = fi.subPath or "";
-          in
           (removeAttrs dep [ "flakeInput" ])
           // {
-            path = "${cratesOf dep.flakeInput fi}" + lib.optionalString (sub != "" && sub != ".") "/${sub}";
+            path =
+              flakePaths.${dep.flakeInput}
+                or (throw "rustdyn: dependency ${name} names flakeInput \"${dep.flakeInput}\", which cargo.nix's flakeInputs does not declare");
           }
         else
           dep;
-      rewriteTables =
-        fromDir: tables:
-        tables
-        // lib.listToAttrs (
-          map (t: lib.nameValuePair t (lib.mapAttrs (rewriteDep fromDir) tables.${t})) (
-            lib.filter (t: tables ? ${t}) depTables
-          )
-        );
-      rewriteMember =
-        dir: mm:
-        rewriteTables dir mm
-        // lib.optionalAttrs (mm ? target) {
-          target = lib.mapAttrs (_: rewriteTables dir) mm.target;
-        };
-      resolvedMembers = lib.mapAttrs rewriteMember members;
+      resolvedMembers = lib.mapAttrs (dir: mapDeps (rewriteDep dir)) members;
     in
     {
       # A member at the workspace root shares the root Cargo.toml.
@@ -135,6 +183,7 @@ rec {
       inherit (m) lock;
       memberDirs = lib.attrNames (removeAttrs members [ "." ]);
       flakeInputs = m.flakeInputs or { };
+      inherit flakePaths;
     };
 
   # The tree the builder reads: `srcRoot` plus the rendered Cargo.toml files and
@@ -159,7 +208,7 @@ rec {
       throw ''
         rustdyn: ${pname} has a cargo.nix manifest but its tree tracks ${lib.concatStringsSep ", " tracked}.
         cargo.nix is the manifest (FDR 0009 stage 2.5); remove the tracked file(s). To carry their
-        content over first, ingest them: rustdyn-cargo ingest (or rustdynManifest.ingestRendered).
+        content over first, ingest them: rustdyn-cargo -I . (or rustdynManifest.ingestTree).
       ''
     else
       runCommandLocal "${pname}-cargo-src" { } ''
@@ -175,10 +224,10 @@ rec {
       '';
 
   # Read a rendered (or any) cargo tree back into cargo.nix's shape: the root
-  # Cargo.toml as `workspace`, each member's Cargo.toml under `members`, the
-  # lock as data; a path dependency that points at a member folds back to
-  # `member = true`. `flakeInputs` cannot be recovered from store paths and is
-  # left empty; the escape hatch merges the previous cargo.nix's table back.
+  # Cargo.toml as `workspace`, each member's Cargo.toml under `members` (a root
+  # package under "."), the lock as data; a path dependency that points at a
+  # member folds back to `member = true`. `flakeInputs` cannot be recovered
+  # from store paths here (see `ingestTree` and the escape hatch's `ingest`).
   ingestRendered =
     tree:
     let
@@ -188,61 +237,77 @@ rec {
       rawMembers = lib.listToAttrs (
         map (d: lib.nameValuePair d (readToml "${tree}/${d}/Cargo.toml")) memberDirs
       );
-      dirToName = lib.mapAttrs (_: mm: mm.package.name) rawMembers;
-      # A relative path from `fromDir`, normalised against the member dirs.
-      resolvesToMember = fromDir: p: lib.any (d: relPath fromDir d == p) (lib.attrNames rawMembers);
+      allDirs = lib.attrNames rawMembers ++ lib.optional (root ? package) ".";
       foldDep =
         fromDir: _name: dep:
-        if lib.isAttrs dep && dep ? path && resolvesToMember fromDir dep.path then
+        if lib.isAttrs dep && dep ? path && lib.any (d: relPath fromDir d == dep.path) allDirs then
           (removeAttrs dep [ "path" ]) // { member = true; }
         else
           dep;
-      foldTables =
-        fromDir: tables:
-        tables
-        // lib.listToAttrs (
-          map (t: lib.nameValuePair t (lib.mapAttrs (foldDep fromDir) tables.${t})) (
-            lib.filter (t: tables ? ${t}) depTables
-          )
-        );
-      foldMember =
-        dir: mm:
-        foldTables dir mm
-        // lib.optionalAttrs (mm ? target) { target = lib.mapAttrs (_: foldTables dir) mm.target; };
     in
     {
-      workspace = removeAttrs root [
-        "package"
-        "dependencies"
-        "dev-dependencies"
-        "build-dependencies"
-        "features"
-        "lib"
-        "bin"
-        "target"
-        "lints"
-      ];
+      workspace = removeAttrs root packageTables;
       members =
-        lib.mapAttrs foldMember rawMembers
+        lib.mapAttrs (dir: mapDeps (foldDep dir)) rawMembers
         // lib.optionalAttrs (root ? package) {
-          "." = foldMember "." (
-            removeAttrs root [
-              "workspace"
-              "profile"
-              "patch"
-              "replace"
-            ]
+          "." = mapDeps (foldDep ".") (
+            removeAttrs root (lib.subtractLists packageTables (lib.attrNames root))
           );
         };
       lock = readToml "${tree}/Cargo.lock";
       flakeInputs = { };
-      _dirToName = dirToName;
     };
+
+  # Migration and the CLI's -I: a cargo tree (tracked Cargo.toml/Cargo.lock
+  # today) as a cargo.nix, versions equal to the tree's version.env dropped and
+  # the seed's flakeInputs carried over. `flakePaths` (store path -> flake
+  # input name) folds already-rendered flake-input dependencies back.
+  ingestTree =
+    {
+      tree,
+      version ? null,
+      seed ? { },
+      flakePaths ? { },
+    }:
+    let
+      v = versionEnv.resolveVersion {
+        inherit version;
+        dir = tree;
+      };
+      pathToFlake = lib.listToAttrs (lib.mapAttrsToList (name: p: lib.nameValuePair p name) flakePaths);
+      foldFlake =
+        _name: dep:
+        if lib.isAttrs dep && dep ? path && pathToFlake ? ${dep.path} then
+          (removeAttrs dep [ "path" ]) // { flakeInput = pathToFlake.${dep.path}; }
+        else
+          dep;
+      ing = ingestRendered tree;
+    in
+    denormalize (
+      ing
+      // {
+        members = lib.mapAttrs (_: mapDeps foldFlake) ing.members;
+        flakeInputs = seed.flakeInputs or { };
+      }
+    ) v;
+
+  # cargo.nix source text for a manifest (what rustdyn-cargo writes); nixfmt
+  # reflows it on commit.
+  renderCargoNix =
+    manifest:
+    ''
+      # cargo.nix — the workspace manifest (rustdyn(7) CARGO.NIX MANIFEST): cargo's
+      # tables as Nix; `member = true` and `flakeInput = "<name>"` are rustdyn's.
+      # Written by rustdyn-cargo; edit by hand or re-run it.
+    ''
+    + lib.generators.toPretty { multiline = true; } manifest
+    + "\n";
 
   # The entry point the builders call: with `manifest` present, resolve the
   # version, render the tree and return the builder's arguments pointing at it
   # (no `manifest`, `inputs` or `workspaceDir` left; `commit` from the original
-  # source); without one, the arguments pass through unchanged.
+  # source), with the escape hatch and ingest on the passthru; without one, the
+  # arguments pass through unchanged.
   withCargoManifest =
     args:
     if !(args ? manifest) then
@@ -272,12 +337,70 @@ rec {
           inherit (args) pname;
           inherit srcRoot resolved;
         };
+        # The escape hatch (FDR 0008's goRun for cargo): run a cargo command that
+        # needs the network (cargo add, cargo update, cargo generate-lockfile) or
+        # rewrites the tree inside nix, against the rendered manifests, and hand
+        # the results back. An impure derivation — network on, never cached,
+        # never a pure derivation's input — so not a flake check. $out/tree holds
+        # the manifests after the command (root and member Cargo.toml, Cargo.lock)
+        # for `ingest`; $out/patch is `git diff --no-index --binary` of the
+        # checkout against the rest of the tree (apply with `git apply -p2`).
+        cargoRun =
+          {
+            command,
+            nativeBuildInputs ? [ ],
+          }:
+          stdenv.mkDerivation {
+            name = "${args.pname}-cargo-run";
+            __impure = true;
+            nativeBuildInputs = [
+              cargo
+              git
+              cacert
+            ]
+            ++ (args.cargoRunInputs or [ ])
+            ++ nativeBuildInputs;
+            dontUnpack = true;
+            dontInstall = true;
+            buildPhase = ''
+              runHook preBuild
+              export HOME="$TMPDIR/home" CARGO_HOME="$TMPDIR/cargo-home"
+              export SSL_CERT_FILE=${cacert}/etc/ssl/certs/ca-bundle.crt NIX_SSL_CERT_FILE=$SSL_CERT_FILE
+              mkdir -p "$HOME" "$out/tree"
+              cp -r --no-preserve=mode ${srcRoot} src
+              cp -r --no-preserve=mode ${rendered} work
+              (
+                cd work
+                ${command}
+              )
+              cp work/Cargo.toml work/Cargo.lock "$out/tree/"
+              ${lib.concatMapStringsSep "\n" (d: ''
+                mkdir -p "$out/tree/${d}"
+                cp work/${d}/Cargo.toml "$out/tree/${d}/"
+              '') resolved.memberDirs}
+              # the manifests are ingest's, not the patch's
+              rm -f work/Cargo.toml work/Cargo.lock ${
+                lib.concatMapStringsSep " " (d: "work/${d}/Cargo.toml") resolved.memberDirs
+              }
+              git diff --no-index --binary src work > "$out/patch" || [ $? -eq 1 ]
+              runHook postBuild
+            '';
+          };
+        ingest =
+          out:
+          renderCargoNix (ingestTree {
+            tree = "${out}/tree";
+            inherit version;
+            seed = manifest;
+            inherit (resolved) flakePaths;
+          });
       in
       removeAttrs args [
         "manifest"
         "inputs"
         "workspaceDir"
         "system"
+        "cargoRunInputs"
       ]
       // {
         src = rendered;
@@ -288,6 +411,7 @@ rec {
           cargoResolved = resolved;
           cargoSrc = rendered;
           inherit (resolved) flakeInputs;
+          inherit cargoRun ingest;
         };
       };
 }

@@ -109,15 +109,45 @@ backends. A tracked Cargo.toml or Cargo.lock anywhere the renderer writes is
 refused at evaluation: cargo.nix is the manifest, and a stale tracked file
 would silently lose to it.
 
-*pkgs.rustdynManifest* is the library behind it: *normalize* (versions
-filled in), *resolve* (the rendered form, *passthru.cargoResolved*),
-*render*, *ingestRendered <tree>* (a rendered or any cargo tree back into
-the manifest's shape, member paths folded to *member = true*; *flakeInputs*
-cannot be recovered from store paths and comes back empty), and
-*withCargoManifest* (the builders' entry point). The escape hatch for
-*cargo add* and *cargo update* over a rendered tree (*cargoRun*,
-*rustdyn-cargo*) is not written yet; until it is, a registry crate's lock
-entry and checksum are taken from a Cargo.lock cargo produced elsewhere.
+*pkgs.rustdynManifest* is the library behind it: *normalize* /
+*denormalize* (the fleet version filled in or dropped), *resolve* (the
+rendered form, *passthru.cargoResolved*), *render*, *ingestRendered <tree>*
+(a rendered or any cargo tree back into the manifest's shape, member paths
+folded to *member = true*), *ingestTree { tree; seed; }* (the same with the
+version dropped and the seed's *flakeInputs* carried over: a migration),
+*renderCargoNix* (the file's text) and *withCargoManifest* (the builders'
+entry point).
+
+## The escape hatch: cargoRun, ingest and rustdyn-cargo
+
+A cargo command that needs the network (*cargo add*, *cargo update*,
+*cargo generate-lockfile*) or rewrites the tree runs INSIDE nix against the
+rendered manifests: *passthru.cargoRun { command; }* is an impure
+derivation (network on, never cached, never a pure derivation's input, so
+not a flake check) whose *$out/tree* holds the manifests after the command
+and *$out/patch* everything else the command changed, as a diff against the
+checkout. *passthru.ingest <out>* turns that tree back into cargo.nix
+text: member paths fold to *member = true*, flake-input store paths fold
+to *flakeInput = "<name>"*, versions equal to the fleet version are
+dropped, the previous *flakeInputs* table is kept. Tools the command needs
+come through *cargoRunInputs* on the builder call or the run's
+*nativeBuildInputs*.
+
+*rustdyn-cargo* wraps both from the checkout (the *godyn-go* twin):
+
+```
+rustdyn-cargo -- cargo add serde@1 --features derive      # rewrites cargo.nix
+rustdyn-cargo -A packages.x86_64-linux.posh -- cargo update
+rustdyn-cargo -n -- cargo generate-lockfile               # build only, print $out
+rustdyn-cargo -I .                                        # migrate a tracked Cargo.toml/Cargo.lock into cargo.nix
+```
+
+It evaluates the flake from a *git+file:* ref (tracked files as in the
+working tree; a new file needs *git add -N*), applies *$out/patch* with
+*git apply -p2* after a *--check*, and writes *cargo.nix* from *ingest*.
+The first registry dependency of a workspace is exactly this:
+*rustdyn-cargo -- cargo add <crate>* fetches the crate once and records its
+lock entry and checksum in cargo.nix.
 
 # buildRustAuto (selector)
 
