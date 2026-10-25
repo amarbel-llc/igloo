@@ -1016,6 +1016,39 @@
               }";
             pkgs.runCommandLocal "go-toolchain-scope-ok" { } "echo OK > $out";
 
+          # version-env: the one version.env reader the Go and Rust builders
+          # share. Eval-time asserts over fixture directories: a plain line, an
+          # `export` line, a multi-line file with the version in the middle, a
+          # file with no version line, and no file at all.
+          version-env-test =
+            let
+              ve = import ./pkgs/build-support/version-env { inherit (pkgs) lib; };
+              t = ./pkgs/build-support/version-env/tests;
+            in
+            assert ve.versionFromEnv (t + "/plain") == "1.2.3";
+            assert ve.versionFromEnv (t + "/export") == "2.0.0";
+            assert ve.versionFromEnv (t + "/multiline") == "3.1.4";
+            assert ve.versionFromEnv (t + "/none") == null;
+            assert ve.versionFromEnv (t + "/absent") == null;
+            assert ve.versionFromEnv "${t}/plain" == "1.2.3";
+            assert
+              ve.resolveVersion {
+                version = "9.9.9";
+                dir = t + "/plain";
+              } == "9.9.9";
+            assert ve.resolveVersion { dir = t + "/plain"; } == "1.2.3";
+            assert ve.resolveVersion { dir = t + "/none"; } == "dev";
+            assert
+              ve.resolveVersion {
+                dir = t + "/absent";
+                fallback = "0.0.1";
+              } == "0.0.1";
+            assert ve.commitOf { rev = "deadbeef"; } == "deadbeef";
+            assert ve.commitOf { shortRev = "dead"; } == "dead";
+            assert ve.commitOf ./. == "unknown";
+            assert ve.commitOf "/nix/store/x" == "unknown";
+            pkgs.runCommandLocal "version-env-test-ok" { } "echo OK > $out";
+
           bun2nix-lint-stack-up-to-date = import ./pkgs/build-support/bun2nix/lint/check.nix {
             inherit pkgs;
             bun2nix = bun2nixCli;

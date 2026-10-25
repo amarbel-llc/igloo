@@ -99,23 +99,12 @@ let
   srcRoot = joinPath src workspaceDir;
   lockFile = if cargoLock != null then cargoLock else joinPath srcRoot "Cargo.lock";
 
-  # version.env auto-read, godyn's rule (build-godyn-module.nix).
-  versionEnvPath = joinPath srcRoot "version.env";
-  versionFromEnv =
-    if builtins.pathExists versionEnvPath then
-      let
-        m = builtins.match ".*_VERSION=([^[:space:]]+).*" (builtins.readFile versionEnvPath);
-      in
-      if m != null then builtins.elemAt m 0 else null
-    else
-      null;
-  resolvedVersion =
-    if version != null then
-      version
-    else if versionFromEnv != null then
-      versionFromEnv
-    else
-      "dev";
+  # version.env auto-read: the fleet rule shared with the Go builders
+  # (pkgs/build-support/version-env).
+  resolvedVersion = (import ../version-env { inherit lib; }).resolveVersion {
+    inherit version;
+    dir = srcRoot;
+  };
   pnameUpper = lib.toUpper (lib.replaceStrings [ "-" ] [ "_" ] pname);
   # The environment every member build (and its build script) sees; also what
   # buildRustAuto hands to the buildRustPackage backend.

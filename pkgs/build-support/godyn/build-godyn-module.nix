@@ -266,22 +266,11 @@ let
   # version.env auto-read + ldflags assembly — parity with buildGoApplication
   # (gomod2nix default.nix:794-870). Explicit version > version.env > "dev".
   effectivePwd = if pwd != null then pwd else moduleRoot;
-  versionEnvPath = "${toString effectivePwd}/version.env";
-  versionFromEnv =
-    if builtins.pathExists versionEnvPath then
-      let
-        m = builtins.match ".*_VERSION=([^[:space:]]+).*" (builtins.readFile versionEnvPath);
-      in
-      if m != null then builtins.elemAt m 0 else null
-    else
-      null;
-  effectiveVersion =
-    if version != null then
-      version
-    else if versionFromEnv != null then
-      versionFromEnv
-    else
-      "dev";
+  # The reader is shared with buildGoApplication and rustdyn (pkgs/build-support/version-env).
+  effectiveVersion = (import ../version-env { inherit lib; }).resolveVersion {
+    inherit version;
+    dir = effectivePwd;
+  };
   versionLdflags = [
     "-X main.version=${effectiveVersion}"
     "-X main.commit=${commit}"
