@@ -761,10 +761,13 @@ checks.<system>.myapp-lint = pkgs.buildGodynLint {
 
 # LIMITATIONS
 
-Vet and lint: test sources are analyzed only as in-package test variants
-(*vetTests* / *lintTests*); external test packages and the variants of cgo
-packages are not (igloo#90). The toolchain-vet lane (the older vetx protocol)
-skips cgo packages; the lint lane analyzes them from cgo's translated sources. Under a type-bearing vetx tool (see LINT), archive-bridged
+Vet and lint: test sources are analyzed as the in-package test variant
+(*vetTests* / *lintTests*) and as the external test package (*vetXTests* /
+*lintXTests*, keyed by the tested package's import path, the unit `go vet`
+calls <ip>\_test); both are part of *vetAll* / *lintAll*. The variants and
+external tests of cgo and asm packages are not analyzed, as their tests are not
+built (igloo#32). Both lanes analyze a cgo package itself from cgo's
+translated sources. Under a type-bearing vetx tool (see LINT), archive-bridged
 packages cannot be analyzed — there are no sources — so their importers fail.
 
 Tests: a cgo or asm package's own tests are not yet supported (igloo#32), nor is

@@ -1278,60 +1278,56 @@ let
           mv vet.out "$out/vet.out"
           ${resultLine}
         '';
-      drvs =
-        lib.mapAttrs
-          (
-            importPath: p:
-            let
-              srcDir = srcDirFor importPath p;
-              deps = transitiveDeps importPath;
-            in
-            runCommandLocal "godyn-${lane}-${sanitize importPath}"
-              (runAttrs {
-                ID = importPath;
-                Compiler = "gc";
-                ImportPath = importPath;
-                GoVersion = langOf p;
-                # a cgo package is type-checked from cgo's translated sources, kept by
-                # its compile derivation (only reached for typed-vetx tools)
-                GoFiles =
-                  map (f: "${srcDir}/${f}") (nl p.goFiles)
-                  ++ lib.optionals (nl p.cgoFiles != [ ]) (
-                    [ "${pkgDrvs.${importPath}}/cgo/_cgo_gotypes.go" ]
-                    ++ map (f: "${pkgDrvs.${importPath}}/cgo/${lib.removeSuffix ".go" f}.cgo1.go") (nl p.cgoFiles)
-                  );
-                NonGoFiles = map (f: "${srcDir}/${f}") (nl p.sFiles);
-                ImportMap = lib.genAttrs deps (d: d);
-                PackageFile = lib.genAttrs deps archiveOf;
-                PackageVetx = lib.genAttrs (builtins.filter (d: drvs ? ${d}) deps) (d: "${drvs.${d}}/vet.out");
-                # the stdlib the package's import closure reaches: its own and its
-                # graph deps' direct stdlib imports (expanded through the stdlib
-                # lane's deps.json at build time); null for graphs from an older gen,
-                # which get the whole stdlib index
-                stdRoots =
-                  if p ? stdImports then
-                    uniqueInOrder (lib.concatMap (d: nl (byImport.${d}.stdImports or null)) ([ importPath ] ++ deps))
-                  else
-                    null;
-                VetxOnly = !p.local;
-                VetxOutput = "vet.out";
-              })
-              (runScript {
-                inherit importPath;
-                resultLine = lib.optionalString p.local ''echo "ok ${importPath}" > "$out/result"'';
-              })
-          )
-          (
-            lib.filterAttrs (ip: p: archiveBridgeOf ip == null && (typedVetx || nl p.cgoFiles == [ ])) byImport
-          );
+      drvs = lib.mapAttrs (
+        importPath: p:
+        let
+          srcDir = srcDirFor importPath p;
+          deps = transitiveDeps importPath;
+        in
+        runCommandLocal "godyn-${lane}-${sanitize importPath}"
+          (runAttrs {
+            ID = importPath;
+            Compiler = "gc";
+            ImportPath = importPath;
+            GoVersion = langOf p;
+            # a cgo package is type-checked from cgo's translated sources, kept by
+            # its compile derivation — by both protocols, as `go vet` does
+            # (igloo#90: the toolchain-vet lane used to skip cgo packages)
+            GoFiles =
+              map (f: "${srcDir}/${f}") (nl p.goFiles)
+              ++ lib.optionals (nl p.cgoFiles != [ ]) (
+                [ "${pkgDrvs.${importPath}}/cgo/_cgo_gotypes.go" ]
+                ++ map (f: "${pkgDrvs.${importPath}}/cgo/${lib.removeSuffix ".go" f}.cgo1.go") (nl p.cgoFiles)
+              );
+            NonGoFiles = map (f: "${srcDir}/${f}") (nl p.sFiles);
+            ImportMap = lib.genAttrs deps (d: d);
+            PackageFile = lib.genAttrs deps archiveOf;
+            PackageVetx = lib.genAttrs (builtins.filter (d: drvs ? ${d}) deps) (d: "${drvs.${d}}/vet.out");
+            # the stdlib the package's import closure reaches: its own and its
+            # graph deps' direct stdlib imports (expanded through the stdlib
+            # lane's deps.json at build time); null for graphs from an older gen,
+            # which get the whole stdlib index
+            stdRoots =
+              if p ? stdImports then
+                uniqueInOrder (lib.concatMap (d: nl (byImport.${d}.stdImports or null)) ([ importPath ] ++ deps))
+              else
+                null;
+            VetxOnly = !p.local;
+            VetxOutput = "vet.out";
+          })
+          (runScript {
+            inherit importPath;
+            resultLine = lib.optionalString p.local ''echo "ok ${importPath}" > "$out/result"'';
+          })
+      ) (lib.filterAttrs (ip: _: archiveBridgeOf ip == null) byImport);
       local = lib.filterAttrs (ip: _: byImport.${ip}.local) drvs;
 
       # Test variants (igloo#90): a tested package's sources plus its in-package
       # _test.go files, analyzed as one unit against the variant's test-inclusive
       # imports (from the test graph) and its build-graph deps' facts. Always
-      # local, so findings are reported. Not analyzed yet: external test packages
-      # (xtest — they need the variant's archive, which lives inside the test
-      # binary's derivation) and the variants of cgo packages.
+      # local, so findings are reported. External test packages follow below
+      # (xtestDrvs); the variants of cgo packages are not analyzed (their tests
+      # are not built either, igloo#32).
       testDrvs = lib.listToAttrs (
         map
           (
@@ -1390,29 +1386,144 @@ let
             ) testGraph
           )
       );
+
+      # External test packages (igloo#90, second half): `go vet` analyzes
+      # <ip>_test as its own unit against the tested package's VARIANT (the
+      # package plus its in-package test files). The variant's archive lives
+      # inside the test binary's derivation, so the external-test run gets its
+      # own small compile of it (variantArchives, content-addressed, no link);
+      # the variant's facts and types come from its analysis run (or the
+      # package's own when there are no in-package test files, when the two
+      # are the same unit). Packages with cgo or asm sources are left out, as
+      # their tests are (igloo#32).
+      xtestable = builtins.filter (
+        t:
+        nl t.xTestGoFiles != [ ]
+        && nl (byImport.${t.importPath}.cgoFiles or null) == [ ]
+        && nl (byImport.${t.importPath}.sFiles or null) == [ ]
+      ) testGraph;
+      variantArchives = lib.listToAttrs (
+        map (
+          t:
+          let
+            inherit (t) importPath;
+            p = byImport.${importPath};
+            pkgRoot = pkgRootFor t.dir;
+            relTo = relToRoot pkgRoot;
+            variantFiles = lib.listToAttrs (
+              map (f: lib.nameValuePair f true) (nl t.goFiles ++ nl t.testGoFiles)
+            );
+            srcDir = builtins.path {
+              path = pkgRoot;
+              name = "godyn-variantsrc-${sanitize importPath}";
+              filter = path: type: type == "directory" || builtins.hasAttr (relTo path) variantFiles;
+            };
+            directDeps = uniqueInOrder (nl t.imports);
+            deps = uniqueInOrder (directDeps ++ lib.concatMap transitiveDeps directDeps);
+            hasEmbed = nl (p.embedPatterns or null) != [ ];
+          in
+          lib.nameValuePair importPath (
+            runCommandLocal "godyn-variant-${sanitize importPath}"
+              {
+                nativeBuildInputs = [ go ];
+                __contentAddressed = true;
+                outputHashMode = "recursive";
+                outputHashAlgo = "sha256";
+              }
+              ''
+                export GOROOT=${go}/share/go
+                mkdir -p "$out"
+                ${outWritableProbe}
+                W="$NIX_BUILD_TOP"
+                CFG="$W/ic"; cat ${buildStdlib}/importcfg > "$CFG"
+                ${lib.concatMapStringsSep "\n" (d: ''echo "packagefile ${d}=${archiveOf d}" >> "$CFG"'') deps}
+                ${lib.optionalString hasEmbed "printf '%s' ${lib.escapeShellArg (embedCfgJSON srcDir p)} > \"$W/embedcfg.json\""}
+                go tool compile ${compileFlags}-importcfg "$CFG" ${lib.optionalString hasEmbed ''-embedcfg "$W/embedcfg.json" ''}-p '${importPath}' -buildid "" \
+                  -trimpath="${srcDir}=>${importPath};$W=>" -nolocalimports -pack -lang=${langOf p} \
+                  -o "$out/variant.a" ${
+                    lib.concatMapStringsSep " " (f: "${srcDir}/${f}") (nl t.goFiles ++ nl t.testGoFiles)
+                  }
+              ''
+          )
+        ) xtestable
+      );
+      xtestDrvs = lib.listToAttrs (
+        map (
+          t:
+          let
+            inherit (t) importPath;
+            p = byImport.${importPath};
+            pkgRoot = pkgRootFor t.dir;
+            relTo = relToRoot pkgRoot;
+            xFiles = lib.listToAttrs (map (f: lib.nameValuePair f true) (nl t.xTestGoFiles));
+            srcDir = builtins.path {
+              path = pkgRoot;
+              name = "godyn-${lane}-xtestsrc-${sanitize importPath}";
+              filter = path: type: type == "directory" || builtins.hasAttr (relTo path) xFiles;
+            };
+            directDeps = uniqueInOrder (nl t.imports ++ nl t.xTestImports);
+            missing = builtins.filter (d: !(byImport ? ${d})) directDeps;
+            deps = uniqueInOrder (directDeps ++ lib.concatMap transitiveDeps directDeps);
+            # the tested package's types and facts: its variant's run, or its own
+            # when it has no in-package test files (then the variant IS the package)
+            variantVetx = testDrvs.${importPath} or drvs.${importPath};
+          in
+          if missing != [ ] then
+            throw "buildGodynModule(${pname}): the external test package of ${importPath} imports ${lib.concatStringsSep ", " missing}, which the build graph does not carry — a test-only third-party import needs a graph derived with tests = true (igloo#34)"
+          else
+            lib.nameValuePair importPath (
+              runCommandLocal "godyn-${lane}-xtest-${sanitize importPath}"
+                (runAttrs {
+                  ID = "${importPath}_test";
+                  Compiler = "gc";
+                  ImportPath = "${importPath}_test";
+                  GoVersion = langOf p;
+                  GoFiles = map (f: "${srcDir}/${f}") (nl t.xTestGoFiles);
+                  NonGoFiles = [ ];
+                  ImportMap = lib.genAttrs (deps ++ [ importPath ]) (d: d);
+                  PackageFile = lib.genAttrs deps archiveOf // {
+                    ${importPath} = "${variantArchives.${importPath}}/variant.a";
+                  };
+                  PackageVetx = lib.genAttrs (builtins.filter (d: drvs ? ${d}) deps) (d: "${drvs.${d}}/vet.out") // {
+                    ${importPath} = "${variantVetx}/vet.out";
+                  };
+                  stdRoots = null;
+                  VetxOnly = false;
+                  VetxOutput = "vet.out";
+                })
+                (runScript {
+                  importPath = "${importPath}_test";
+                  resultLine = ''echo "ok ${importPath} [external test]" > "$out/result"'';
+                })
+            )
+        ) xtestable
+      );
+      catResults =
+        drvsByIp:
+        lib.concatMapStringsSep "\n" (ip: "cat ${drvsByIp.${ip}}/result >> $out") (
+          builtins.attrNames drvsByIp
+        );
     in
     {
       # runs: every package's run derivation by import path, third-party and
       # bridged (facts-only) ones included — for inspecting a single run.
-      # tests: the test-variant runs by import path (igloo#90).
+      # tests: the test-variant runs by import path; xtests: the external test
+      # packages' runs, keyed by the tested package's import path (igloo#90).
       inherit local stdVetx;
       runs = drvs;
       tests = testDrvs;
-      # all: every local package's run AND its test variant's, as `go vet ./...`
-      # analyzes both (operator's call, 2026-10-25); testsAll is the tests-only view.
+      xtests = xtestDrvs;
+      # all: every local package's run, its test variant's and its external test
+      # package's, as `go vet ./...` analyzes all three (operator's call,
+      # 2026-10-25); testsAll is the tests-only view (variants and external tests).
       all = runCommandLocal "godyn-${pname}-${lane}" { } (
-        ": > $out\n"
-        + lib.concatMapStringsSep "\n" (ip: "cat ${local.${ip}}/result >> $out") (builtins.attrNames local)
-        + "\n"
-        + lib.concatMapStringsSep "\n" (ip: "cat ${testDrvs.${ip}}/result >> $out") (
-          builtins.attrNames testDrvs
-        )
+        ": > $out\n" + catResults local + "\n" + catResults testDrvs + "\n" + catResults xtestDrvs
       );
       testsAll = runCommandLocal "godyn-${pname}-${lane}-tests" { } (
-        ": > $out\n"
-        + lib.concatMapStringsSep "\n" (ip: "cat ${testDrvs.${ip}}/result >> $out") (
-          builtins.attrNames testDrvs
-        )
+        ": > $out\n" + catResults testDrvs + "\n" + catResults xtestDrvs
+      );
+      xtestsAll = runCommandLocal "godyn-${pname}-${lane}-xtests" { } (
+        ": > $out\n" + catResults xtestDrvs
       );
     };
 
@@ -1931,11 +2042,15 @@ installed.overrideAttrs (old: {
     vetRuns = vetLane.runs;
     vetTests = vetLane.tests;
     vetTestsAll = vetLane.testsAll;
+    vetXTests = vetLane.xtests;
+    vetXTestsAll = vetLane.xtestsAll;
     lint = lintLane.local;
     lintAll = lintLane.all;
     lintRuns = lintLane.runs;
     lintTests = lintLane.tests;
     lintTestsAll = lintLane.testsAll;
+    lintXTests = lintLane.xtests;
+    lintXTestsAll = lintLane.xtestsAll;
     # the lint tool's stdlib vetx lane (type-bearing vetx tools only; igloo#71)
     lintStdVetx = lintLane.stdVetx;
     # the graphs this build used: the committed files, or the derived ones (FDR 0008)

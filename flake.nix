@@ -705,6 +705,16 @@
             version = "0.0.0";
             tests = true;
           };
+          # igloo#90 (second half): the finding sits only in the EXTERNAL test
+          # package (pkg_ext_test.go); the package and its in-package variant are
+          # clean, so only the external-test run may report it.
+          godyn-vet-xtests-bait-test = pkgs.buildGodynModule {
+            pname = "godyn-vet-xtests-bait-test";
+            src = ./pkgs/build-support/godyn/tests/vetxtests;
+            modules = ./pkgs/build-support/godyn/tests/vetxtests/gomod2nix.toml;
+            version = "0.0.0";
+            tests = true;
+          };
           # igloo#88: a test that drives the module's OWN binary. Two instances of
           # the same module: the binary, and the tests with that binary on PATH via
           # nativeCheckInputs (compiles shared, CA). No ambient go, no native mode.
@@ -1275,6 +1285,26 @@
           };
           godyn-vet-tests-package-clean-test =
             self.packages.${system}.godyn-vet-tests-bait-test.passthru.vet."example.com/vettests";
+          # igloo#90 (second half): the external test package is analyzed as its own
+          # unit (<ip>_test, against the variant's archive and facts). The finding in
+          # pkg_ext_test.go reaches the external-test run; the in-package variant and
+          # the package itself stay green; gotest's clean external test (leaf) is
+          # listed by the aggregates.
+          godyn-vet-xtests-finding-test = pkgs.testers.testBuildFailure' {
+            drv = self.packages.${system}.godyn-vet-xtests-bait-test.passthru.vetXTests."example.com/vetxtests";
+            expectedBuilderLogEntries = [ "Sprintf format %d has arg" ];
+          };
+          godyn-vet-xtests-variant-clean-test =
+            self.packages.${system}.godyn-vet-xtests-bait-test.passthru.vetTests."example.com/vetxtests";
+          godyn-vet-xtests-in-all-test = pkgs.runCommandLocal "godyn-vet-xtests-in-all-test-check" { } ''
+            for lane in ${self.packages.${system}.godyn-gotest-test.passthru.vetAll} ${
+              self.packages.${system}.godyn-gotest-test.passthru.lintAll
+            }; do
+              grep -qx "ok example.com/gotest/leaf \[external test\]" "$lane" \
+                || { echo "$lane does not list leaf's external test" >&2; cat "$lane" >&2; exit 1; }
+            done
+            echo OK > $out
+          '';
           godyn-vet-tests-in-all-test = pkgs.runCommandLocal "godyn-vet-tests-in-all-test-check" { } ''
             for lane in ${self.packages.${system}.godyn-gotest-test.passthru.vetAll} ${
               self.packages.${system}.godyn-gotest-test.passthru.lintAll
@@ -2016,11 +2046,22 @@
             [ "$got" = 5 ] || { echo "cgo fixture printed [$got], want 5" >&2; exit 1; }
             echo OK > $out
           '';
-          # The lint lane (type-bearing vetx tool) analyzes the cgo package from its
-          # translated sources and hands main the cgo package's vetx; the
-          # toolchain-vet lane still skips cgo packages (old protocol).
+          # Both analysis lanes analyze the cgo package from its translated sources:
+          # the lint lane (type-bearing vetx tool) hands main the cgo package's vetx;
+          # the toolchain-vet lane (old protocol) type-checks it the same way `go vet`
+          # does, from cgo's output (igloo#90, second half: it used to skip cgo
+          # packages, so a cgo package's own code was never vetted).
           godyn-cgo-lint-test = self.packages.${system}.godyn-cgo-test.passthru.lintAll;
-          godyn-cgo-vet-test = self.packages.${system}.godyn-cgo-test.passthru.vetAll;
+          godyn-cgo-vet-test =
+            let
+              cgo = self.packages.${system}.godyn-cgo-test;
+            in
+            assert cgo.passthru.vetRuns ? "example.com/cgo/cadd";
+            pkgs.runCommandLocal "godyn-cgo-vet-test-check" { } ''
+              grep -qx "ok example.com/cgo/cadd" ${cgo.passthru.vetAll} \
+                || { echo "the toolchain-vet lane did not run over the cgo package" >&2; cat ${cgo.passthru.vetAll} >&2; exit 1; }
+              echo OK > $out
+            '';
           # per-package lint: staticcheck's findings reach the build log and fail it;
           # a //nolint naming the golangci-lint linter suppresses the same finding.
           godyn-lint-finding-test = pkgs.testers.testBuildFailure' {
