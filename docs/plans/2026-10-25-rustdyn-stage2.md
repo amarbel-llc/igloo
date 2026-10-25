@@ -78,6 +78,19 @@ posh's opt-in output.
    like-for-like number; stage 2 adds the fixtures' cold/warm/edit through
    the same host guard. Recorded here when the host allows.
 
+## Outcome (2026-10-25, same day)
+
+Steps 1–6 done: all eight `rustdyn-*` checks green through `just
+test-rustdyn` (V). Red was observed for the tests-fail and lint-fail checks
+(the wrapped derivations failed as designed; testBuildFailure' needed
+`expectedBuilderExitCode = 101` for libtest) and for rustdyn(7) (scdoc rejects
+`_` and `*` inside italics); the multi and tests checks passed on their first
+run, so no red was observed for them (fixture and builder were written
+together). Step 7: the fixtures' outputs are not on the fleet cache (V), the
+same finding as godyn's; a CA derivation has realisations only for the
+outputs that were linked (V), so the probe asks per wanted output. Step 8
+waits for a quiet host.
+
 ## Host rules
 
 One nix build at a time; headroom (more than 4 GB available, load1 under 20)

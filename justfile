@@ -68,7 +68,7 @@ build-eval:
 
     gum log --level info "all changed packages evaluated successfully"
 
-test: test-gomod2nix test-gomod2nix-merge-annotation test-go-toolchain test-eval-warn test-flake-checks test-godyn
+test: test-gomod2nix test-gomod2nix-merge-annotation test-go-toolchain test-eval-warn test-flake-checks test-godyn test-rustdyn
 
 # [test] Build every gomod2nix build-support eval-test fixture. These pin
 # buildGoApplication / mkGoEnv / mkGoPkgs behavior (version resolution,
@@ -191,14 +191,39 @@ test-godyn:
     gum log --level info "building ${#names[@]} godyn checks"
     nix build --no-link --print-build-logs "${names[@]/#/.#checks.${system}.}"
 
+# [test] Build every rustdyn flake check (checks.<system>.rustdyn-*: the multi,
+# tests, tests-fail, lint, lint-fail, postinstall and buildRustAuto fixtures and
+# rustdyn(7)), FDR 0009 stage 2 — test-godyn's twin. The names come from the
+# flake, so a new rustdyn-* check joins the gate automatically. x86_64-linux
+# only: rustdyn is unvalidated elsewhere (igloo#33's Rust twin).
+#
+# build every rustdyn flake check
+[group: 'test']
+test-rustdyn:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    system=$(nix eval --raw --impure --expr 'builtins.currentSystem')
+    if [[ "$system" != x86_64-linux ]]; then
+        gum log --level warn "skipping rustdyn checks on $system (rustdyn validated on x86_64-linux only)"
+        exit 0
+    fi
+    mapfile -t names < <(nix eval --raw ".#checks.${system}" \
+        --apply 'cs: builtins.concatStringsSep "\n" (builtins.filter (n: builtins.substring 0 8 n == "rustdyn-") (builtins.attrNames cs))')
+    if [[ ${#names[@]} -eq 0 ]]; then
+        gum log --level error "no checks.${system}.rustdyn-* found — the name query is broken"
+        exit 1
+    fi
+    gum log --level info "building ${#names[@]} rustdyn checks: ${names[*]}"
+    nix build --no-link --print-build-logs "${names[@]/#/.#checks.${system}.}"
+
 # [test] Build every other flake check (checks.<system>.*): the manpage renders
 # (gomod2nix-man, godyn-man, go-toolchain-man, vm-tests-man, nixgc-man, nix-man),
 # gomod2nix, go-toolchain-scope, formatting, the bun2nix lint stack and its
 # fixtures. The merge hook never built these (igloo#35): gomod2nix(7) was
 # unrenderable across four green merges. The names come from the flake, so a new
 # check joins the gate automatically. Excluded by the operator's call: godyn-*
-# (test-godyn's lane) and the vm-tests-* VM boots (a TCG guest per check; their
-# manpage stays in). claude-code (packages.default) is gated here since the
+# (test-godyn's lane), rustdyn-* (test-rustdyn's lane) and the vm-tests-* VM
+# boots (a TCG guest per check; their manpage stays in). claude-code (packages.default) is gated here since the
 # stale pin came out (igloo#79); legacyPackages carries allowUnfree.
 #
 # build every non-godyn flake check
@@ -213,7 +238,7 @@ test-flake-checks:
               hasPrefix = p: builtins.substring 0 (builtins.stringLength p) n == p;
               hasSuffix = s: builtins.substring (builtins.stringLength n - builtins.stringLength s) (builtins.stringLength s) n == s;
             in
-            !(hasPrefix "godyn-") && !(hasPrefix "vm-tests-" && !(hasSuffix "-man"))
+            !(hasPrefix "godyn-") && !(hasPrefix "rustdyn-") && !(hasPrefix "vm-tests-" && !(hasSuffix "-man"))
           ) (builtins.attrNames cs))')
     # an empty list would make `nix build` fall back to the flake's default package
     if [[ ${#names[@]} -eq 0 ]]; then
@@ -1037,8 +1062,42 @@ explore-cache-has-pkg installable store="" limit="0":
         "$work/drvmap.json" > "$work/ca.txt"
     total=$(wc -l < "$work/ca.txt")
     echo "derivations in closure: $(jq length "$work/drvmap.json"); floating CA: $total"
-    if [ "{{ limit }}" != "0" ]; then head -n "{{ limit }}" "$work/ca.txt" > "$work/ca.lim"; mv "$work/ca.lim" "$work/ca.txt"; fi
-    just explore-cache-has-drvs "$work/ca.txt" "$store"
+    # The outputs the closure actually links (each derivation's inputDrvs name the
+    # outputs it takes); a build registers realisations only for those, and a
+    # consumer substitutes only those. Emit `<drv>^out,lib` per CA derivation.
+    jq -r '.[] | ((.inputs.drvs // .inputDrvs // {}) | to_entries[])
+             | (if (.key | startswith("/")) then .key else "/nix/store/" + .key end) as $d
+             | (if (.value | type) == "array" then .value else .value.outputs end)[]
+             | "\($d)\t\(.)"' "$work/drvmap.json" | sort -u > "$work/wanted.tsv"
+    awk 'NR == FNR { ca[$0] = 1; next } ($1 in ca) { outs[$1] = (outs[$1] ? outs[$1] "," $2 : $2) }
+         END { for (d in outs) print d "^" outs[d] }' "$work/ca.txt" "$work/wanted.tsv" | sort > "$work/ca-outs.txt"
+    if [ "{{ limit }}" != "0" ]; then head -n "{{ limit }}" "$work/ca-outs.txt" > "$work/ca.lim"; mv "$work/ca.lim" "$work/ca-outs.txt"; fi
+    just explore-cache-has-drvs "$work/ca-outs.txt" "$store"
+
+# [explore] Debug one derivation of a package's closure: the .drv paths whose
+# names match `pattern`, each one's outputs as nix shows them, and the local
+# realisation lookup with its stderr (what explore-cache-has-drvs hides behind
+# "no local realisation"). Read-only.
+#
+# show a closure member's outputs and local realisations, with errors
+[group: 'explore']
+explore-realisation installable pattern:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    work=$(mktemp -d "${TMPDIR:-/tmp}/realisation.XXXXXX")
+    nix derivation show -r "{{ installable }}" > "$work/drvs.json"
+    jq -r '(if has("derivations") then .derivations else . end) | to_entries[]
+             | select(.key | contains("{{ pattern }}"))
+             | (if (.key | startswith("/")) then .key else "/nix/store/" + .key end) + "\t" + (.value.outputs | tojson)' \
+        "$work/drvs.json" | while IFS=$'\t' read -r drv outs; do
+        echo "--- $drv"
+        echo "outputs: $outs"
+        for o in $(jq -r 'keys[]' <<<"$outs"); do
+            echo "realisation ^$o:"
+            nix realisation info "$drv^$o" --json || echo "(realisation info exit $?)"
+        done
+        echo
+    done
 
 # [explore] Probe the local store's own .drv files by name instead of evaluating
 # a flake: other sessions build their repos on this host, so `*godyn-compile-*
@@ -1076,10 +1135,21 @@ explore-cache-has-drvs drvlist store="":
     echo "store: $store"
     code() { curl -sS -o "$2" -w '%{http_code}' "$1" 2>/dev/null || echo "000"; }
     n_ok=0 n_nolocal=0 n_noreal=0 n_wrongout=0 n_nonar=0 n_unsigned=0 n_nofetch=0
-    while IFS= read -r drv; do
-        name=$(basename "$drv" .drv); name=${name#*-}
-        if ! nix realisation info "$drv^out" --json > "$work/real.json" 2>/dev/null; then
-            n_nolocal=$((n_nolocal + 1)); echo "NO-LOCAL-REALISATION  $name"; continue
+    # A line is `<drv>` (probe every output) or `<drv>^out,lib` (only those). A
+    # multi-output CA derivation has one realisation per output, and a build
+    # registers realisations only for the outputs something asked for (V: a
+    # buildRustCrate lib's unused `out` has none after a successful build), so
+    # outputs are queried one at a time and a missing one is "no local
+    # realisation" for that output alone.
+    while IFS= read -r line; do
+        drv=${line%%^*}; outs=${line#*^}; [ "$outs" != "$line" ] || outs='*'
+        if [ "$outs" = '*' ]; then
+            outs=$(nix derivation show "$drv" | jq -r '(if has("derivations") then .derivations else . end) | .[] | .outputs | keys | join(",")')
+        fi
+        for o in ${outs//,/ }; do
+        name=$(basename "$drv" .drv); name="${name#*-}^$o"
+        if ! nix realisation info "$drv^$o" --json > "$work/real.json" 2>"$work/real.err" || [ "$(jq length "$work/real.json")" = 0 ]; then
+            n_nolocal=$((n_nolocal + 1)); echo "NO-LOCAL-REALISATION  $name ($(tail -n1 "$work/real.err" | cut -c1-120))"; continue
         fi
         id=$(jq -r '.[0].id' "$work/real.json"); out=$(jq -r '.[0].outPath' "$work/real.json")
         hash=$(basename "$out"); hash=${hash%%-*}
@@ -1101,6 +1171,7 @@ explore-cache-has-drvs drvlist store="":
             n_nofetch=$((n_nofetch + 1)); echo "NAR-NOT-FETCHABLE     $name $url"; continue
         fi
         n_ok=$((n_ok + 1))
+        done
     done < "{{ drvlist }}"
     echo "--- summary ($store):"
     echo "probed=$(wc -l < "{{ drvlist }}") ok=$n_ok no-local-realisation=$n_nolocal no-realisation=$n_noreal wrong-outpath=$n_wrongout no-narinfo=$n_nonar unsigned=$n_unsigned nar-not-fetchable=$n_nofetch"

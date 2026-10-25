@@ -1,6 +1,6 @@
 ---
 status: proposed
-date: 2026-10-23
+date: 2026-10-25
 promotion-criteria: >-
   proposed → experimental: the spike in § Staged plan (stage 1) has run on
   posh and recorded the measurements it names here, with none of its stop
@@ -330,6 +330,32 @@ with a `rustdyn(7)` manpage; fixtures under `tests/` mirroring godyn's
 (`multi`, `tests`, `lint`, `postinstall`, `flakeinput`); `buildRustAuto`;
 `tests = true`, `lintAll`, `postInstall`, version env; flake checks named
 `rustdyn-*` beside the `godyn-*` ones.
+
+**Stage 2 results (2026-10-25, approved by the operator the same day).**
+`buildRustdynWorkspace`, `buildRustAuto` and `rustdynSystems` landed in
+`pkgs/build-support/rustdyn/` with `rustdyn(7)`; eight `rustdyn-*` checks
+build on x86_64-linux (`just test-rustdyn`, V): `multi` (two members, a path
+dependency, a build script reading the version env), `tests` (per-harness run
+derivations: lib harness, two integration tests of which one execs the bin
+through `CARGO_BIN_EXE_*` and one reads a fixture through the run-time
+`CARGO_MANIFEST_DIR`, the bin's unit harness; `checkAll`), `tests-fail` (a
+failing test fails its run, exit 101), `lint` (clippy-driver standing in for
+rustc on the members only; the clean member passes `-D warnings`, the bad one
+fails on `clippy::bool_comparison`), `postinstall` (rename + postInstall with
+a native input, crate derivations unchanged), `auto` (both backends print the
+same), and the manpage. Not in stage 2 after all: the `flakeinput` fixture
+(stage 3 defines the protocol first). Two findings for the cache question:
+vendored crates source from a small content-addressed copy derivation of the
+vendor dir's entry, because `builtins.storePath` (the spike's route) is
+unavailable in pure evaluation, so a lock change leaves the compile
+derivations' resolved inputs unchanged; and a CA derivation's realisations
+exist only for the outputs something linked (a lib crate's unused `out` has
+none after a successful build, V), so a cache probe must ask per wanted
+output (`just explore-cache-has-pkg`). The fleet cache held none of the
+fixtures' outputs when probed (consistent with the godyn finding of the same
+day: the uploader on flic is selective or rare; circus's lane). Measurements
+against `buildRustPackage` on posh wait for a quiet host (the spike's
+harness, § Stage 1 results, is the like-for-like run).
 
 **Stage 3: posh opt-in, then default.** `.#posh-native` next to the
 buildRustPackage output, its checks moved to `checkAll` / `lintAll`; the

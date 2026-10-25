@@ -166,16 +166,19 @@
             gomod2nix-man
             go-toolchain-man
             godyn-man
+            rustdyn-man
             nixgc-man
             update-zx-deps
             ;
-          # Every igloo man page in one share/man root (godyn(7), gomod2nix(7),
-          # mkGoPkgs(7), goSourceFilter(7), go-toolchain(7), nixgc(1)), for a
-          # consumer's profile or first-party manpath to install by name.
+          # Every igloo man page in one share/man root (godyn(7), rustdyn(7),
+          # gomod2nix(7), mkGoPkgs(7), goSourceFilter(7), go-toolchain(7),
+          # nixgc(1)), for a consumer's profile or first-party manpath to install
+          # by name.
           manpages = pkgs.symlinkJoin {
             name = "igloo-manpages";
             paths = [
               pkgs.godyn-man
+              pkgs.rustdyn-man
               pkgs.gomod2nix-man
               pkgs.go-toolchain-man
               pkgs.nixgc-man
@@ -188,6 +191,55 @@
           conformist-impure-config = c.conformistImpureEval.config.build.configFile;
           conformist-pre-commit = c.conformistEval.config.build.preCommit;
           conformist-repair = c.conformistEval.config.build.repair;
+
+          # -- rustdyn fixtures (FDR 0009 stage 2) --
+          # multi: a two-member workspace (greet lib <- app bin with a build.rs
+          # reading the version env). The check below runs the binary and asserts
+          # the greeting and the version.env-derived version reached it.
+          rustdyn-multi-test = pkgs.buildRustdynWorkspace {
+            pname = "multi";
+            src = ./pkgs/build-support/rustdyn/tests/multi;
+          };
+          # tests: a lib with a unit test and an integration test reading a data
+          # file through the run-time CARGO_MANIFEST_DIR, and a bin with its own
+          # unit test and an integration test exec'ing it via CARGO_BIN_EXE_tool;
+          # `tests = true` makes the package depend on every run.
+          rustdyn-tests-test = pkgs.buildRustdynWorkspace {
+            pname = "tests";
+            src = ./pkgs/build-support/rustdyn/tests/tests;
+            tests = true;
+          };
+          # tests-fail: a root-package workspace whose one test fails; the check
+          # wraps its run derivation in testBuildFailure'.
+          rustdyn-tests-fail-test = pkgs.buildRustdynWorkspace {
+            pname = "failing";
+            src = ./pkgs/build-support/rustdyn/tests/tests-fail;
+          };
+          # lint: `ok` is clean under clippy -D warnings, `bad` compiles under
+          # rustc but trips clippy::bool_comparison.
+          rustdyn-lint-test = pkgs.buildRustdynWorkspace {
+            pname = "lint";
+            src = ./pkgs/build-support/rustdyn/tests/lint;
+          };
+          # postinstall: the install derivation renames the bin and runs a
+          # postInstall with a native input on PATH, over the same crates as multi.
+          rustdyn-postinstall-test = pkgs.buildRustdynWorkspace {
+            pname = "multi";
+            src = ./pkgs/build-support/rustdyn/tests/multi;
+            binaryNames.app = "multi-app";
+            nativeBuildInputs = [ pkgs.jq ];
+            postInstall = ''
+              mkdir -p $out/share/multi
+              $out/bin/multi-app > $out/share/multi/output.txt
+              jq -n --arg v "$version" '{version: $v}' > $out/share/multi/meta.json
+            '';
+          };
+          # buildRustAuto: both backends over the multi fixture; the check runs
+          # passthru.native and passthru.brp.
+          rustdyn-auto-test = pkgs.buildRustAuto {
+            pname = "multi";
+            src = ./pkgs/build-support/rustdyn/tests/multi;
+          };
 
           # -- godyn build-test fixtures --
           # Exercise buildGodynModule's two productionization features end to end:
@@ -936,6 +988,7 @@
           inherit (pkgs) gomod2nix-man;
           inherit (pkgs) go-toolchain-man;
           inherit (pkgs) godyn-man;
+          inherit (pkgs) rustdyn-man;
           inherit (pkgs) vm-tests-man;
           inherit (pkgs) nixgc-man;
           nix-man = pkgs.nix.man;
@@ -1198,6 +1251,83 @@
               || { echo "the test could not run the module's own binary from PATH" >&2; exit 1; }
             echo OK > $out
           '';
+          # rustdyn (FDR 0009 stage 2): the two-member workspace builds per crate,
+          # the bin links the lib through a path dependency, and the build script
+          # saw the version.env version and the "unknown" commit of a path src.
+          rustdyn-multi-test =
+            let
+              built = self.packages.${system}.rustdyn-multi-test;
+            in
+            pkgs.runCommandLocal "rustdyn-multi-test-check" { } ''
+              got=$(${built}/bin/app)
+              [ "$got" = "hello from greet 1.2.3+unknown" ] \
+                || { echo "app printed [$got], want hello from greet 1.2.3+unknown" >&2; exit 1; }
+              [ "${built.passthru.backend}" = rustdyn ] || { echo "backend is not rustdyn" >&2; exit 1; }
+              [ -e ${built.passthru.crates.greet.lib}/lib ] || { echo "greet's lib output has no lib/" >&2; exit 1; }
+              test -s ${built.passthru.graphFile}
+              echo OK > $out
+            '';
+          # every per-harness run of the tests fixture ran: the lib harness, both
+          # integration tests, the bin's unit harness.
+          rustdyn-tests-test =
+            let
+              built = self.packages.${system}.rustdyn-tests-test;
+            in
+            pkgs.runCommandLocal "rustdyn-tests-test-check" { } ''
+              res=${built.passthru.checkAll}
+              grep -q '^ok calc/calc-' "$res" || { echo "missing calc lib harness" >&2; cat "$res" >&2; exit 1; }
+              for h in calc/integration tool/tool tool/cli; do
+                grep -qx "ok $h" "$res" || { echo "missing test result for $h" >&2; cat "$res" >&2; exit 1; }
+              done
+              [ "$(${built}/bin/tool)" = 5 ] || { echo "tool did not print 5" >&2; exit 1; }
+              echo OK > $out
+            '';
+          # a failing test fails its run derivation (and so the package).
+          rustdyn-tests-fail-test = pkgs.testers.testBuildFailure' {
+            drv = pkgs.lib.head (
+              pkgs.lib.attrValues self.packages.${system}.rustdyn-tests-fail-test.passthru.tests.failing
+            );
+            expectedBuilderLogEntries = [ "test result: FAILED" ];
+            # libtest exits 101 on a failed test; the run derivation propagates it.
+            expectedBuilderExitCode = 101;
+          };
+          # the clean member passes the clippy lane; the bad one fails it with a
+          # clippy (not rustc) finding.
+          rustdyn-lint-test = self.packages.${system}.rustdyn-lint-test.passthru.lint.ok;
+          rustdyn-lint-fail-test = pkgs.testers.testBuildFailure' {
+            drv = self.packages.${system}.rustdyn-lint-test.passthru.lint.bad;
+            expectedBuilderLogEntries = [ "clippy::bool_comparison" ];
+          };
+          # the install derivation: renamed bin, postInstall ran with its native
+          # input, the crate derivations are the same as multi's (no relink).
+          rustdyn-postinstall-test =
+            let
+              built = self.packages.${system}.rustdyn-postinstall-test;
+              plain = self.packages.${system}.rustdyn-multi-test;
+            in
+            pkgs.runCommandLocal "rustdyn-postinstall-test-check" { nativeBuildInputs = [ pkgs.jq ]; } ''
+              [ -x ${built}/bin/multi-app ] || { echo "multi-app not installed" >&2; exit 1; }
+              [ ! -e ${built}/bin/app ] || { echo "app should have been renamed" >&2; exit 1; }
+              grep -q 'hello from greet 1.2.3' ${built}/share/multi/output.txt
+              [ "$(jq -r .version ${built}/share/multi/meta.json)" = 1.2.3 ]
+              [ "${built.passthru.crates.app.drvPath}" = "${plain.passthru.crates.app.drvPath}" ] \
+                || { echo "postInstall changed the crate derivation" >&2; exit 1; }
+              echo OK > $out
+            '';
+          # buildRustAuto: rustdyn is the default here, and buildRustPackage over
+          # the same lock prints the same thing.
+          rustdyn-auto-test =
+            let
+              auto = self.packages.${system}.rustdyn-auto-test;
+            in
+            pkgs.runCommandLocal "rustdyn-auto-test-check" { } ''
+              [ "${auto.passthru.backend}" = rustdyn ] || { echo "default backend is not rustdyn" >&2; exit 1; }
+              for b in ${auto.passthru.native}/bin/app ${auto.passthru.brp}/bin/app; do
+                got=$("$b")
+                [ "$got" = "hello from greet 1.2.3+unknown" ] || { echo "$b printed [$got]" >&2; exit 1; }
+              done
+              echo OK > $out
+            '';
           # igloo#73: the module below the repository root builds on both backends
           # and links its path-replaced sibling.
           godyn-multimod-test =

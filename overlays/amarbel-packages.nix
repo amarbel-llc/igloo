@@ -80,6 +80,33 @@ final: _: {
     godynSystems
     ;
 
+  # rustdyn — per-crate content-addressed Rust builder (FDR 0009), godyn's
+  # counterpart for cargo workspaces: a graph from `cargo metadata` at eval
+  # time, one CA buildRustCrate derivation per crate, per-crate test and clippy
+  # lanes, the layered install derivation.
+  inherit (final.callPackage ../pkgs/build-support/rustdyn { })
+    buildRustdynWorkspace
+    buildRustAuto
+    rustdynSystems
+    ;
+
+  # rustdyn(7) man page (scdoc), validated as a flake check. Mirrors godyn-man.
+  rustdyn-man = final.stdenvNoCC.mkDerivation {
+    pname = "rustdyn-man";
+    version = "0.1.0";
+    src = ../pkgs/build-support/rustdyn;
+    nativeBuildInputs = [ final.scdoc ];
+    dontUnpack = true;
+    dontBuild = true;
+    installPhase = ''
+      mkdir -p $out/share/man/man7
+      for f in $src/*.7.scd; do
+        [ -e "$f" ] || continue
+        scdoc < "$f" > "$out/share/man/man7/$(basename "$f" .scd)"
+      done
+    '';
+  };
+
   # nixgc — targeted Nix store GC CLI (extracted + generalized from spinclass's
   # internal/nixgc, igloo#28). Reaps the dead subgraph anchored at seed store
   # paths, keeping anything a live GC root holds.
