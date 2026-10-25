@@ -205,6 +205,22 @@ devShells.default = pkgs-master.mkShell {
 };
 ```
 
+# CROSS BUILDS
+
+The Go target (*GOOS*, *GOARCH*) is the *go* toolchain's, set after the
+caller's attributes. Passing *GOOS* or *GOARCH* as an attribute does not
+cross-compile: a value that disagrees with the toolchain's is an evaluation
+error (it used to be overridden silently, so a build asking for *GOARCH =
+"arm64"* got the host arch; amarbel-llc/igloo#77). Cross-compile by selecting
+a cross toolchain instead:
+
+```
+go = pkgs.pkgsCross.aarch64-multiplatform.buildPackages.goToolchain.go;
+```
+
+The pure-Go aarch64 static link through this path is still open
+(igloo#77: the linker falls back to the host gcc with cgo off).
+
 # GOFLAKEINPUTS
 
 *buildGoApplication* and *mkGoEnv* accept an optional *goFlakeInputs* attribute
@@ -785,6 +801,15 @@ buildGoApplication {
 The rendered flags are appended *after* the auto-injected version/commit flags
 and the raw *ldflags* list. Because the Go linker's *-X* is last-wins when a
 symbol is set twice, *ldflagsX* is authoritative on any overlap.
+
+A variable declared in *package main* is linkable only as *main.<Var>*, never
+under the package's real import path — *-X <module>/cmd/foo.Var=…* matches no
+symbol and the linker drops it without a word, so the binary runs with the
+variable's zero value. When the key's package prefix names one of
+*subPackages* (resolved against the organic go.mod's module path), the build
+*throws at eval time* and names the *main.<Var>* spelling to use
+(amarbel-llc/igloo#53). Keys under non-main packages, and any key when
+*subPackages* is unset (every main is built), are not checked.
 
 To make that overlap explicit rather than silent, a key that collides with a
 *-X* symbol already set — by the auto-injected *main.version* / *main.commit*,

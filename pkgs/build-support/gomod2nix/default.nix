@@ -979,7 +979,10 @@ let
         else
           null;
 
-      pname = attrs.pname or baseNameOf defaultPackage;
+      # Parenthesised: `a or f x` parses as `(a or f) x`, which called the
+      # caller's pname string whenever this binding was forced (igloo#77/#53
+      # error messages were the first to force it).
+      pname = attrs.pname or (baseNameOf defaultPackage);
 
       # version.env auto-read (eng-versioning(7) § VERSION EMBEDDING,
       # amarbel-llc/nixpkgs#31). When the build's module dir carries a
@@ -1039,8 +1042,50 @@ let
         builtins.attrNames ldflagsX
       );
 
+      # igloo#53: a variable in `package main` is only ever linkable as
+      # `main.<Var>`; `-X <module>/<cmd dir>.<Var>` matches no symbol and the
+      # linker ignores it silently. The main packages we can know at eval time
+      # are subPackages resolved against the organic go.mod's module path, so a
+      # key naming one of them is refused here (a `main.` key is what works).
+      effectiveSubPackages = attrs.subPackages or modulesStruct.subPackages or null;
+      mainImportPaths =
+        if consumerGoMod == null || effectiveSubPackages == null then
+          [ ]
+        else
+          map (
+            d:
+            let
+              dir = lib.removeSuffix "/" (removePrefix "./" d);
+            in
+            if dir == "." || dir == "" then consumerGoMod.module else "${consumerGoMod.module}/${dir}"
+          ) effectiveSubPackages;
+      ldflagsXPackagePrefix =
+        k:
+        let
+          m = builtins.match "(.*)\\.[^.]+" k;
+        in
+        if m == null then null else elemAt m 0;
+      ldflagsXMainKeys = builtins.filter (k: builtins.elem (ldflagsXPackagePrefix k) mainImportPaths) (
+        builtins.attrNames ldflagsX
+      );
+
       ldflagsXFlags =
-        if ldflagsXCollisions != [ ] && !overwriteLdflagsX then
+        if ldflagsXMainKeys != [ ] then
+          throw ''
+            buildGoApplication(${pname}): ldflagsX key(s) name a variable by its package-main
+            import path, which Go's linker never exposes — such a -X is silently ignored:
+
+              ${concatStringsSep ", " ldflagsXMainKeys}
+
+            A `package main` variable is linked as `main.<Var>`: write the key as
+            "main.${
+              let
+                m = builtins.match ".*\\.([^.]+)" (builtins.head ldflagsXMainKeys);
+              in
+              if m == null then "<Var>" else elemAt m 0
+            }" (igloo#53).
+          ''
+        else if ldflagsXCollisions != [ ] && !overwriteLdflagsX then
           throw ''
             buildGoApplication: ldflagsX would overwrite -X symbol(s) already set
             by the auto-injected version/commit ldflags or the `ldflags` list:
@@ -1057,128 +1102,145 @@ let
       # invalidate the cache hash on every commit without changing contents.
       effectiveLdflags = versionLdflags ++ ldflags ++ ldflagsXFlags;
 
+      # GOOS/GOARCH come from the `go` toolchain (set after the attrs spread
+      # below). A caller's disagreeing attr used to be overridden silently, so a
+      # build asking for GOARCH = "arm64" got the host arch with no error
+      # (igloo#77). Cross builds select a cross toolchain instead.
+      crossAttrMismatch = lib.filter (v: attrs ? ${v} && attrs.${v} != go.${v}) [
+        "GOOS"
+        "GOARCH"
+      ];
     in
-    stdenv.mkDerivation (
-      optionalAttrs (defaultPackage != "") {
-        inherit pname;
-        version = stripVersion modulesStruct.mod.${defaultPackage}.version;
-        src = vendorEnv.passthru.sources.${defaultPackage};
-      }
-      # No gomod2nix.toml names a default package (a goFlakeInputs-only or
-      # all-local module): the derivation still needs a name. pname falls back
-      # to the module dir's basename above; version to the same resolution the
-      # ldflags use (explicit, version.env, else "dev"). An explicit `version`
-      # or `pname` in attrs still wins through the spread below. See igloo#70.
-      // optionalAttrs (defaultPackage == "") {
-        inherit pname;
-        version = effectiveVersion;
-      }
-      // optionalAttrs (hasAttr "subPackages" modulesStruct) {
-        inherit (modulesStruct) subPackages;
-      }
-      // (removeAttrs attrs [
-        "goFlakeInputs"
-        "goFlakeInputsMode"
-        "ldflagsX"
-        "overwriteLdflagsX"
-      ])
-      // optionalAttrs (!(attrs ? version) && versionFromEnv != null) {
-        # Keep the derivation `version` attr in lockstep with the
-        # `-X main.version` ldflag when version.env is the source. Placed
-        # after the attrs spread so it overrides the gomod2nix-derived
-        # default, but guarded on `!(attrs ? version)` so an explicit
-        # caller version still wins.
-        version = versionFromEnv;
-      }
-      // {
-        nativeBuildInputs = [
-          go
-          goConfigHook
-          goBuildHook
-          goCheckHook
-          goInstallHook
-        ]
-        ++ nativeBuildInputs;
-
-        inherit (go) GOOS GOARCH;
-
-        CGO_ENABLED = attrs.CGO_ENABLED or go.CGO_ENABLED;
-
-        # Pass allowGoReference to hook for GOFLAGS configuration
-        allowGoReference = if allowGoReference then "1" else "";
-
-        goVendorDir = if vendorEnv != null then vendorEnv else "";
-        goCacheDir = if cacheEnv != null then cacheEnv else "";
-        inherit tags;
-        ldflags = effectiveLdflags;
-        modRoot = attrs.modRoot or "";
-
-        # When goFlakeInputs is non-empty, swap the source's organic go.mod
-        # for the merged one (with synthetic require/replace lines pointing
-        # at /nix/store paths). postPatch runs after unpack/patch and before
-        # configurePhase/goConfigHook, naturally expressing a source-tree
-        # modification and avoiding preBuild-concatenation surface for
-        # buildGoRace / buildGoCover wrappers.
-        postPatch =
-          optionalString (mergedGoModFile != null) ''
-            cp --no-preserve=mode ${mergedGoModFile} go.mod
-          ''
-          # Workspace mode (Design A, igloo#39): materialize the SAME go.work
-          # that mkGoWorkVendorEnv used (`use .` + replaces), so the rsynced
-          # vendor/ + the hook's `-mod=vendor` build run against an identical
-          # workspace. Placed before goConfigHook (in postPatchHooks) so it
-          # sits alongside the consumer go.mod at the build root. The replace
-          # target store paths are pulled into the closure via goWorkFile.
-          + optionalString workspaceBridge ''
-            cp --no-preserve=mode ${bridgeVendorEnv.passthru.goWorkFile} go.work
-          ''
-          + (attrs.postPatch or "");
-
-        doCheck = attrs.doCheck or true;
-
-        strictDeps = true;
-
-        disallowedReferences = optional (!allowGoReference) go;
-
-        passthru = {
-          inherit go vendorEnv hooks;
-          goCacheEnv = cacheEnv;
+    if crossAttrMismatch != [ ] then
+      throw ''
+        buildGoApplication(${pname}): ${concatStringsSep ", " crossAttrMismatch} cannot be set
+        by attribute — the Go target is the `go` toolchain's (${go.GOOS}/${go.GOARCH}),
+        set after the caller's attrs. For a cross build pass a cross toolchain, e.g.
+          go = pkgs.pkgsCross.<platform>.buildPackages.goToolchain.go;
+        and drop the GOOS/GOARCH attrs (igloo#77).
+      ''
+    else
+      stdenv.mkDerivation (
+        optionalAttrs (defaultPackage != "") {
+          inherit pname;
+          version = stripVersion modulesStruct.mod.${defaultPackage}.version;
+          src = vendorEnv.passthru.sources.${defaultPackage};
         }
-        // optionalAttrs (mergedGoModFile != null) {
-          # Exposed for debugging goFlakeInputs builds. Read with
-          # `nix build .#foo.passthru.mergedGoMod && cat result`.
-          mergedGoMod = mergedGoModFile;
+        # No gomod2nix.toml names a default package (a goFlakeInputs-only or
+        # all-local module): the derivation still needs a name. pname falls back
+        # to the module dir's basename above; version to the same resolution the
+        # ldflags use (explicit, version.env, else "dev"). An explicit `version`
+        # or `pname` in attrs still wins through the spread below. See igloo#70.
+        // optionalAttrs (defaultPackage == "") {
+          inherit pname;
+          version = effectiveVersion;
         }
-        // optionalAttrs (hasAttr "goPackagePath" modulesStruct) {
-
-          updateScript =
-            let
-              generatorArgs =
-                if hasAttr "subPackages" modulesStruct then
-                  concatStringsSep " " (
-                    map (subPackage: modulesStruct.goPackagePath + "/" + subPackage) modulesStruct.subPackages
-                  )
-                else
-                  modulesStruct.goPackagePath;
-
-            in
-            writeScript "${pname}-updater" ''
-              #!${runtimeShell}
-              cd ${toString effectivePwd}
-              exec ${gomod2nix}/bin/gomod2nix generate ${generatorArgs}
-            '';
-
+        // optionalAttrs (hasAttr "subPackages" modulesStruct) {
+          inherit (modulesStruct) subPackages;
         }
-        // optionalAttrs hasFlakeInputs {
-          # Eval-time bridge introspection (igloo#56/#57): capability
-          # signal + per-module report. `nix eval .#pkg.passthru.bridge`.
-          bridge = bridgeReport;
+        // (removeAttrs attrs [
+          "goFlakeInputs"
+          "goFlakeInputsMode"
+          "ldflagsX"
+          "overwriteLdflagsX"
+        ])
+        // optionalAttrs (!(attrs ? version) && versionFromEnv != null) {
+          # Keep the derivation `version` attr in lockstep with the
+          # `-X main.version` ldflag when version.env is the source. Placed
+          # after the attrs spread so it overrides the gomod2nix-derived
+          # default, but guarded on `!(attrs ? version)` so an explicit
+          # caller version still wins.
+          version = versionFromEnv;
         }
-        // passthru;
+        // {
+          nativeBuildInputs = [
+            go
+            goConfigHook
+            goBuildHook
+            goCheckHook
+            goInstallHook
+          ]
+          ++ nativeBuildInputs;
 
-        inherit meta;
-      }
-    );
+          inherit (go) GOOS GOARCH;
+
+          CGO_ENABLED = attrs.CGO_ENABLED or go.CGO_ENABLED;
+
+          # Pass allowGoReference to hook for GOFLAGS configuration
+          allowGoReference = if allowGoReference then "1" else "";
+
+          goVendorDir = if vendorEnv != null then vendorEnv else "";
+          goCacheDir = if cacheEnv != null then cacheEnv else "";
+          inherit tags;
+          ldflags = effectiveLdflags;
+          modRoot = attrs.modRoot or "";
+
+          # When goFlakeInputs is non-empty, swap the source's organic go.mod
+          # for the merged one (with synthetic require/replace lines pointing
+          # at /nix/store paths). postPatch runs after unpack/patch and before
+          # configurePhase/goConfigHook, naturally expressing a source-tree
+          # modification and avoiding preBuild-concatenation surface for
+          # buildGoRace / buildGoCover wrappers.
+          postPatch =
+            optionalString (mergedGoModFile != null) ''
+              cp --no-preserve=mode ${mergedGoModFile} go.mod
+            ''
+            # Workspace mode (Design A, igloo#39): materialize the SAME go.work
+            # that mkGoWorkVendorEnv used (`use .` + replaces), so the rsynced
+            # vendor/ + the hook's `-mod=vendor` build run against an identical
+            # workspace. Placed before goConfigHook (in postPatchHooks) so it
+            # sits alongside the consumer go.mod at the build root. The replace
+            # target store paths are pulled into the closure via goWorkFile.
+            + optionalString workspaceBridge ''
+              cp --no-preserve=mode ${bridgeVendorEnv.passthru.goWorkFile} go.work
+            ''
+            + (attrs.postPatch or "");
+
+          doCheck = attrs.doCheck or true;
+
+          strictDeps = true;
+
+          disallowedReferences = optional (!allowGoReference) go;
+
+          passthru = {
+            inherit go vendorEnv hooks;
+            goCacheEnv = cacheEnv;
+          }
+          // optionalAttrs (mergedGoModFile != null) {
+            # Exposed for debugging goFlakeInputs builds. Read with
+            # `nix build .#foo.passthru.mergedGoMod && cat result`.
+            mergedGoMod = mergedGoModFile;
+          }
+          // optionalAttrs (hasAttr "goPackagePath" modulesStruct) {
+
+            updateScript =
+              let
+                generatorArgs =
+                  if hasAttr "subPackages" modulesStruct then
+                    concatStringsSep " " (
+                      map (subPackage: modulesStruct.goPackagePath + "/" + subPackage) modulesStruct.subPackages
+                    )
+                  else
+                    modulesStruct.goPackagePath;
+
+              in
+              writeScript "${pname}-updater" ''
+                #!${runtimeShell}
+                cd ${toString effectivePwd}
+                exec ${gomod2nix}/bin/gomod2nix generate ${generatorArgs}
+              '';
+
+          }
+          // optionalAttrs hasFlakeInputs {
+            # Eval-time bridge introspection (igloo#56/#57): capability
+            # signal + per-module report. `nix eval .#pkg.passthru.bridge`.
+            bridge = bridgeReport;
+          }
+          // passthru;
+
+          inherit meta;
+        }
+      );
 
   # Race-instrumented variant of an existing buildGoApplication-derived
   # derivation. Sets CGO_ENABLED, appends `-race` to buildFlagsArray (so
