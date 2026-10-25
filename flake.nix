@@ -94,10 +94,6 @@
             bgaArgs = {
               GOTOOLCHAIN = "local";
               doCheck = false;
-              # fetchgit carries `rev`, but buildGoAuto forwards the manifest's
-              # commit only to the godyn backend (igloo#91); without this the
-              # bga binary reports "0.1.21+unknown".
-              commit = conformistSrc.rev;
             };
           };
           conformistEval = conformistLib.evalModule pkgs {
@@ -400,6 +396,18 @@
             subPackages = [ "." ];
             tests = true;
             bgaArgs.pwd = ./pkgs/build-support/godyn/tests/manifest;
+          };
+          # go.nix from a source that carries `rev` (a fetchgit / flake input): both
+          # backends must stamp it as -X main.commit (igloo#91). The src is a
+          # derivation with a `rev` attribute, as fetchgit's is.
+          godyn-manifest-commit-test = pkgs.buildGoAuto {
+            pname = "godyn-manifest-commit-test";
+            src = pkgs.runCommandLocal "manifest-commit-src" { rev = "deadbeefcafe0123"; } ''
+              cp -r ${./pkgs/build-support/godyn/tests/manifest-commit} $out
+            '';
+            manifest = ./pkgs/build-support/godyn/tests/manifest-commit/go.nix;
+            version = "0.0.0";
+            subPackages = [ "." ];
           };
           # flake-input-go_mod producers under godyn: q and p publish go-pkgs via
           # mkGoPkgs (p's carries goFlakeInputs for q). godyn builds consumer c from
@@ -1176,6 +1184,20 @@
               for b in ${race.passthru.native}/bin/manifest ${race.passthru.bga}/bin/manifest; do
                 got=$("$b")
                 [ "$got" = "hello from dep/greet true" ] || { echo "$b printed [$got]" >&2; exit 1; }
+              done
+              echo OK > $out
+            '';
+          # igloo#91: a go.nix module built from a rev-bearing src stamps that rev as
+          # main.commit on BOTH backends (the manifest wraps src in a rendered tree
+          # without `rev`, so the commit has to be carried over explicitly).
+          godyn-manifest-commit-test =
+            let
+              auto = self.packages.${system}.godyn-manifest-commit-test;
+            in
+            pkgs.runCommandLocal "godyn-manifest-commit-test-check" { } ''
+              for b in ${auto.passthru.native}/bin/mcommit ${auto.passthru.bga}/bin/mcommit; do
+                got=$("$b")
+                [ "$got" = "commit=deadbeefcafe0123" ] || { echo "$b printed [$got], want commit=deadbeefcafe0123" >&2; exit 1; }
               done
               echo OK > $out
             '';

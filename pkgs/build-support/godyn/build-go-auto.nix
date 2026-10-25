@@ -166,6 +166,9 @@ let
   bgaBase = buildGoApplication (
     common
     // lib.optionalAttrs (binaryNames != { }) { postInstall = bgaRenames + "\n" + postInstall; }
+    # The manifest wraps src in a rendered tree without `rev`; carry the caller's
+    # commit over so -X main.commit stamps it on this backend too (igloo#91).
+    // lib.optionalAttrs (fromManifest ? commit) { inherit (fromManifest) commit; }
     // bgaArgs
     # With a manifest the checkout has no go.mod, so a bgaArgs.pwd pointing at it
     # (the version.env / go.mod anchor) must point at the rendered tree instead.
