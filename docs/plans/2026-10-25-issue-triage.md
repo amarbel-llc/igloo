@@ -92,3 +92,34 @@ is worked in table order after the merge in flight lands.
   with `moduleDir` are not exercised yet (godyn(7) says so).
 - **Housekeeping:** #29, #25, #41, #39, #26 closed as superseded / resolved;
   #11, #10, #5, #4, #3, #2 closed here as eng-level with pointer comments.
+
+## Decisions taken (operator, 2026-10-25, second round)
+
+The rest of (b), plus the two (a) items that were waiting on a ruling.
+
+- **#90 remaining halves:** both now — analyze external test packages
+  (`package foo_test`) and run the toolchain vet lane over cgo packages, a
+  fixture for each.
+- **#77 (main):** wait for an aarch64 host; blocked alongside #33 rather than
+  cross-building a toolchain on the shared host.
+- **#87:** godyn-lint's suite is the fleet standard. Document it in godyn(7)
+  with the golangci-lint linters it lacks, then close.
+- **#82:** both mitigations — push vet run derivations to the fleet cache
+  (document the pattern) now; facts-only runs for unchanged third-party
+  packages as a follow-on builder change.
+- **#85:** keep descoped (FDR 0008); the issue stays open as the "wait for a
+  consumer / use case" marker, no POC.
+- **#81:** write the standard-tree RFC in igloo (`docs/rfcs/0002`) and have
+  igloo's docs point at it.
+- **#78:** a second `godynStdlib` with `CGO_ENABLED=0` behind a
+  `buildGoStatic` entry point.
+- **#75:** close, pointing at FDR 0008 § Decision.
+- **#64:** copy doppelgang's nixedit into igloo's build-support now; file an
+  issue on doppelgang to remove its copy and consume igloo's.
+- **#63:** split — Rust is FDR 0009's; retitle #63 to the Zig registry and
+  leave it open until a Zig consumer appears.
+- **#42:** blocked on a darwin builder, alongside #33.
+- **#20:** hand to circus/eng through the coordinator; igloo closes #20 with a
+  pointer once it lands there.
+- **#61 / rustdyn stage 2:** approved by the operator the same day (relayed by
+  circus/eager-holly); stage 2 proceeds under FDR 0009 § Staged plan.
