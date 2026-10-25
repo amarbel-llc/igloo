@@ -661,6 +661,18 @@
             tests = true;
             nativeCheckInputs = [ self.packages.${system}.godyn-selfbin-test ];
           };
+          # igloo#73: a go.nix module below the repository root with a sibling
+          # module as a path replace (purse-first's shape). src is the repository;
+          # moduleDir names the module; both backends resolve ../sib inside the tree.
+          godyn-multimod-test = pkgs.buildGoAuto {
+            pname = "godyn-multimod-test";
+            src = ./pkgs/build-support/godyn/tests/multimod;
+            manifest = ./pkgs/build-support/godyn/tests/multimod/app/go.nix;
+            moduleDir = "app";
+            inputs = { };
+            version = "0.0.0";
+            subPackages = [ "." ];
+          };
           # binary naming: like `go install` on both backends by default; binaryNames
           # overrides it on both, for a subdir main and for the module-root main.
           godyn-binary-name-test = pkgs.buildGoAuto {
@@ -1186,6 +1198,19 @@
               || { echo "the test could not run the module's own binary from PATH" >&2; exit 1; }
             echo OK > $out
           '';
+          # igloo#73: the module below the repository root builds on both backends
+          # and links its path-replaced sibling.
+          godyn-multimod-test =
+            let
+              auto = self.packages.${system}.godyn-multimod-test;
+            in
+            pkgs.runCommandLocal "godyn-multimod-test-check" { } ''
+              for b in ${auto.passthru.native}/bin/app ${auto.passthru.bga}/bin/app; do
+                got=$("$b")
+                [ "$got" = "hello from sib" ] || { echo "$b printed [$got], want hello from sib" >&2; exit 1; }
+              done
+              echo OK > $out
+            '';
           # eval-time graph: the derived-graph build runs, and its graph equals the
           # committed one godyn-gen -gomod produced for the same module.
           godyn-derived-graph-test =

@@ -471,9 +471,12 @@ directives into a go.mod.
   workspace today is purse-first (`.`, `libs/dewey`, `libs/go-mcp`,
   `libs/go-mcp/command/huh`, one shared gomod2nix.toml). Cost: the shared
   lockfile splits — third-party requires and hashes repeat per member, and
-  members can drift to different versions. Unverified: that the derived graph
-  and vendor tree handle sibling path replaces when `src` is the repository
-  root; igloo#73 becomes that fixture.
+  members can drift to different versions. Verified (igloo#73, 2026-10-25):
+  with `src` the repository root and `moduleDir` naming the module, the
+  derived graph and vendor tree resolve a `replace … => ../sib` to the sibling
+  inside the same tree on both backends (the `multimod` fixture, godyn(7)
+  § BUILDGODYNMODULE *moduleDir*); every sibling's go.nix is rendered to a
+  go.mod alongside it, and a path-replaced require carries no hash.
 - **Escape-hatch output.** Answered (2026-09-14): the derivation's source is
   the checkout's tracked files as in the working tree, without `.git` or
   ignored directories (a new file after `git add -N`). It outputs

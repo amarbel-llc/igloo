@@ -37,6 +37,11 @@
   # manifest: the module's go.nix (FDR 0008), left in place by withManifest (which
   # turned it into src/modules/goFlakeInputs) so passthru.ingest can update it.
   manifest ? null,
+  # moduleDir (igloo#73): the module's directory inside src when src is a
+  # repository root holding several go.nix modules (sibling path replaces
+  # resolve inside it). "" = the module is at src's root. Package dirs, the
+  # graph derivation and the vendor tree are anchored at src/moduleDir.
+  moduleDir ? "",
   # goRunInputs: tools on PATH in every escape-hatch run (passthru.goRun, hence
   # godyn-go) — generators like tommy, so `godyn-go -- go generate ./...` finds
   # them; declared once here rather than per invocation.
@@ -231,14 +236,21 @@ let
       # own version (don't thread godyn's null version through). goFlakeInputs goes
       # along so third-party pins come from the same merged gomod2nix.toml the bga
       # backend uses (producer tomls unioned, bridged keys stripped).
-      (buildGoApplication {
-        inherit
-          pname
-          src
-          modules
-          goFlakeInputs
-          ;
-      }).passthru.vendorEnv
+      (buildGoApplication (
+        {
+          inherit
+            pname
+            src
+            modules
+            goFlakeInputs
+            ;
+        }
+        # a module below src's root (igloo#73): go.mod at pwd, hooks cd to modRoot
+        // lib.optionalAttrs (moduleDir != "") {
+          pwd = "${src}/${moduleDir}";
+          modRoot = moduleDir;
+        }
+      )).passthru.vendorEnv
     else
       null;
 
@@ -253,7 +265,7 @@ let
 
   # version.env auto-read + ldflags assembly — parity with buildGoApplication
   # (gomod2nix default.nix:794-870). Explicit version > version.env > "dev".
-  effectivePwd = if pwd != null then pwd else src;
+  effectivePwd = if pwd != null then pwd else moduleRoot;
   versionEnvPath = "${toString effectivePwd}/version.env";
   versionFromEnv =
     if builtins.pathExists versionEnvPath then
@@ -468,15 +480,23 @@ let
     if modules == null then
       throw "buildGodynModule(${pname}): ${what} needs modules (gomod2nix.toml) or a manifest"
     else
-      buildGoApplication {
-        inherit
-          pname
-          src
-          modules
-          goFlakeInputs
-          ;
-        version = effectiveVersion; # an explicit version sidesteps igloo#70
-      };
+      buildGoApplication (
+        {
+          inherit
+            pname
+            src
+            modules
+            goFlakeInputs
+            ;
+          version = effectiveVersion; # an explicit version sidesteps igloo#70
+        }
+        # the module below src's root: go.mod lives there, the hooks cd there, and
+        # the vendor tree is set up there (igloo#73)
+        // lib.optionalAttrs (moduleDir != "") {
+          pwd = "${src}/${moduleDir}";
+          modRoot = moduleDir;
+        }
+      );
   deriveGraph =
     genFlags: pnameSuffix:
     if modules == null then
@@ -846,7 +866,10 @@ let
   # matches the canonical paths nix hands the filter and every file is silently
   # dropped. Path literals canonicalize the "/." away, which is why path-literal
   # fixtures never caught this (the eng/conformist incident).
-  pkgRootFor = dir: if dir == "." then src else src + "/${dir}";
+  # moduleDir anchors every package dir below the module's directory (igloo#73);
+  # the same "/." care applies to it.
+  moduleRoot = if moduleDir == "" then src else src + "/${moduleDir}";
+  pkgRootFor = dir: if dir == "." then moduleRoot else moduleRoot + "/${dir}";
 
   # The other half of the pkgRootFor invariant: the per-package file sets hold
   # paths RELATIVE to the package root, so every source filter strips the same
@@ -1851,7 +1874,7 @@ let
           mkdir -p "$out/bin"
           cp -L ${terminal}/bin/* "$out/bin/"
           cp -r --no-preserve=mode ${src} source
-          cd source
+          cd source${lib.optionalString (moduleDir != "") "/${moduleDir}"}
           runHook postInstall
           fixupPhase
         '';

@@ -87,6 +87,8 @@ is worked in table order after the merge in flight lands.
   fallback only if that proves unworkable for a real consumer.
 - **#73:** the module-root / src-root split for go.nix modules (a repository
   root `src` with a module directory, sibling path replaces resolving inside
-  it, sibling manifests rendered). Next item.
+  it, sibling manifests rendered). Done as `moduleDir` (the `multimod`
+  fixture builds on both backends, V); testFiles / codegenCheck / escape hatch
+  with `moduleDir` are not exercised yet (godyn(7) says so).
 - **Housekeeping:** #29, #25, #41, #39, #26 closed as superseded / resolved;
   #11, #10, #5, #4, #3, #2 closed here as eng-level with pointer comments.

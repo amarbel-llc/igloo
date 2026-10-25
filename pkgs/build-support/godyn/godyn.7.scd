@@ -378,6 +378,17 @@ Arguments:
 - *vendorEnv* — alternatively pass a prebuilt vendor tree directly.
 - *manifest*, *inputs*, *goFlakeInputOverrides* — a go.nix module instead of
   *modules*, *goFlakeInputs* and a tracked go.mod; see GO.NIX MANIFEST.
+- *moduleDir* — with *manifest*: the module's directory inside *src* when *src*
+  is a repository root holding several go.nix modules (igloo#73). The rendered
+  go.mod lands there, package dirs, the graph derivation and the vendor tree are
+  anchored there, and a *replace … => ../sib* in go.nix resolves to the sibling
+  inside the same tree; every sibling with a go.nix (recursively through its own
+  path replaces) gets its go.mod rendered too. A path-replaced *require* carries
+  no hash. *buildGoAuto* forwards it to both backends (bga as *modRoot* + *pwd*),
+  *postInstall* runs with the module directory as its working directory on both,
+  and *version.env* is read from it. A sibling's own tracked go.mod is not
+  checked: the render replaces it. Not yet exercised with *moduleDir*:
+  *testFiles*, *codegenCheck*, the escape hatch.
 - *version*, *pwd*, *commit* — see VERSION EMBEDDING below.
 - *ldflags* — extra *go tool link* flags as a LIST (e.g. *[ "-s" "-w" ]*, or a raw
   *[ "-X pkg.sym=val" ]*).

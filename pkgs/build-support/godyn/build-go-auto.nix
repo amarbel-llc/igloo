@@ -38,6 +38,9 @@
   manifest ? null,
   inputs ? { },
   goFlakeInputOverrides ? { },
+  # moduleDir (igloo#73): the go.nix module's directory inside a repository-root
+  # src; godyn anchors there, bga gets it as modRoot (+ pwd).
+  moduleDir ? "",
   # tools on PATH in every escape-hatch run (passthru.goRun / godyn-go), e.g. a
   # code generator; see buildGodynModule.
   goRunInputs ? [ ],
@@ -108,6 +111,7 @@ let
       inherit manifest inputs goFlakeInputOverrides;
       system = stdenv.hostPlatform.system;
     }
+    // lib.optionalAttrs (moduleDir != "") { inherit moduleDir; }
   );
   common = {
     inherit
@@ -161,6 +165,7 @@ let
     // lib.optionalAttrs cover { inherit cover coverMode coverPackages; }
     // lib.optionalAttrs (goRunInputs != [ ]) { inherit goRunInputs; }
     // lib.optionalAttrs (fromManifest ? commit) { inherit (fromManifest) commit; }
+    // lib.optionalAttrs (moduleDir != "") { inherit moduleDir; }
     // nativeArgs
   );
   bgaBase = buildGoApplication (
@@ -169,6 +174,12 @@ let
     # The manifest wraps src in a rendered tree without `rev`; carry the caller's
     # commit over so -X main.commit stamps it on this backend too (igloo#91).
     // lib.optionalAttrs (fromManifest ? commit) { inherit (fromManifest) commit; }
+    # A module below src's root (igloo#73): buildGoApplication reads go.mod at pwd
+    # and its hooks cd into modRoot.
+    // lib.optionalAttrs (moduleDir != "") {
+      pwd = "${fromManifest.src}/${moduleDir}";
+      modRoot = moduleDir;
+    }
     // bgaArgs
     # With a manifest the checkout has no go.mod, so a bgaArgs.pwd pointing at it
     # (the version.env / go.mod anchor) must point at the rendered tree instead.

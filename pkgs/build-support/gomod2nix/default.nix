@@ -1182,8 +1182,9 @@ let
           # modification and avoiding preBuild-concatenation surface for
           # buildGoRace / buildGoCover wrappers.
           postPatch =
+            # into modRoot when the module is below the source root (igloo#73)
             optionalString (mergedGoModFile != null) ''
-              cp --no-preserve=mode ${mergedGoModFile} go.mod
+              cp --no-preserve=mode ${mergedGoModFile} "''${modRoot:-.}/go.mod"
             ''
             # Workspace mode (Design A, igloo#39): materialize the SAME go.work
             # that mkGoWorkVendorEnv used (`use .` + replaces), so the rsynced

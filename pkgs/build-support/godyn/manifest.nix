@@ -33,10 +33,16 @@ let
       require = m.require or { };
       flakeInputs = m.flakeInputs or { };
       both = builtins.filter (p: require ? ${p}) (builtins.attrNames flakeInputs);
+      replaces = m.replace or { };
+      # A path-replaced require fetches nothing (the replacement is a directory in
+      # the tree), so it carries no hash (igloo#73).
+      pathReplaced = p: replaces ? ${p} && replaces.${p} ? path;
       checkRequire =
         p: r:
-        if !(r ? version && r ? hash) then
-          fail "require.${p}: needs version and hash"
+        if !(r ? version) then
+          fail "require.${p}: needs version"
+        else if !(r ? hash) && !(pathReplaced p) then
+          fail "require.${p}: needs hash (only a path-replaced require has none)"
         else
           checkKeys "require.${p}" [ "version" "hash" "go" "indirect" ] r;
       checkFlakeInput =
@@ -133,7 +139,7 @@ let
         else
           "\n[mod.${builtins.toJSON p}]\n  version = ${
             builtins.toJSON (if rp != null then rp.version else r.version)
-          }\n  hash = ${builtins.toJSON r.hash}\n"
+          }\n  hash = ${builtins.toJSON (r.hash or "")}\n"
           + lib.optionalString (r ? go) "  goVersion = ${builtins.toJSON r.go}\n"
           + lib.optionalString (rp != null) "  replaced = ${builtins.toJSON rp.module}\n";
     in
@@ -314,6 +320,20 @@ let
   # ones: a source tree carrying the rendered go.mod (the tracked tree must have
   # none), the rendered gomod2nix.toml, and goFlakeInputs. Args without manifest
   # pass through unchanged.
+  # A tree-relative directory with "." and ".." segments folded ("app/../sib" ->
+  # "sib"); a path that climbs above the tree is an error.
+  normDir =
+    p:
+    lib.concatStringsSep "/" (
+      lib.foldl' (
+        acc: s:
+        if s == ".." then
+          (if acc == [ ] then throw "manifest: path ${p} climbs above the source tree" else lib.init acc)
+        else
+          acc ++ [ s ]
+      ) [ ] (builtins.filter (s: s != "" && s != ".") (lib.splitString "/" p))
+    );
+
   withManifest =
     args:
     if !(args ? manifest) then
@@ -321,12 +341,16 @@ let
     else
       let
         inherit (args) pname src manifest;
+        # moduleDir (igloo#73): the module's directory inside src, when src is a
+        # repository root holding several go.nix modules; "" is the root.
+        moduleDir = normDir (args.moduleDir or "");
+        inTree = f: if moduleDir == "" then f else "${moduleDir}/${f}";
 
         rendered = renderGoMod { inherit manifest; };
         # A src that already carries a go.mod is accepted only if it is this
         # manifest's own render (a producer's go-pkgs-test, whose go.mod also has
         # the fleet sentinel requires): then the tree is used as is.
-        srcGoMod = "${src}/go.mod";
+        srcGoMod = "${src}/${inTree "go.mod"}";
         srcIsRendered =
           builtins.pathExists srcGoMod
           && lib.elem (builtins.readFile srcGoMod) [
@@ -336,11 +360,39 @@ let
               fleetRequires = true;
             })
           ];
+
+        # Sibling modules (igloo#73): every module a path replace points at, inside
+        # src, that carries a go.nix gets its go.mod rendered too — Go reads the
+        # replacement's go.mod — recursively through the siblings' own path replaces.
+        # Rendered with fleetRequires: a sibling's fleet modules are bridged by the
+        # consuming module's merge, not re-resolved here.
+        siblingDirsOf =
+          dir: m:
+          lib.mapAttrsToList (_: r: normDir "${dir}/${r.path}") (lib.filterAttrs (_: r: r ? path) m.replace);
+        collectSiblings =
+          seen: dirs:
+          lib.foldl' (
+            acc: d:
+            if lib.elem d acc || d == moduleDir || !builtins.pathExists "${src}/${d}/go.nix" then
+              acc
+            else
+              collectSiblings (acc ++ [ d ]) (siblingDirsOf d (load "${src}/${d}/go.nix"))
+          ) seen dirs;
+        siblingDirs = collectSiblings [ ] (siblingDirsOf moduleDir (load manifest));
+        siblingGoMods = lib.concatMapStrings (
+          d:
+          "cp ${
+            builtins.toFile "go.mod" (renderGoMod {
+              manifest = "${src}/${d}/go.nix";
+              fleetRequires = true;
+            })
+          } $out/${d}/go.mod\n"
+        ) siblingDirs;
       in
       if (args.modules or null) != null || (args.goFlakeInputs or { }) != { } then
         throw "${pname}: manifest (go.nix) replaces modules and goFlakeInputs; pass only manifest"
       else if builtins.pathExists srcGoMod && !srcIsRendered then
-        throw "${pname}: a go.nix module must not track a go.mod (FDR 0008); remove it from ${toString src}"
+        throw "${pname}: a go.nix module must not track a go.mod (FDR 0008); remove it from ${toString src}/${inTree "go.mod"}"
       else
         # manifest stays: the builder keeps it for passthru.ingest
         removeAttrs args [
@@ -354,8 +406,10 @@ let
             else
               runCommandLocal "${pname}-go-src" { } ''
                 cp -r --no-preserve=mode ${src} $out
-                cp ${builtins.toFile "go.mod" rendered} $out/go.mod
+                cp ${builtins.toFile "go.mod" rendered} $out/${inTree "go.mod"}
+                ${siblingGoMods}
               '';
+          inherit moduleDir;
           modules = builtins.toFile "gomod2nix.toml" (renderGomod2nixToml manifest);
           goFlakeInputs = goFlakeInputsFor {
             inherit manifest;
