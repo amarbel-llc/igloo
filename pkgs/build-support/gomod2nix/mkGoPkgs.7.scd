@@ -238,4 +238,5 @@ available for single-output cases and as an open building block.
 # SEE ALSO
 
 *gomod2nix*(7), *goSourceFilter*(7), *lib.sources.sourceByRegex*,
-*docs/rfcs/0001-flake-input-go_mod.md*.
+*docs/rfcs/0001-flake-input-go_mod.md*; *docs/rfcs/0003-standard-godyn-tree.md*
+(the standard godyn tree: where a producer's outputs sit in a consumer's flake).

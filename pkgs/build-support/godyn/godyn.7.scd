@@ -35,6 +35,14 @@ The companion *nixgc*(1) reaps a godyn build's per-package outputs from the stor
 (e.g. for a cold-build benchmark) without deleting a concurrent build's live
 shared inputs.
 
+How a consumer's flake arranges these — the canonical module output
+*packages.<system>.go-module* (the unwrapped buildGoAuto result), the checks
+*go-tests*, *go-vet*, *go-lint* and *go-codegen* built from its passthru, the
+go.nix manifest, secondary modules and producers — is RFC 0003, the standard
+godyn tree (*docs/rfcs/0003-standard-godyn-tree.md*). This page documents the
+builders; the RFC says which of their outputs go where so fleet tooling can rely
+on the shape.
+
 # THE GENERATE-COMMIT-EVALUATE WORKFLOW
 
 Like *gomod2nix*, godyn splits dev-time discovery from pure evaluation:
@@ -807,4 +815,5 @@ that system (import-from-derivation, igloo#75).
 
 # SEE ALSO
 
-*nixgc*(1), *gomod2nix*(7), *mkGoPkgs*(7), *go*(1), *eng-versioning*(7)
+*nixgc*(1), *gomod2nix*(7), *mkGoPkgs*(7), *go*(1), *eng-versioning*(7);
+RFC 0003 (*docs/rfcs/0003-standard-godyn-tree.md*), the standard godyn tree

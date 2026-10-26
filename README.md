@@ -33,6 +33,7 @@ input. It exposes:
 | `pkgs/build-support/fetch-gguf-model/`     | GGUF model fetcher                                        |
 | `docs/decisions/`                          | Architecture Decision Records (ADRs)                      |
 | `docs/features/`                           | Feature Design Records (FDRs)                             |
+| `docs/rfcs/`                               | Protocol and shape specs (RFC 0001 go-pkgs, 0003 godyn tree) |
 | `zz-pocs/`                                 | Proof-of-concept experiments                              |
 
 ## Using as a consumer
