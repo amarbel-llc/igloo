@@ -1353,7 +1353,9 @@ let
               pkgRoot = pkgRootFor t.dir;
               relTo = relToRoot pkgRoot;
               variantFiles = lib.listToAttrs (
-                map (f: lib.nameValuePair f true) (nl t.goFiles ++ nl t.testGoFiles ++ nl p.sFiles)
+                map (f: lib.nameValuePair f true) (
+                  nl t.goFiles ++ nl t.testGoFiles ++ nl p.sFiles ++ nl (p.embedFiles or null)
+                )
               );
               srcDir = builtins.path {
                 path = pkgRoot;
@@ -1421,8 +1423,9 @@ let
             p = byImport.${importPath};
             pkgRoot = pkgRootFor t.dir;
             relTo = relToRoot pkgRoot;
+            # embedFiles ride along: embedCfgJSON points them at ${srcDir}
             variantFiles = lib.listToAttrs (
-              map (f: lib.nameValuePair f true) (nl t.goFiles ++ nl t.testGoFiles)
+              map (f: lib.nameValuePair f true) (nl t.goFiles ++ nl t.testGoFiles ++ nl (p.embedFiles or null))
             );
             srcDir = builtins.path {
               path = pkgRoot;
