@@ -4,8 +4,9 @@ date: 2026-10-25
 promotion-criteria: >-
   proposed → experimental: igloo builds the package and runs its ported
   tests as a flake check (`nixedit-test`) and ships the CLI (`nixedit`)
-  and a manpage; doppelgang consumes the igloo module as a go.mod
-  dependency and deletes its copy (doppelgang#35).
+  and a manpage; doppelgang consumes the igloo module through go.nix
+  `flakeInputs` (igloo's `go-pkgs`, see Dependencies) and deletes its copy
+  (doppelgang#35).
 
   experimental → testing: conformist (or another fleet tool) uses the
   package or CLI for a flake.nix edit it previously did by hand or with
@@ -48,9 +49,20 @@ umbrella; the operator's decision of 2026-10-25: copy now, record after).
   `canonical`, `canonical-fix`); `-w` rewrites the file in place, without
   it the result is printed; exit status 2 is "not parseable, nothing
   changed".
-- **Dependencies**: langlang only (`github.com/clarete/langlang/go`), as a
-  go.mod dependency; no flake edges in either direction (doppelgang
-  rebases onto the igloo module the same way).
+- **Dependencies**: langlang only (`github.com/clarete/langlang/go`), a
+  registry require in nixedit's go.nix. **Reversed on 2026-10-26
+  (operator):** doppelgang consumes the igloo module through RFC 0001
+  `flakeInputs`, not as a plain go.mod dependency. The #64 shape needed
+  `go get` from the forge — a tracked go.mod in the subdirectory, a
+  go-import vanity answer, and native go tooling outside nix — which FDR
+  0007/0008 forbid and RFC 0003 (go.nix is a MUST) made explicit the same
+  day; a go.nix module cannot track a hand-written go.mod. So igloo
+  publishes `packages.<system>.go-pkgs` for nixedit (`mkGoPkgs` with the
+  manifest and `subPath = "pkgs/build-support/nixedit"`), and doppelgang,
+  whose nixpkgs input already is igloo, bridges it with
+  `flakeInputs."code.linenisgreat.com/igloo/pkgs/build-support/nixedit" =
+  { input = "<its igloo input>"; subPath = "pkgs/build-support/nixedit"; }`.
+  One flake edge, the one that already exists.
 
 ## Examples
 

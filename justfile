@@ -633,6 +633,19 @@ explore-godyn-go *args:
 explore-godyn-test *args:
     nix run --impure "path:.#godyn-test" -- {{ args }}
 
+# [explore] Run the rustdyn-cargo escape hatch CLI (FDR 0009 stage 2.5, the
+# godyn-go twin) from this tree, e.g.
+#   just explore-rustdyn-cargo -A packages.x86_64-linux.rustdyn-manifest-test \
+#     -m pkgs/build-support/rustdyn/tests/manifest/cargo.nix -- cargo add itoa@1
+# Rewrites the named cargo.nix (and applies any patch); the cargo command runs
+# in an impure derivation with the network (crates.io), so run it only when a
+# network fetch is cleared. Revert afterwards unless the result is the point.
+#
+# run rustdyn-cargo (the cargo.nix escape hatch CLI) with the given arguments
+[group: 'explore']
+explore-rustdyn-cargo *args:
+    nix run --impure "path:.#rustdyn-cargo" -- {{ args }}
+
 # [explore] What a path: flake ref of this checkout copies into the store (FDR
 # 0008 cost question): whether .git and the git-ignored .tmp are in the copy,
 # and the copy's size. godyn-go and godyn-test build from such a ref.

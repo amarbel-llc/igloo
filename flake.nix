@@ -1770,10 +1770,14 @@
           '';
           # go.nix consumer with q both required (bogus hash) and inherited-bridged:
           # both backends build and run, the graph sources q from the bridge, and
-          # the vendor tree carries no q — the bridge shadows the require.
+          # the vendor tree's q IS the bridge (a link into q's go-pkgs), not the
+          # fetched module — the bridge shadows the require. (Until igloo#94 this
+          # asserted `! -e` on that link, which held only because the link dangled
+          # in the check's sandbox: the vendor-env did not reference its target.)
           godyn-producer-manifest-test =
             let
               m = self.packages.${system}.godyn-producer-manifest-test;
+              inherit (self.packages.${system}.godyn-producer-gonix-test.passthru) q;
             in
             pkgs.runCommandLocal "godyn-producer-manifest-test-check" { nativeBuildInputs = [ pkgs.jq ]; } ''
               for b in ${m.passthru.native}/bin/c ${m.passthru.bga}/bin/c; do
@@ -1784,7 +1788,8 @@
               case "$dir" in
                 */vendor/*) echo "q sourced from the vendor tree: $dir" >&2; exit 1 ;;
               esac
-              [ ! -e ${m.passthru.native.passthru.vendorEnv}/example.com/q ] || { echo "vendor tree carries q" >&2; exit 1; }
+              target=$(readlink -f ${m.passthru.native.passthru.vendorEnv}/example.com/q)
+              [ "$target" = "${q.go-pkgs}" ] || { echo "vendor tree's q is [$target], want the bridge ${q.go-pkgs}" >&2; exit 1; }
               echo OK > $out
             '';
           # spinclass#157: two bridged modules from one producer tree whose module
