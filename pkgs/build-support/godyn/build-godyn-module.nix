@@ -1262,15 +1262,26 @@ let
           mkdir -p "$out"
           ${outWritableProbe}
           ${mergeCfg} > vet.cfg
-          # unitchecker exits 1 without a message when it fails in VetxOnly
-          # mode (third-party and bridged packages run that way), so re-run
-          # the failed package with VetxOnly off to get the error into the log.
-          ${toolExe} vet.cfg || {
+          # The tool's output is kept in tool.log (and echoed) so a failure can be
+          # explained below. unitchecker exits 1 without a message when it fails
+          # in VetxOnly mode (third-party and bridged packages run that way), so
+          # re-run the failed package with VetxOnly off to get the error into the
+          # log.
+          runTool() { "$@" > tool.log 2>&1; local st=$?; cat tool.log >&2; return $st; }
+          runTool ${toolExe} vet.cfg || {
             if [ "$(jq -r .VetxOnly vet.cfg)" = true ]; then
               echo "godyn-${lane}: ${toolExe} failed on ${importPath} (VetxOnly run, no message); re-running with VetxOnly off:" >&2
               jq '.VetxOnly = false' vet.cfg > vet.verbose.cfg
-              ${toolExe} vet.verbose.cfg || true
+              runTool ${toolExe} vet.verbose.cfg || true
             fi
+            ${lib.optionalString (!typedVetx) ''
+              # A unitchecker from golang.org/x/tools v0.50 or newer reads its
+              # imports' types from vetx files; this lane gave it the old protocol
+              # (no stdlib vetx) because the tool does not declare the new one.
+              if grep -q 'no package vetx file for' tool.log; then
+                echo "godyn-${lane}: the tool reads its imports' types from vetx files (golang.org/x/tools v0.50 or newer) but does not declare that protocol, so godyn supplied no vetx for the standard library. Fix: declare passthru.typedVetx = true on the tool derivation (godyn(7) VET; igloo#95)." >&2
+              fi
+            ''}
             exit 1
           }
           ${lib.optionalString typedVetx ''jq --arg s "${stdVetx}" '[.PackageVetx[] | select(startswith($s))] | length' vet.cfg > "$out/stdvetx.count"''}

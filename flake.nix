@@ -937,6 +937,18 @@
             src = ./pkgs/build-support/godyn/tests/vet;
             graphFile = ./pkgs/build-support/godyn/tests/vet/graph.json;
           };
+          # igloo#95: a tool built against x/tools >= v0.50 (godyn-lint itself) WITHOUT
+          # its passthru.typedVetx label — purse-first's dewey analyzers after their
+          # x/tools bump. godyn speaks the old protocol to it, so its first stdlib
+          # import fails; the run must name the fix.
+          godyn-vet-unlabeled-tool-test = pkgs.buildGodynModule {
+            pname = "godyn-vet-unlabeled-tool-test";
+            src = ./pkgs/build-support/godyn/tests/vet;
+            graphFile = ./pkgs/build-support/godyn/tests/vet/graph.json;
+            vetTool = pkgs.godyn-lint.overrideAttrs (o: {
+              passthru = builtins.removeAttrs (o.passthru or { }) [ "typedVetx" ];
+            });
+          };
 
           # -- bun2nix test fixtures --
           # Exercise buildBunBinary / buildZxScript / buildZxScriptFromFile
@@ -1294,6 +1306,15 @@
             expectedBuilderLogEntries = [
               "re-running with VetxOnly off"
               "STUB-VERBOSE: refusing github.com/google/go-cmp/cmp/internal/flags"
+            ];
+          };
+          # igloo#95: an unlabelled new-protocol tool fails on the first stdlib import
+          # (logf imports fmt), and godyn's log names the fix — the label.
+          godyn-vet-unlabeled-tool-test = pkgs.testers.testBuildFailure' {
+            drv = self.packages.${system}.godyn-vet-unlabeled-tool-test.passthru.vet."example.com/vet/logf";
+            expectedBuilderLogEntries = [
+              "no package vetx file for"
+              "passthru.typedVetx = true"
             ];
           };
           godyn-vet-bridged-test = self.packages.${system}.godyn-cross-source.passthru.vetAll;

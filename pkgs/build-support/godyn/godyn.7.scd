@@ -683,6 +683,11 @@ sees. External test packages (*package foo_test*) and the variants of cgo
 packages are not analyzed yet. The analyzers default to the toolchain's own
 *go tool vet*; pass *vetTool* (a derivation whose mainProgram is a
 unitchecker binary) to run a different analyzer suite through the same wiring.
+A tool built against golang.org/x/tools v0.50 or newer MUST declare
+*passthru.typedVetx = true* (see LINT): such a unitchecker reads its imports'
+types from vetx files, and without the declaration godyn supplies none for the
+standard library, so the tool's runs fail on their first stdlib import with
+*no package vetx file for "<pkg>"* — godyn names the fix in that log (igloo#95).
 
 Passthru surface: *vet.<importPath>* (the local packages' vet derivations),
 *vetTests.<importPath>* (the test-variant runs), *vetAll* (one manifest
