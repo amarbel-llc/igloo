@@ -96,6 +96,15 @@ session) can continue.
 - Still open, decided: igloo#78 (second `godynStdlib` with `CGO_ENABLED=0`
   behind `buildGoStatic`), igloo#82 mitigation (c) facts-only runs, #92,
   #93; rustdyn measurements on a quiet host (FDR 0009 promotion criteria).
+- **igloo#95 (filed 2026-10-26 from the nikulin cascade failure at
+  madder):** godyn speaks unitchecker's new type-bearing vetx protocol only
+  to a `vetTool` declaring `passthru.typedVetx`; purse-first's dewey
+  analyzers crossed x/tools v0.50 without the label and fail with "no
+  package vetx file for bufio". Operator ruling: the consumer-side label is
+  dispatched to the coordinator (purse-first/madder, not igloo); igloo owes,
+  in order, (1) a message naming the fix when that error appears plus
+  godyn(7) § VET mentioning `typedVetx`, (2) detecting the dialect from the
+  tool's x/tools version (`go version -m`) so no label is needed.
 
 ## Records to read first
 
