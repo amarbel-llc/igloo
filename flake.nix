@@ -589,6 +589,29 @@
                   inherit psub;
                 };
               });
+          # spinclass#157: ONE producer tree publishing two modules whose module
+          # paths nest (example.com/n/a at a/, example.com/n/a/sub at a/sub/ —
+          # purse-first's go-mcp and go-mcp/command/huh), bridged by a go.nix
+          # consumer with both as flakeInputs. passthru.n is the producer.
+          godyn-producer-nested-test =
+            let
+              n = pkgs.mkGoPkgs {
+                src = ./pkgs/build-support/godyn/tests/producer/nest;
+                name = "n";
+              };
+            in
+            (pkgs.buildGoAuto {
+              pname = "godyn-producer-nested-test";
+              src = ./pkgs/build-support/godyn/tests/producer/cn;
+              manifest = ./pkgs/build-support/godyn/tests/producer/cn/go.nix;
+              inputs.n.packages.${system}.go-pkgs = n.go-pkgs;
+              version = "0.0.0";
+            }).overrideAttrs
+              (old: {
+                passthru = old.passthru // {
+                  inherit n;
+                };
+              });
           # The go.nix producer self-consuming its go-pkgs-test (the RFC 0001
           # producer contract): its rendered files drive the build and its tests run.
           godyn-producer-gonix-self-test =
@@ -1762,6 +1785,30 @@
                 */vendor/*) echo "q sourced from the vendor tree: $dir" >&2; exit 1 ;;
               esac
               [ ! -e ${m.passthru.native.passthru.vendorEnv}/example.com/q ] || { echo "vendor tree carries q" >&2; exit 1; }
+              echo OK > $out
+            '';
+          # spinclass#157: two bridged modules from one producer tree whose module
+          # paths nest (a and a/sub). Both backends build and run, and the vendor
+          # tree holds both modules readably from a derivation that depends on the
+          # vendor tree alone: the bridged sources must be the vendor-env's inputs
+          # so nix records the reference (a dangling symlink here means it did not).
+          godyn-producer-nested-test =
+            let
+              m = self.packages.${system}.godyn-producer-nested-test;
+              vendor = m.passthru.native.passthru.vendorEnv;
+            in
+            pkgs.runCommandLocal "godyn-producer-nested-test-check" { } ''
+              for b in ${m.passthru.native}/bin/cn ${m.passthru.bga}/bin/cn; do
+                got=$("$b")
+                [ "$got" = "a + a sub" ] || { echo "$b printed [$got], want a + a sub" >&2; exit 1; }
+              done
+              for f in example.com/n/a/a.go example.com/n/a/sub/sub.go example.com/n/a/sub/go.mod; do
+                [ -r ${vendor}/$f ] || {
+                  echo "vendor tree: $f unreadable (dangling symlink?)" >&2
+                  ls -lR ${vendor}/example.com/n >&2
+                  exit 1
+                }
+              done
               echo OK > $out
             '';
           # go.nix producer (FDR 0008): its go-pkgs carry a rendered go.mod (module,

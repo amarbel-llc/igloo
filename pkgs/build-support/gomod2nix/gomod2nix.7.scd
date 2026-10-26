@@ -330,6 +330,16 @@ Consumers SHOULD remove their own *gomod2nix.toml* lines for bridged
 modules — it keeps the file tidy — but leaving them in is functionally
 harmless. See amarbel-llc/nixpkgs#50.
 
+Bridged modules are placed in the vendor tree by the same deepest-first pass
+as the fetched ones, so two bridged modules whose paths nest — one producer
+tree publishing *…/libs/go-mcp* and *…/libs/go-mcp/command/huh*, bridged with
+subPaths *libs/go-mcp* and *libs/go-mcp/command/huh* — both land: the child is
+linked first and the parent is materialized as a directory of links around it,
+rather than two colliding symlinks (spinclass#157). The bridged source trees
+are inputs of the vendor-env derivation (they reach it with their store-path
+context, not re-parsed from the merged go.mod), so its output references
+them and nothing dangles in the sandbox or after a garbage collection.
+
 ## Transitive inheritance and rev conflicts
 
 The effective map is resolved *transitively* (amarbel-llc/igloo#58): each

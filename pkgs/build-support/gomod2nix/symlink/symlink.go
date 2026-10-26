@@ -35,6 +35,22 @@ func populateStruct(path string, data any) {
 	}
 }
 
+// populateOptional is populateStruct for an env var the caller may leave
+// unset (an older mkVendorEnv passes no bridged modules).
+func populateOptional(envName string, data any) {
+	pathVal := os.Getenv(envName)
+	if pathVal == "" {
+		return
+	}
+	b, err := os.ReadFile(pathVal)
+	if err != nil {
+		panic(err)
+	}
+	if err := json.Unmarshal(b, data); err != nil {
+		panic(err)
+	}
+}
+
 func main() {
 	sources := make(Sources)
 	pkgs := make(map[string]*Package)
@@ -43,15 +59,33 @@ func main() {
 
 	populateStruct("jsonPath", &pkgs)
 
-	keys := make([]string, 0, len(pkgs))
+	// Bridged modules (RFC 0001 goFlakeInputs): module path -> source tree.
+	// They join the fetched modules' deepest-first pass, so a module whose
+	// path nests under another bridged module's (go-mcp and
+	// go-mcp/command/huh) lands inside the parent's materialized directory
+	// instead of colliding with a symlink to the parent (spinclass#157).
+	bridged := make(map[string]string)
+	populateOptional("bridgedPath", &bridged)
+
+	keys := make([]string, 0, len(pkgs)+len(bridged))
 	for key := range pkgs {
 		keys = append(keys, key)
+	}
+	for key, src := range bridged {
+		if _, fetched := pkgs[key]; !fetched {
+			keys = append(keys, key)
+		}
+		sources[key] = src
 	}
 	sort.Strings(keys)
 
 	makeSymlinks(keys, sources)
 }
 
+// makeSymlinks places every module at vendor/<module path>, deepest path
+// first: a module is a plain symlink to its source unless a deeper module
+// already created directories under its path, in which case the directory is
+// populated entry by entry around what is already there.
 func makeSymlinks(keys []string, sources Sources) {
 	// Iterate, in reverse order
 	for i := len(keys) - 1; i >= 0; i-- {
@@ -67,7 +101,7 @@ func makeSymlinks(keys []string, sources Sources) {
 			}
 
 			vendorPath := filepath.Join("vendor", path)
-			if _, err := os.Stat(vendorPath); err == nil {
+			if _, err := os.Lstat(vendorPath); err == nil {
 				populateVendorPath(vendorPath, src)
 				continue
 			}
@@ -81,18 +115,32 @@ func makeSymlinks(keys []string, sources Sources) {
 	}
 }
 
+// populateVendorPath fills an existing vendor directory with symlinks to
+// src's entries. An entry that already exists is left alone: a real
+// directory is descended into (a deeper module lives below it), a symlink or
+// file was placed by a deeper module and is that module's.
 func populateVendorPath(vendorPath string, src string) {
-	files, err := os.ReadDir(src)
+	entries, err := os.ReadDir(src)
 	if err != nil {
 		panic(err)
 	}
 
-	for _, f := range files {
-		innerSrc := filepath.Join(src, f.Name())
-		dst := filepath.Join(vendorPath, f.Name())
+	for _, e := range entries {
+		innerSrc := filepath.Join(src, e.Name())
+		dst := filepath.Join(vendorPath, e.Name())
+		info, err := os.Lstat(dst)
+		if err == nil {
+			srcInfo, statErr := os.Stat(innerSrc)
+			if info.IsDir() && statErr == nil && srcInfo.IsDir() {
+				populateVendorPath(dst, innerSrc)
+			}
+			continue
+		}
+		if !os.IsNotExist(err) {
+			panic(err)
+		}
 		if err := os.Symlink(innerSrc, dst); err != nil {
-			fmt.Println("symlink error, trying", innerSrc, err)
-			populateVendorPath(dst, innerSrc)
+			panic(err)
 		}
 	}
 }

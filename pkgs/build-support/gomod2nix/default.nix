@@ -261,6 +261,18 @@ let
     ++ workspaceEntries
     ++ externalEntries;
 
+  # The bridged modules' source trees (RFC 0001 goFlakeInputs) as mkVendorEnv's
+  # `bridged`: module path -> "<src>/<subPath>", a string WITH store-path
+  # context. goMod.replace carries the same paths, but parsed back from the
+  # merged go.mod derivation's text they have no context, so the trees were
+  # never the vendor-env derivation's inputs and every bridged symlink dangled
+  # inside its sandbox (and the output recorded no reference to them) —
+  # harmless until a module nested under another bridged module's path walked
+  # through the parent's dangling link (spinclass#157).
+  bridgedSourcesOf =
+    normalizedFlakeInputs:
+    mapAttrs (_: v: "${v.src}${if v.subPath == "" then "" else "/${v.subPath}"}") normalizedFlakeInputs;
+
   mkVendorEnv =
     {
       go,
@@ -269,11 +281,16 @@ let
       goMod,
       pwd,
       goWork ? null,
+      # module path -> source tree (see bridgedSourcesOf). Handed to symlink.go,
+      # which places them in the same deepest-first pass as the fetched modules
+      # so nested module paths materialize instead of colliding; the matching
+      # goMod.replace entries are skipped below.
+      bridged ? { },
     }:
     let
       localReplaceCommands =
         let
-          localReplaceAttrs = filterAttrs (_: v: hasAttr "path" v) goMod.replace;
+          localReplaceAttrs = filterAttrs (n: v: hasAttr "path" v && !(hasAttr n bridged)) goMod.replace;
           commands = mapAttrsToList (name: value: ''
             mkdir -p $(dirname vendor/${name})
             ln -s ${
@@ -312,6 +329,10 @@ let
 
         sources = toJSON (filterAttrs (n: _: n != defaultPackage) sources);
 
+        # In workspace mode go resolves the bridged modules from the source
+        # tree, as for the local replaces above.
+        bridged = toJSON (if goWork != null then { } else bridged);
+
         passthru = {
           inherit sources;
         };
@@ -319,6 +340,7 @@ let
         passAsFile = [
           "json"
           "sources"
+          "bridged"
         ];
       }
       ''
@@ -681,6 +703,7 @@ let
               modulesStruct
               ;
             pwd = effectivePwd;
+            bridged = bridgedSourcesOf normalizedFlakeInputs;
           };
 
       goSyncWrapper = writeScript "go" ''
@@ -902,6 +925,7 @@ let
               ;
             pwd = effectivePwd;
             goMod = if goMod != null then goMod else { replace = { }; };
+            bridged = bridgedSourcesOf normalizedFlakeInputs;
           }
         else
           null;
