@@ -229,5 +229,16 @@ chosen.overrideAttrs (old: {
     # from the manifest's rendered args, not the manifest itself.
     inherit manifest;
     ingest = out: godynManifest.ingestGoNix { inherit pname manifest out; };
+    # go.nix staleness (igloo#98), from this call's manifest and resolved flake
+    # inputs — no backend, no package graph involved.
+    manifestDrift =
+      args:
+      godynManifest.driftCheck (
+        {
+          inherit pname manifest;
+          inherit (fromManifest) goFlakeInputs;
+        }
+        // args
+      );
   };
 })

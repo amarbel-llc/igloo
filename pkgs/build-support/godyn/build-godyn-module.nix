@@ -2049,6 +2049,17 @@ installed.overrideAttrs (old: {
     # run — `out` is a goRun output path (its go.mod and gomod2nix.toml are read).
     inherit manifest;
     ingest = out: godynManifest.ingestGoNix { inherit pname manifest out; };
+    # go.nix staleness (igloo#98): { codegenPrefix ? null; } — a pure check that
+    # go.nix is not behind its bridged producers' go.mod files, carrying
+    # passthru.codegenPatch (see godyn(7)).
+    manifestDrift =
+      args:
+      godynManifest.driftCheck (
+        {
+          inherit pname manifest goFlakeInputs;
+        }
+        // args
+      );
     # per-package vet and lint: run derivations for the local packages by import
     # path (a finding fails the build), and each lane's manifest for flake checks.
     vet = vetLane.local;

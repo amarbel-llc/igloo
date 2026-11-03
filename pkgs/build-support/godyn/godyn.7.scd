@@ -298,6 +298,51 @@ from *passthru.ingest*. *-n* stops after the build. *-I <dir>* only ingests
 seed (*module*, *go*, *flakeInputs*), *godyn-go -I .*, then remove go.mod,
 go.sum and gomod2nix.toml.
 
+## go.nix staleness (manifestDrift)
+
+*nix flake update* is to go.nix what *go get -u* is to go.mod: moving a
+bridged producer's flake input moves the go.mod in its *go-pkgs*, and that
+go.mod may require newer third-party versions, or a newer go line, than go.nix
+records. Nothing rewrites go.nix then, and the pure build need not notice (the
+vendor tree pins go.nix's versions: the consumer's entry wins the merged
+gomod2nix.toml), but the next *godyn-go* run of any kind — *go generate*
+included, since every run ingests and runs under *-mod=mod* — has cmd/go's MVS
+raise go.nix to the producers' requirements, so the bumps land in an unrelated
+commit (igloo#98).
+
+*passthru.manifestDrift { codegenPrefix ? null; }* (on *buildGodynModule* and
+*buildGoAuto*, for a manifest module) is the pure, offline check for that gap.
+It reads, at eval time, the go.mod of every bridged producer the module's
+*flakeInputs* resolve to (declared and inherited: *<go-pkgs>/<subPath>/go.mod*)
+and fails when, for a third-party require go.nix lists, a producer requires a
+higher version, or when the highest of the producers' go lines and the requires'
+Go versions is above go.nix's *go*. The failure names each raise and its source
+and the repair, *godyn-go -- go mod tidy*, run from the directory holding go.nix.
+Wire it as a flake check:
+
+```
+checks.go-nix-fresh = self.packages.${system}.default.passthru.manifestDrift { };
+```
+
+Its *passthru.codegenPatch* has codegenCheck's repair shape (*git apply -p2*
+from the directory holding go.nix, or *--directory=<codegenPrefix>* from the
+repo root; *codegenIncludes* is empty): go.nix rewritten with every raise made,
+each new version taking its hash and Go version from a producer's
+gomod2nix.toml that pins exactly that version. When some raise has no such pin,
+or go.nix *replace*s the module, or the manifest is an attrset rather than a
+file, the patch is empty and only the escape hatch repairs; the failure says
+which. *passthru.drift* is the data (*stale*, *repairable*, *go*, *requires*,
+*expected*, *report*).
+
+The check approximates MVS from ONE level of requires: a raise cmd/go would
+make through a third-party module's own go.mod (a raised x/text requiring a
+newer x/sys), and a module a producer requires that go.nix does not list, are
+not seen, so *godyn-go -- go mod tidy* may still move more than the check
+reports, and the patch's go.nix is the minimum the producers require, not
+tidy's result. Accessing it through a package's passthru evaluates that
+package (its derived graph, if any); the check itself builds nothing but the
+patch.
+
 # buildGoAuto (selector)
 
 *pkgs.buildGoAuto* picks the backend by intent — godyn for the incremental dev/test

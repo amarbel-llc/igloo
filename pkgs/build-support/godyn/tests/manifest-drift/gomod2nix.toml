@@ -1,0 +1,7 @@
+schema = 3
+
+[mod]
+  [mod.'github.com/google/go-cmp']
+    version = 'v0.7.0'
+    hash = 'sha256-JbxZFBFGCh/Rj5XZ1vG94V2x7c18L8XKB0N9ZD5F2rM='
+    goVersion = '1.21'

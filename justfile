@@ -185,6 +185,13 @@ test-godyn: (_test-checks-prefix "godyn-")
 [group: 'test']
 test-rustdyn: (_test-checks-prefix "rustdyn-")
 
+# [explore] Build only the flake checks whose names start with a prefix (e.g.
+# godyn-manifest-drift), to iterate on one fixture family without the whole lane.
+#
+# build the flake checks whose names start with a prefix
+[group: 'explore']
+explore-build-checks prefix: (_test-checks-prefix prefix)
+
 # The per-builder check lane behind test-godyn and test-rustdyn: every
 # checks.<system>.<prefix>* in one `nix build`, skipped off x86_64-linux (the
 # builders are validated there only, igloo#33). `nix config show system` is the

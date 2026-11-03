@@ -93,7 +93,7 @@ let
     inherit lib runCommand;
     # go.nix producers (FDR 0008): render go.mod/gomod2nix.toml into go-pkgs
     manifestLib = import ../godyn/manifest.nix {
-      inherit lib stdenv;
+      inherit lib stdenv git;
       runCommandLocal = runCommand;
     };
     system = stdenv.hostPlatform.system;

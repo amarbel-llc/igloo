@@ -1634,6 +1634,17 @@
             godyn-codegen-patch-drift-test
             godyn-codegen-prefix-test
             ;
+          # go.nix staleness (igloo#98): passthru.manifestDrift, fresh and bumped
+          # producers, the repair patch, unrepairable raises.
+          inherit
+            (import ./pkgs/build-support/godyn/tests/drift.nix {
+              inherit pkgs;
+              manifestAuto = self.packages.${system}.godyn-manifest-auto-test;
+            })
+            godyn-manifest-drift-test
+            godyn-manifest-drift-fail-test
+            godyn-manifest-drift-unpinned-test
+            ;
           # ingest (FDR 0008), the pure half of the escape hatch: from a goRun
           # output captured after `go get github.com/google/go-cmp@v0.7.0` (its
           # go.mod carries the fleet module's sentinel require and store-path

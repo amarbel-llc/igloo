@@ -6,6 +6,7 @@
   lib,
   stdenv,
   runCommandLocal,
+  git,
 }:
 let
   gomod2nixInternals = import ../gomod2nix/internals.nix { };
@@ -419,9 +420,335 @@ let
           };
         }
         // lib.optionalAttrs (src ? rev && !(args ? commit)) { commit = src.rev; };
+
+  # ---- go.nix staleness (igloo#98) ----
+  # A flake update moves a bridged producer's go.mod and leaves go.nix alone; the
+  # next escape-hatch run (any command, under -mod=mod) then has cmd/go's MVS raise
+  # the requires and the go line to what the producers require, and ingest records
+  # that. drift sees the gap offline, at eval time, before that run does.
+
+  # Decimal strings without leading zeros (version numbers, numeric prerelease
+  # identifiers), compared without integer overflow: by length, then as text.
+  cmpNum =
+    a: b:
+    let
+      la = builtins.stringLength a;
+      lb = builtins.stringLength b;
+    in
+    if la != lb then
+      (if la < lb then -1 else 1)
+    else if a == b then
+      0
+    else if a < b then
+      -1
+    else
+      1;
+  # Element-wise; a list that runs out first is lower.
+  cmpLists =
+    cmp: as: bs:
+    if as == [ ] || bs == [ ] then
+      cmpNum (toString (builtins.length as)) (toString (builtins.length bs))
+    else
+      let
+        c = cmp (builtins.head as) (builtins.head bs);
+      in
+      if c != 0 then c else cmpLists cmp (builtins.tail as) (builtins.tail bs);
+
+  # Module versions, ordered as cmd/go orders them (golang.org/x/mod/semver):
+  # major.minor.patch numerically, a release above its prereleases (pseudo-versions
+  # included), numeric identifiers below alphanumeric ones, build metadata
+  # (+incompatible) ignored.
+  compareModuleVersions =
+    a: b:
+    let
+      parse =
+        v:
+        let
+          mt = builtins.match "v([0-9]+)\\.([0-9]+)\\.([0-9]+)(-([0-9A-Za-z.-]+))?(\\+[0-9A-Za-z.-]+)?" v;
+        in
+        if mt == null then
+          fail "not a module version: ${v}"
+        else
+          {
+            nums = lib.sublist 0 3 mt;
+            pre = builtins.elemAt mt 4;
+          };
+      cmpIdent =
+        x: y:
+        let
+          nx = builtins.match "[0-9]+" x != null;
+          ny = builtins.match "[0-9]+" y != null;
+        in
+        if nx && ny then
+          cmpNum x y
+        else if nx != ny then
+          (if nx then -1 else 1)
+        else if x == y then
+          0
+        else if x < y then
+          -1
+        else
+          1;
+      pa = parse a;
+      pb = parse b;
+      c = cmpLists cmpNum pa.nums pb.nums;
+    in
+    if c != 0 then
+      c
+    else if pa.pre == pb.pre then
+      0
+    else if pa.pre == null then
+      1
+    else if pb.pre == null then
+      -1
+    else
+      cmpLists cmpIdent (lib.splitString "." pa.pre) (lib.splitString "." pb.pre);
+
+  # Go versions (a go line, a require's go), ordered as go/version orders them: a
+  # language version below its prereleases below its releases, so
+  # 1.26 < 1.26rc1 < 1.26.0 < 1.26.1.
+  compareGoVersions =
+    a: b:
+    let
+      parse =
+        v:
+        let
+          mt = builtins.match "([0-9]+)(\\.([0-9]+))?(\\.([0-9]+)|(alpha|beta|rc)([0-9]+))?" v;
+          at = builtins.elemAt mt;
+        in
+        if mt == null then
+          fail "not a Go version: ${v}"
+        else
+          [
+            (at 0)
+            (if at 2 == null then "0" else at 2)
+            (
+              if at 4 != null then
+                "4"
+              else if at 5 != null then
+                {
+                  alpha = "1";
+                  beta = "2";
+                  rc = "3";
+                }
+                .${at 5}
+              else
+                "0"
+            )
+            (
+              if at 4 != null then
+                at 4
+              else if at 6 != null then
+                at 6
+              else
+                "0"
+            )
+          ];
+    in
+    cmpLists cmpNum (parse a) (parse b);
+
+  # The highest of a list of { version; ... } by cmp; null for an empty list.
+  maxBy =
+    cmp: lib.foldl' (acc: x: if acc == null || cmp x.version acc.version > 0 then x else acc) null;
+
+  # drift: go.nix against the go.mod files of its bridged producers — the declared
+  # and inherited ones, as goFlakeInputs (module path -> { src; subPath?; }, what
+  # goFlakeInputsFor returns) resolves (RFC 0001 depth-N); each producer's go.mod
+  # is <src>/<subPath>/go.mod, a store path, read at eval time. For each
+  # third-party require go.nix lists, the highest version a producer requires; for
+  # the go line, the highest of go.nix's own, the producers' and the (raised)
+  # requires' go versions. ONE level of requires: a raise cmd/go's MVS would make
+  # through a third-party module's own go.mod, and a module a producer requires
+  # that go.nix does not list, go unseen. A raise is repairable when a producer's
+  # gomod2nix.toml pins exactly that version (its hash, its go) and go.nix does
+  # not replace the module; expected is go.nix with every repairable raise made.
+  drift =
+    {
+      manifest,
+      goFlakeInputs,
+    }:
+    let
+      m = load manifest;
+      bridges = gomod2nixInternals.resolveGoFlakeInputs goFlakeInputs;
+      producers = lib.concatLists (
+        lib.mapAttrsToList (
+          p: v:
+          let
+            dir = "${v.src}${lib.optionalString (v.subPath != "") "/${v.subPath}"}";
+            g = parseGoMod (builtins.readFile "${dir}/go.mod");
+            # the toml the vendor merge reads: a subPath producer without its
+            # own falls back to its root's (igloo#49)
+            toml = lib.findFirst builtins.pathExists null (
+              [ "${dir}/gomod2nix.toml" ] ++ lib.optional (v.subPath != "") "${v.src}/gomod2nix.toml"
+            );
+          in
+          lib.optional (builtins.pathExists "${dir}/go.mod") {
+            module = p;
+            go = g.go or null;
+            # a fleet module's sentinel require is the producer's bridge, no version
+            require = lib.filterAttrs (r: ver: ver != gomod2nixInternals.sentinelFor r) g.require;
+            pins = if toml == null then { } else (builtins.fromTOML (builtins.readFile toml)).mod or { };
+          }
+        ) bridges
+      );
+      raiseOf =
+        p: r:
+        let
+          wants = lib.concatMap (
+            pr:
+            lib.optional (pr.require ? ${p}) {
+              version = pr.require.${p};
+              inherit (pr) module;
+            }
+          ) producers;
+          top = maxBy compareModuleVersions wants;
+          pin = lib.findFirst (e: e != null && e.version == top.version && e ? hash) null (
+            map (pr: pr.pins.${p} or null) producers
+          );
+        in
+        # an inherited bridge go.nix still lists is dead data the merge shadows
+        if bridges ? ${p} || top == null || compareModuleVersions top.version r.version <= 0 then
+          null
+        else
+          {
+            have = r.version;
+            want = top.version;
+            requiredBy = map (w: w.module) (builtins.filter (w: w.version == top.version) wants);
+            problem =
+              if m.replace ? ${p} then
+                "go.nix replaces it"
+              else if pin == null then
+                "no bridged producer's gomod2nix.toml pins ${top.version}"
+              else
+                null;
+            entry = {
+              inherit (top) version;
+              inherit (pin) hash;
+            }
+            // lib.optionalAttrs (pin ? goVersion) { go = pin.goVersion; }
+            // lib.optionalAttrs (r.indirect or false) { indirect = true; };
+          };
+      requires = lib.filterAttrs (_: x: x != null) (lib.mapAttrs raiseOf m.require);
+      raised =
+        m.require // lib.mapAttrs (_: x: x.entry) (lib.filterAttrs (_: x: x.problem == null) requires);
+      goSources =
+        lib.concatMap (
+          pr:
+          lib.optional (pr.go != null) {
+            version = pr.go;
+            from = "${pr.module}'s go.mod";
+          }
+        ) producers
+        ++ lib.concatLists (
+          lib.mapAttrsToList (
+            p: r:
+            lib.optional (r ? go) {
+              version = r.go;
+              from = "${p} ${r.version}";
+            }
+          ) raised
+        );
+      goTop = maxBy compareGoVersions goSources;
+      go =
+        if goTop == null || compareGoVersions goTop.version m.go <= 0 then
+          null
+        else
+          {
+            have = m.go;
+            want = goTop.version;
+            from = map (s: s.from) (builtins.filter (s: s.version == goTop.version) goSources);
+          };
+    in
+    {
+      inherit requires go;
+      producers = map (pr: pr.module) producers;
+      stale = requires != { } || go != null;
+      repairable = lib.all (x: x.problem == null) (builtins.attrValues requires);
+      expected = m // {
+        go = if go == null then m.go else go.want;
+        require = raised;
+      };
+      report = lib.concatStringsSep "\n" (
+        lib.optional (go != null) "go: ${go.have} -> ${go.want} (${names go.from})"
+        ++ lib.mapAttrsToList (
+          p: x:
+          "require.${p}: ${x.have} -> ${x.want} (required by ${names x.requiredBy}'s go.mod)"
+          + lib.optionalString (x.problem != null) "; no repair patch: ${x.problem}"
+        ) requires
+      );
+    };
+
+  # The go.nix staleness check (igloo#98): fails while drift finds go.nix behind
+  # its bridged producers, naming each raise and the repair (godyn-go -- go mod
+  # tidy). passthru.codegenPatch (igloo#80's repair-lane shape, as codegenCheck's)
+  # rewrites go.nix to drift's expected manifest — relative to the directory
+  # holding go.nix, `git apply -p2` — when every raise is repairable and manifest
+  # is a file; otherwise it is empty and only the escape hatch repairs.
+  # codegenPrefix is that directory relative to the repo root, when the caller
+  # knows it (the manifest's own path carries no reliable repo root).
+  driftCheck =
+    {
+      pname,
+      manifest,
+      goFlakeInputs,
+      codegenPrefix ? null,
+    }:
+    let
+      d = drift { inherit manifest goFlakeInputs; };
+      file = if builtins.isAttrs manifest then null else baseNameOf (toString manifest);
+      patchable = d.stale && d.repairable && file != null;
+      patch = runCommandLocal "${pname}-manifest-drift-patch" { nativeBuildInputs = [ git ]; } (
+        if patchable then
+          ''
+            mkdir -p "$out" src work
+            cp ${manifest} src/${file}
+            printf '%s' ${lib.escapeShellArg (renderGoNix d.expected)} > work/${file}
+            git diff --no-index --binary src work > "$out/patch" || [ $? -eq 1 ]
+          ''
+        else
+          ''
+            mkdir -p "$out"
+            : > "$out/patch"
+          ''
+      );
+      say = msg: "echo ${lib.escapeShellArg "godyn go.nix drift (${pname}): ${msg}"}";
+    in
+    if manifest == null then
+      throw "${pname}: manifestDrift needs a manifest (go.nix)"
+    else
+      runCommandLocal "${pname}-manifest-drift"
+        {
+          passthru = {
+            codegenPatch = patch;
+            inherit codegenPrefix;
+            codegenIncludes = [ ];
+            drift = d;
+          };
+        }
+        (
+          if !d.stale then
+            "touch $out"
+          else
+            ''
+              {
+                printf '%s\n' ${lib.escapeShellArg d.report}
+                ${say "go.nix is behind what its bridged producers' go.mod files require (a flake input moved, go.nix did not; igloo#98)"}
+                ${say "repair from the directory holding go.nix: godyn-go -- go mod tidy"}
+                ${lib.optionalString patchable (say "or, from that directory: git apply -p2 ${patch}/patch")}
+                ${lib.optionalString (patchable && codegenPrefix != null) (
+                  say "or, from the repo root: git apply -p2 --directory=${codegenPrefix} ${patch}/patch"
+                )}
+              } >&2
+              exit 1
+            ''
+        );
 in
 {
   inherit
+    compareModuleVersions
+    compareGoVersions
+    drift
+    driftCheck
     load
     renderGoMod
     renderGomod2nixToml

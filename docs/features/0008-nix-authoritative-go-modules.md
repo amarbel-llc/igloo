@@ -429,6 +429,23 @@ Rules the pair must keep:
   Go bridge) is simply a third-party require fetched from the proxy, before
   and after go.nix — declare it under `flakeInputs` only if the flake gains
   that input.
+- **A flake bump can leave go.nix stale** (igloo#98, found on spinclass
+  2026-11-03): the consumer-transparency claim above holds for the bridge,
+  not for the third-party requires a bumped producer's go.mod raises. After
+  `nix flake update` the producers' go.mod files may require newer versions
+  (or a newer `go` line) than go.nix records; the pure build need not notice
+  (the vendor tree pins go.nix's versions), but the next escape-hatch run of
+  any kind — a codegen-only `godyn-go -- go generate` included, since every
+  run ingests under `-mod=mod` — records the MVS raise in an unrelated
+  commit. `nix flake update` is to go.nix what updating requirements is to
+  go.mod: reconcile go.nix (`godyn-go -- go mod tidy`) in the same commit as
+  the re-lock. `passthru.manifestDrift { }` is the pure, offline flake check
+  that fails while go.nix is behind its bridged producers' go.mod files (one
+  level of requires; see godyn(7)), with a `codegenPatch` a repair lane can
+  apply when every raise is pinned in a producer's gomod2nix.toml
+  (`godyn-manifest-drift-*` checks). A patch-only `godyn-go` mode, so a
+  codegen run does not ingest at all, is igloo#99; it would hide staleness,
+  not replace the check.
 
 Both directions build on existing pieces: gomod2nix already parses go.mod in
 nix (the `parser-*-test.nix` fixtures), and RFC 0001's merge already renders
