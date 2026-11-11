@@ -1,0 +1,76 @@
+# POC: dagnabit facades and tommy-generate output generated in derivation
+# space (nothing generated committed). See generated-src.nix and flake.nix
+# comments for the findings. Needs network the first
+# time (tommy and purse-first flake inputs). Not wired into the main gate.
+
+flake := justfile_directory()
+
+# [explore] lock the generator inputs (writes this directory's own flake.lock only)
+[group('explore')]
+lock:
+    nix flake lock {{ flake }}
+
+# [explore] build the staged-generation chain and run the end-to-end test, one build lane
+[group('explore')]
+build-test:
+    nix build {{ flake }}#test --cores 1 -j1 -L --no-link --print-out-paths
+
+# [explore] print the generated source tree path (stage 1 dagnabit, stage 2 tommy)
+[group('explore')]
+generated-src:
+    nix build {{ flake }}#generated-src --cores 1 -j1 --no-link --print-out-paths
+
+# [explore] generator-version-only bump: tommy re-stamps its header and nothing else.
+# Builds app and app-restamped, times the second, and compares the store paths of every
+# godyn per-package compile output (equal path == cache hit, content-addressed).
+[group('explore')]
+restamp-cache:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nix build {{ flake }}#app --cores 1 -j1 --out-link .tmp-app >/dev/null
+    start=$(date +%s)
+    nix build {{ flake }}#app-restamped --cores 1 -j1 -L --out-link .tmp-app-restamped 2>&1 | grep -E "^(this|building|  /nix)" || true
+    echo "restamped build wall seconds: $(( $(date +%s) - start ))"
+    for l in .tmp-app .tmp-app-restamped; do
+      echo "== $l"
+      nix-store -qR "$l" | grep -E 'godyn-compile-example-com-gen|gen-fixture-0' | sort
+    done
+    gs=$(nix build {{ flake }}#generated-src --no-link --print-out-paths)
+    gr=$(nix build {{ flake }}#generated-src-restamped --no-link --print-out-paths)
+    diff -r "$gs" "$gr" || true
+    rm -f .tmp-app .tmp-app-restamped
+
+# [explore] build one attr and report wall seconds and which derivations were built
+[group('explore')]
+time-build attr="app":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    start=$(date +%s)
+    nix build {{ flake }}#{{ attr }} --cores 1 -j1 --no-link 2>&1 | grep -E "^building" | sed -E 's|/nix/store/[a-z0-9]+-||' || true
+    echo "wall seconds: $(( $(date +%s) - start ))"
+
+# [explore] ordering control: tommy before dagnabit MUST fail (this recipe succeeds when it does)
+[group('explore')]
+ordering-control:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    if log=$(nix build {{ flake }}#generated-src-wrong-order --cores 1 -j1 --no-link 2>&1); then
+      echo "FAIL: wrong generator order built green"; exit 1
+    fi
+    echo "$log" | grep -E "tommy generate|cannot find|no required module|pkgs/greeter" | head -5
+    echo "OK: wrong order failed as expected"
+
+# [debug] build one flake attr of this POC with a full eval trace
+[group('debug')]
+debug-trace attr flags="":
+    nix build {{ flake }}#{{ attr }} --cores 1 -j1 --no-link --show-trace --print-out-paths {{ flags }} 2>&1 | grep -E "while (evaluating|calling)|error:|godyn|graph|/nix/store/.*-(app|gen)" | tail -40
+
+# [explore] show the generated files, from the derivation-space tree
+[group('explore')]
+show-generated:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    src=$(nix build {{ flake }}#generated-src --cores 1 -j1 --no-link --print-out-paths)
+    for f in pkgs/greeter/main.go internal/bravo/cfg/cfg_tommy.go; do
+      echo "=== $f"; head -20 "$src/$f"
+    done

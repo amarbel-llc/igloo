@@ -1,0 +1,739 @@
+{
+  "nodes": {
+    "bats": {
+      "inputs": {
+        "conformist": [
+          "tommy",
+          "conformist"
+        ],
+        "igloo": [
+          "tommy",
+          "igloo"
+        ],
+        "nixpkgs-master": [
+          "tommy",
+          "nixpkgs-master"
+        ],
+        "utils": [
+          "tommy",
+          "utils"
+        ]
+      },
+      "locked": {
+        "lastModified": 1794003574,
+        "narHash": "sha256-SgMhtFgqb6a+kVQ7Zr1zDy3sc1Q+j73g+cmLmOr9myQ=",
+        "rev": "c58195b7a164e9e09c69b50d7368a1b07d97a40e",
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/bats/archive/c58195b7a164e9e09c69b50d7368a1b07d97a40e.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/bats/archive/master.tar.gz"
+      }
+    },
+    "bun2nix": {
+      "inputs": {
+        "flake-parts": [
+          "igloo",
+          "flake-parts"
+        ],
+        "nixpkgs": [
+          "igloo",
+          "nixpkgs-master"
+        ],
+        "systems": [
+          "igloo",
+          "systems"
+        ],
+        "treefmt-nix": [
+          "igloo",
+          "treefmt-nix"
+        ]
+      },
+      "locked": {
+        "lastModified": 1784665499,
+        "narHash": "sha256-9BMxlTxCCDAeoNLtb1a/st7udtTIJep+wpUzquA29VU=",
+        "owner": "nix-community",
+        "repo": "bun2nix",
+        "rev": "0f2a1f0b6f42cebe3b149bf62d38754c5e0e9729",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "bun2nix",
+        "type": "github"
+      }
+    },
+    "bun2nix_2": {
+      "inputs": {
+        "flake-parts": [
+          "purse-first",
+          "igloo",
+          "flake-parts"
+        ],
+        "nixpkgs": [
+          "purse-first",
+          "igloo",
+          "nixpkgs-master"
+        ],
+        "systems": [
+          "purse-first",
+          "igloo",
+          "systems"
+        ],
+        "treefmt-nix": [
+          "purse-first",
+          "igloo",
+          "treefmt-nix"
+        ]
+      },
+      "locked": {
+        "lastModified": 1784665499,
+        "narHash": "sha256-9BMxlTxCCDAeoNLtb1a/st7udtTIJep+wpUzquA29VU=",
+        "owner": "nix-community",
+        "repo": "bun2nix",
+        "rev": "0f2a1f0b6f42cebe3b149bf62d38754c5e0e9729",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "bun2nix",
+        "type": "github"
+      }
+    },
+    "bun2nix_3": {
+      "inputs": {
+        "flake-parts": [
+          "tommy",
+          "igloo",
+          "flake-parts"
+        ],
+        "nixpkgs": [
+          "tommy",
+          "igloo",
+          "nixpkgs-master"
+        ],
+        "systems": [
+          "tommy",
+          "igloo",
+          "systems"
+        ],
+        "treefmt-nix": [
+          "tommy",
+          "igloo",
+          "treefmt-nix"
+        ]
+      },
+      "locked": {
+        "lastModified": 1784665499,
+        "narHash": "sha256-9BMxlTxCCDAeoNLtb1a/st7udtTIJep+wpUzquA29VU=",
+        "owner": "nix-community",
+        "repo": "bun2nix",
+        "rev": "0f2a1f0b6f42cebe3b149bf62d38754c5e0e9729",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "bun2nix",
+        "type": "github"
+      }
+    },
+    "conformist": {
+      "inputs": {
+        "igloo": [
+          "purse-first",
+          "igloo"
+        ],
+        "nixpkgs-master": [
+          "purse-first",
+          "nixpkgs-master"
+        ],
+        "utils": [
+          "purse-first",
+          "utils"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793751368,
+        "narHash": "sha256-OIp0I4mimULRq4tJ0gQFUFv0QZ5bW6wVnyP3ZC0U1xs=",
+        "rev": "a1f3d9c24f6cd741d010c841a7ac2d0634fde998",
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/conformist/archive/a1f3d9c24f6cd741d010c841a7ac2d0634fde998.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/conformist/archive/master.tar.gz"
+      }
+    },
+    "conformist_2": {
+      "inputs": {
+        "igloo": [
+          "tommy",
+          "igloo"
+        ],
+        "nixpkgs-master": [
+          "tommy",
+          "nixpkgs-master"
+        ],
+        "utils": [
+          "tommy",
+          "utils"
+        ]
+      },
+      "locked": {
+        "lastModified": 1794252353,
+        "narHash": "sha256-r6UDVfZnrhGARTFfTAMZbVoryr0YYKK0dwkGRVdtEA8=",
+        "rev": "93ec067cade95be46da29bf31ef6d94f9daa0cdc",
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/conformist/archive/93ec067cade95be46da29bf31ef6d94f9daa0cdc.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/conformist/archive/master.tar.gz"
+      }
+    },
+    "crane": {
+      "locked": {
+        "lastModified": 1793836618,
+        "narHash": "sha256-TREenflwEjxOSq292FYwbc3kEm7TDRtXCZRNWEdjBmg=",
+        "owner": "ipetkov",
+        "repo": "crane",
+        "rev": "79fd63528501446749c09f08cad486a58c7d173e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ipetkov",
+        "repo": "crane",
+        "type": "github"
+      }
+    },
+    "flake-parts": {
+      "inputs": {
+        "nixpkgs-lib": [
+          "igloo",
+          "nixpkgs-master"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793576659,
+        "narHash": "sha256-V1h85lUaJBQoHFrB2vpXZOE0Ju1MYSnIpsehoVZYlDo=",
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "rev": "ea2630b7470978622c7689a1ff75d2b389175399",
+        "type": "github"
+      },
+      "original": {
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "type": "github"
+      }
+    },
+    "flake-parts_2": {
+      "inputs": {
+        "nixpkgs-lib": [
+          "purse-first",
+          "igloo",
+          "nixpkgs-master"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793576659,
+        "narHash": "sha256-V1h85lUaJBQoHFrB2vpXZOE0Ju1MYSnIpsehoVZYlDo=",
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "rev": "ea2630b7470978622c7689a1ff75d2b389175399",
+        "type": "github"
+      },
+      "original": {
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "type": "github"
+      }
+    },
+    "flake-parts_3": {
+      "inputs": {
+        "nixpkgs-lib": [
+          "tommy",
+          "igloo",
+          "nixpkgs-master"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793576659,
+        "narHash": "sha256-V1h85lUaJBQoHFrB2vpXZOE0Ju1MYSnIpsehoVZYlDo=",
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "rev": "ea2630b7470978622c7689a1ff75d2b389175399",
+        "type": "github"
+      },
+      "original": {
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "type": "github"
+      }
+    },
+    "gomod2nix": {
+      "inputs": {
+        "flake-utils": [
+          "purse-first",
+          "utils"
+        ],
+        "nixpkgs-master": [
+          "purse-first",
+          "nixpkgs-master"
+        ]
+      },
+      "locked": {
+        "lastModified": 1792264318,
+        "narHash": "sha256-obdl5uwqKBNbYOgRssFzG88XQh8JWw/xwDhTaiTBd4A=",
+        "rev": "3171d7cb8b80f30baba5da12b29817c152a2df03",
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/gomod2nix/archive/3171d7cb8b80f30baba5da12b29817c152a2df03.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/gomod2nix/archive/master.tar.gz"
+      }
+    },
+    "gomod2nix_2": {
+      "inputs": {
+        "flake-utils": [
+          "tommy",
+          "tap",
+          "utils"
+        ],
+        "nixpkgs-master": [
+          "tommy",
+          "tap",
+          "nixpkgs-master"
+        ]
+      },
+      "locked": {
+        "lastModified": 1792264318,
+        "narHash": "sha256-obdl5uwqKBNbYOgRssFzG88XQh8JWw/xwDhTaiTBd4A=",
+        "rev": "3171d7cb8b80f30baba5da12b29817c152a2df03",
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/gomod2nix/archive/3171d7cb8b80f30baba5da12b29817c152a2df03.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/gomod2nix/archive/master.tar.gz"
+      }
+    },
+    "igloo": {
+      "inputs": {
+        "bun2nix": "bun2nix",
+        "flake-parts": "flake-parts",
+        "nixpkgs-master": "nixpkgs-master",
+        "systems": "systems",
+        "treefmt-nix": "treefmt-nix"
+      },
+      "locked": {
+        "path": "../..",
+        "type": "path"
+      },
+      "original": {
+        "path": "../..",
+        "type": "path"
+      },
+      "parent": []
+    },
+    "igloo_2": {
+      "inputs": {
+        "bun2nix": "bun2nix_2",
+        "flake-parts": "flake-parts_2",
+        "nixpkgs-master": [
+          "purse-first",
+          "nixpkgs-master"
+        ],
+        "systems": "systems_2",
+        "treefmt-nix": "treefmt-nix_2"
+      },
+      "locked": {
+        "lastModified": 1793673406,
+        "narHash": "sha256-SDLEP2x7YxJfIjw9DmciSnuD577hCuDJWHW9UO8fSjk=",
+        "rev": "e7b88901e960f9bf29d0d84024c3bbc8591e7058",
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/igloo/archive/e7b88901e960f9bf29d0d84024c3bbc8591e7058.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/igloo/archive/master.tar.gz"
+      }
+    },
+    "igloo_3": {
+      "inputs": {
+        "bun2nix": "bun2nix_3",
+        "flake-parts": "flake-parts_3",
+        "nixpkgs-master": [
+          "tommy",
+          "nixpkgs-master"
+        ],
+        "systems": "systems_3",
+        "treefmt-nix": "treefmt-nix_3"
+      },
+      "locked": {
+        "lastModified": 1793673406,
+        "narHash": "sha256-SDLEP2x7YxJfIjw9DmciSnuD577hCuDJWHW9UO8fSjk=",
+        "rev": "e7b88901e960f9bf29d0d84024c3bbc8591e7058",
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/igloo/archive/e7b88901e960f9bf29d0d84024c3bbc8591e7058.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/igloo/archive/master.tar.gz"
+      }
+    },
+    "nixpkgs-master": {
+      "locked": {
+        "lastModified": 1790689126,
+        "narHash": "sha256-ilerN1WLSvF+HMjziC/Wv99J5y02maDH+6hZPwsORKg=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "b4fd65b198c599cbe814fcb9f42d25d021595ec9",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "b4fd65b198c599cbe814fcb9f42d25d021595ec9",
+        "type": "github"
+      }
+    },
+    "nixpkgs-master_2": {
+      "locked": {
+        "lastModified": 1790689126,
+        "narHash": "sha256-ilerN1WLSvF+HMjziC/Wv99J5y02maDH+6hZPwsORKg=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "b4fd65b198c599cbe814fcb9f42d25d021595ec9",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "b4fd65b198c599cbe814fcb9f42d25d021595ec9",
+        "type": "github"
+      }
+    },
+    "nixpkgs-master_3": {
+      "locked": {
+        "lastModified": 1790689126,
+        "narHash": "sha256-ilerN1WLSvF+HMjziC/Wv99J5y02maDH+6hZPwsORKg=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "b4fd65b198c599cbe814fcb9f42d25d021595ec9",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "b4fd65b198c599cbe814fcb9f42d25d021595ec9",
+        "type": "github"
+      }
+    },
+    "purse-first": {
+      "inputs": {
+        "conformist": "conformist",
+        "gomod2nix": "gomod2nix",
+        "igloo": "igloo_2",
+        "nixpkgs-master": "nixpkgs-master_2",
+        "utils": "utils"
+      },
+      "locked": {
+        "lastModified": 1794261336,
+        "narHash": "sha256-IdEeVRYnKcKjF1oLTUZkrEc1E17XBvTo+/vV4Gx5s0A=",
+        "rev": "7359e5d8a1aebe310396376320a12c2ebd2e48cf",
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/purse-first/archive/7359e5d8a1aebe310396376320a12c2ebd2e48cf.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/purse-first/archive/master.tar.gz"
+      }
+    },
+    "purse-first_2": {
+      "inputs": {
+        "conformist": [
+          "tommy",
+          "conformist"
+        ],
+        "gomod2nix": [
+          "tommy",
+          "tap",
+          "gomod2nix"
+        ],
+        "igloo": [
+          "tommy",
+          "tap",
+          "igloo"
+        ],
+        "nixpkgs-master": [
+          "tommy",
+          "tap",
+          "nixpkgs-master"
+        ],
+        "utils": [
+          "tommy",
+          "tap",
+          "utils"
+        ]
+      },
+      "locked": {
+        "lastModified": 1794001546,
+        "narHash": "sha256-wy+N9vnGUR8gPhlz7xGRrmx/wbBmTuaOZNArK62qj0Y=",
+        "rev": "655a79e7d59f70fd477ae4a643925fcfd7099e92",
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/purse-first/archive/655a79e7d59f70fd477ae4a643925fcfd7099e92.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/purse-first/archive/master.tar.gz"
+      }
+    },
+    "root": {
+      "inputs": {
+        "igloo": "igloo",
+        "purse-first": "purse-first",
+        "tommy": "tommy"
+      }
+    },
+    "rust-overlay": {
+      "inputs": {
+        "nixpkgs": [
+          "tommy",
+          "tap",
+          "igloo"
+        ]
+      },
+      "locked": {
+        "lastModified": 1794127728,
+        "narHash": "sha256-QhZ104DwHvvMxWxmI13zdppISE27UmdqhRI2VwBg/yU=",
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "rev": "51c6dc40d18552701f7c5c62e3f7a5fc899f7132",
+        "type": "github"
+      },
+      "original": {
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "type": "github"
+      }
+    },
+    "systems": {
+      "locked": {
+        "lastModified": 1791244623,
+        "narHash": "sha256-uuanbkFk8a313Zfrxdcz8Us/yQtaxNnKJtX8v0ZPpd8=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "d36eeed142f88b5a636f2e3856a53c61654cf29b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
+      }
+    },
+    "systems_2": {
+      "locked": {
+        "lastModified": 1791244623,
+        "narHash": "sha256-uuanbkFk8a313Zfrxdcz8Us/yQtaxNnKJtX8v0ZPpd8=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "d36eeed142f88b5a636f2e3856a53c61654cf29b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
+      }
+    },
+    "systems_3": {
+      "locked": {
+        "lastModified": 1791244623,
+        "narHash": "sha256-uuanbkFk8a313Zfrxdcz8Us/yQtaxNnKJtX8v0ZPpd8=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "d36eeed142f88b5a636f2e3856a53c61654cf29b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
+      }
+    },
+    "tap": {
+      "inputs": {
+        "bats": [
+          "tommy",
+          "bats"
+        ],
+        "crane": "crane",
+        "gomod2nix": "gomod2nix_2",
+        "igloo": [
+          "tommy",
+          "igloo"
+        ],
+        "nixpkgs-master": [
+          "tommy",
+          "nixpkgs-master"
+        ],
+        "purse-first": "purse-first_2",
+        "rust-overlay": "rust-overlay",
+        "treefmt-nix": [
+          "tommy",
+          "igloo",
+          "treefmt-nix"
+        ],
+        "utils": [
+          "tommy",
+          "utils"
+        ]
+      },
+      "locked": {
+        "lastModified": 1794161900,
+        "narHash": "sha256-Mk0QAOwm5adslOd0AuSPILQLKnkR+i1Vug4TaJFm6Vo=",
+        "rev": "44f296a421e0ace17bd53c071815b8a77cb01e5e",
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/tap/archive/44f296a421e0ace17bd53c071815b8a77cb01e5e.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/tap/archive/master.tar.gz"
+      }
+    },
+    "tommy": {
+      "inputs": {
+        "bats": "bats",
+        "conformist": "conformist_2",
+        "igloo": "igloo_3",
+        "nixpkgs-master": "nixpkgs-master_3",
+        "tap": "tap",
+        "utils": "utils_2"
+      },
+      "locked": {
+        "lastModified": 1794299358,
+        "narHash": "sha256-KTo+Qv0nICvXG0B4UZz2i/DpgbaQooy+4WQKPlWROwo=",
+        "rev": "c377094b4ad0aa8c546d46fde63bfeecc30d206c",
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/tommy/archive/c377094b4ad0aa8c546d46fde63bfeecc30d206c.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://code.linenisgreat.com/tommy/archive/master.tar.gz"
+      }
+    },
+    "treefmt-nix": {
+      "inputs": {
+        "nixpkgs": [
+          "igloo",
+          "nixpkgs-master"
+        ]
+      },
+      "locked": {
+        "lastModified": 1791885023,
+        "narHash": "sha256-C3alQ2MEt0zVrUSho5NUDo3jmhbff72++bfwoqT9Omo=",
+        "owner": "numtide",
+        "repo": "treefmt-nix",
+        "rev": "0d6d739a833ba9a9c93034862e4a7b061a062a1c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "treefmt-nix",
+        "type": "github"
+      }
+    },
+    "treefmt-nix_2": {
+      "inputs": {
+        "nixpkgs": [
+          "purse-first",
+          "igloo",
+          "nixpkgs-master"
+        ]
+      },
+      "locked": {
+        "lastModified": 1791885023,
+        "narHash": "sha256-C3alQ2MEt0zVrUSho5NUDo3jmhbff72++bfwoqT9Omo=",
+        "owner": "numtide",
+        "repo": "treefmt-nix",
+        "rev": "0d6d739a833ba9a9c93034862e4a7b061a062a1c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "treefmt-nix",
+        "type": "github"
+      }
+    },
+    "treefmt-nix_3": {
+      "inputs": {
+        "nixpkgs": [
+          "tommy",
+          "igloo",
+          "nixpkgs-master"
+        ]
+      },
+      "locked": {
+        "lastModified": 1791885023,
+        "narHash": "sha256-C3alQ2MEt0zVrUSho5NUDo3jmhbff72++bfwoqT9Omo=",
+        "owner": "numtide",
+        "repo": "treefmt-nix",
+        "rev": "0d6d739a833ba9a9c93034862e4a7b061a062a1c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "treefmt-nix",
+        "type": "github"
+      }
+    },
+    "utils": {
+      "inputs": {
+        "systems": [
+          "purse-first",
+          "igloo",
+          "systems"
+        ]
+      },
+      "locked": {
+        "lastModified": 1791914995,
+        "narHash": "sha256-Zf/xfQEAasnwnmEfHqW/4hjDE/s44yn2hD4RuVIZRjA=",
+        "rev": "b7a79d3fea1e214f6d668d521cecec0c01e26544",
+        "revCount": 104,
+        "type": "tarball",
+        "url": "https://api.flakehub.com/f/pinned/numtide/flake-utils/0.1.104%2Brev-b7a79d3fea1e214f6d668d521cecec0c01e26544/01a13688-ab44-7252-9946-609183ce150d/source.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://flakehub.com/f/numtide/flake-utils/0.1.102"
+      }
+    },
+    "utils_2": {
+      "inputs": {
+        "systems": [
+          "tommy",
+          "igloo",
+          "systems"
+        ]
+      },
+      "locked": {
+        "lastModified": 1791914995,
+        "narHash": "sha256-Zf/xfQEAasnwnmEfHqW/4hjDE/s44yn2hD4RuVIZRjA=",
+        "rev": "b7a79d3fea1e214f6d668d521cecec0c01e26544",
+        "revCount": 104,
+        "type": "tarball",
+        "url": "https://api.flakehub.com/f/pinned/numtide/flake-utils/0.1.104%2Brev-b7a79d3fea1e214f6d668d521cecec0c01e26544/01a13688-ab44-7252-9946-609183ce150d/source.tar.gz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://flakehub.com/f/numtide/flake-utils/0.1.102"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
