@@ -575,6 +575,28 @@ explore-godyn-check-drvpaths ref:
     nix eval --raw "{{ ref }}#checks.${system}" --apply 'cs: builtins.concatStringsSep "\n" (map (n: "${n} ${cs.${n}.drvPath}") (builtins.filter (n: builtins.substring 0 6 n == "godyn-") (builtins.attrNames cs)))'
     echo
 
+# [explore] Diff every checks.<system>.* and packages.<system>.* drvPath of this
+# tree between two full revs (an eval-only comparison; nothing is built beyond
+# the import-from-derivation graphs evaluation itself needs). Prints the names
+# whose drvPath differs, added or removed, so a change to a shared builder can be
+# audited for the consumers it touches.
+#
+# diff all check and package drvPaths between two revs of this tree
+[group: 'explore']
+explore-drvpaths-diff base head:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    system=$(nix eval --raw --impure --expr 'builtins.currentSystem')
+    tmp=$(mktemp -d)
+    for kind in checks packages; do
+      for side in base head; do
+        case $side in base) rev="{{ base }}";; head) rev="{{ head }}";; esac
+        nix eval --raw "git+file://$PWD?rev=$rev#${kind}.${system}" --apply 'cs: builtins.concatStringsSep "\n" (map (n: let t = builtins.tryEval cs.${n}.drvPath; in "${n} ${if t.success then t.value else "EVAL-ERROR"}") (builtins.attrNames cs))' | sort > "$tmp/$kind.$side"
+      done
+      echo "== $kind: $(wc -l < "$tmp/$kind.base") at base, $(wc -l < "$tmp/$kind.head") at head"
+      diff "$tmp/$kind.base" "$tmp/$kind.head" | sed -E 's|/nix/store/[a-z0-9]{32}-||g' || true
+    done
+
 # [explore] Time godyn's inner test loop (FDR 0008): build one package's
 # passthru.testWith run from a flake ref of this tree (scheme git+file, the
 # CLIs' choice: tracked files as in the working tree; or path, which copies
