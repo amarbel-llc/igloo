@@ -50,13 +50,22 @@ rec {
   godyn-test = callPackage ./go-cli/test.nix { };
   # A go.nix consumer passes manifest (+ inputs, goFlakeInputOverrides) instead of
   # modules, goFlakeInputs and a tracked go.mod; every other arg is unchanged.
-  buildGodynModule = args: buildGodynModuleFromArgs (godynManifest.withManifest args);
+  buildGodynModulePlain = args: buildGodynModuleFromArgs (godynManifest.withManifest args);
+  # generators (FDR 0014): code generators run in derivation space, ahead of the
+  # build; without `generators` this is the plain builder.
+  godynGenerators = callPackage ./generators.nix { buildGodynModule = buildGodynModulePlain; };
+  buildGodynModule = godynGenerators.build;
   # buildGodynLint: the per-package lint lane of a buildGodynModule — takes the same
   # args (plus lintTool) and returns the manifest realising every local package's
   # lint derivation; wire it as a flake check.
   buildGodynLint = args: (buildGodynModule args).passthru.lintAll;
   # callPackage supplies buildGodynModule + buildGoApplication from the overlay.
   buildGoAuto = callPackage ./build-go-auto.nix {
-    inherit buildGodynModule godynSystems godynManifest;
+    inherit
+      buildGodynModule
+      godynSystems
+      godynManifest
+      godynGenerators
+      ;
   };
 }

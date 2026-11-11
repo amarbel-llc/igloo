@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: experimental
 date: 2026-11-11
 promotion-criteria: implementation lands with a green flake check over stub generators; one real consumer (ringmaster) builds with dagnabit and tommy generated in derivation space and no committed generated files; no lever below moved for two weeks of consumer use.
 ---
@@ -60,6 +60,14 @@ Three changes make this work (each is the fix for a verified blocker, below):
    that package and its dependents only) is preserved. Path-valued `src`
    keeps the existing `builtins.path` route unchanged.
 3. **Seed for generators that build themselves** (open item, below).
+
+Implemented (godyn/generators.nix, `codegenOnly` in build-godyn-module.nix,
+`pathFiltered`/`pathWhole` there and a dep-files derivation in gomod2nix):
+the lazy graph is the `codegenOnly` argument (the module returns only
+`passthru.codegenCheck`); the derivation-safe `src` chooses the copy-derivation
+route when `src`'s path is not a store path at eval time (`srcPathKnown`); the
+seed question is answered by `passthru.generatorsFixedPoint`. Covered by
+`godyn-generators-*` checks over stub content-addressed generators.
 
 ## Examples
 

@@ -226,6 +226,11 @@
   # subpath of the whole-input store path, so any edit re-hashes the input and
   # rebuilds every package). Measured a no-op for lazy-trees; off by default.
   lazySrc ? false,
+  # codegenOnly (FDR 0014): return only { passthru.codegenCheck; } — what a
+  # generator stage needs — without forcing the package graph. The graph is `go
+  # list` over the module, which fails on a tree whose generated imports do not
+  # exist yet, and the rest of the result is strict in it.
+  codegenOnly ? false,
 }:
 let
   resolvedVendorEnv =
@@ -876,6 +881,63 @@ let
     else
       rel;
 
+  # Derivation-safe source filtering (FDR 0014). A src downstream of a
+  # content-addressed derivation (generated Go, built by a godyn-built generator)
+  # is a deferred path at eval time: nix hands out a placeholder, and
+  # builtins.path on it fails. Such a src gets a copy DERIVATION per filtered
+  # directory instead — content-addressed, holding exactly the listed files, so a
+  # package's inputs still change only with its own files (the merkle-delta
+  # invariant). A src whose path is known at eval (path literal, flake input,
+  # input-addressed derivation) keeps builtins.path unchanged.
+  srcPathKnown = builtins.isPath src || lib.hasPrefix "${builtins.storeDir}/" (toString src);
+  caCopy =
+    name: script:
+    runCommandLocal name {
+      __contentAddressed = true;
+      outputHashMode = "recursive";
+      outputHashAlgo = "sha256";
+    } script;
+  # files: attrset of root-relative file names (value ignored); dirs: root-relative
+  # directories copied whole.
+  pathFiltered =
+    {
+      root,
+      name,
+      files,
+      dirs ? [ ],
+    }:
+    if srcPathKnown then
+      builtins.path {
+        path = root;
+        inherit name;
+        filter =
+          path: type:
+          type == "directory"
+          || builtins.hasAttr (relToRoot root path) files
+          || lib.any (d: lib.hasPrefix "${d}/" (relToRoot root path)) dirs;
+      }
+    else
+      caCopy name ''
+        mkdir -p "$out"
+        cd ${root}
+        ${lib.concatMapStringsSep "\n" (f: ''cp --parents -- ${lib.escapeShellArg f} "$out"'') (
+          builtins.attrNames files
+        )}
+        ${lib.concatMapStringsSep "\n" (
+          d: ''if [ -d ${lib.escapeShellArg d} ]; then cp -r --parents -- ${lib.escapeShellArg d} "$out"; fi''
+        ) dirs}
+      '';
+  # a single file or directory of src, whole
+  pathWhole =
+    name: p:
+    if srcPathKnown then
+      builtins.path {
+        path = p;
+        inherit name;
+      }
+    else
+      caCopy name ''cp -r ${p} "$out"'';
+
   # The language version a package compiles at (-lang), like `go build`: its
   # module's go directive, recorded by godyn-gen (igloo#74). Go directives may carry
   # a patch level ("1.24.2") but -lang takes only major.minor, so truncate. Graphs
@@ -912,10 +974,10 @@ let
         if lazySrc then
           pkgRoot
         else
-          builtins.path {
-            path = pkgRoot;
+          pathFiltered {
+            root = pkgRoot;
             name = "godyn-src-${sanitize importPath}";
-            filter = path: type: type == "directory" || builtins.hasAttr (relToRoot pkgRoot path) srcFileSet;
+            files = srcFileSet;
           }
       )
     else if brMod != null then
@@ -1351,16 +1413,15 @@ let
               # the package's compile source tree is filtered to non-test files, so
               # the variant filters its own: sources plus in-package test files
               pkgRoot = pkgRootFor t.dir;
-              relTo = relToRoot pkgRoot;
               variantFiles = lib.listToAttrs (
                 map (f: lib.nameValuePair f true) (
                   nl t.goFiles ++ nl t.testGoFiles ++ nl p.sFiles ++ nl (p.embedFiles or null)
                 )
               );
-              srcDir = builtins.path {
-                path = pkgRoot;
+              srcDir = pathFiltered {
+                root = pkgRoot;
                 name = "godyn-${lane}-testsrc-${sanitize importPath}";
-                filter = path: type: type == "directory" || builtins.hasAttr (relTo path) variantFiles;
+                files = variantFiles;
               };
               directDeps = uniqueInOrder (nl t.imports);
               missing = builtins.filter (d: !(byImport ? ${d})) directDeps;
@@ -1422,15 +1483,14 @@ let
             inherit (t) importPath;
             p = byImport.${importPath};
             pkgRoot = pkgRootFor t.dir;
-            relTo = relToRoot pkgRoot;
             # embedFiles ride along: embedCfgJSON points them at ${srcDir}
             variantFiles = lib.listToAttrs (
               map (f: lib.nameValuePair f true) (nl t.goFiles ++ nl t.testGoFiles ++ nl (p.embedFiles or null))
             );
-            srcDir = builtins.path {
-              path = pkgRoot;
+            srcDir = pathFiltered {
+              root = pkgRoot;
               name = "godyn-variantsrc-${sanitize importPath}";
-              filter = path: type: type == "directory" || builtins.hasAttr (relTo path) variantFiles;
+              files = variantFiles;
             };
             directDeps = uniqueInOrder (nl t.imports);
             deps = uniqueInOrder (directDeps ++ lib.concatMap transitiveDeps directDeps);
@@ -1468,12 +1528,11 @@ let
             inherit (t) importPath;
             p = byImport.${importPath};
             pkgRoot = pkgRootFor t.dir;
-            relTo = relToRoot pkgRoot;
             xFiles = lib.listToAttrs (map (f: lib.nameValuePair f true) (nl t.xTestGoFiles));
-            srcDir = builtins.path {
-              path = pkgRoot;
+            srcDir = pathFiltered {
+              root = pkgRoot;
               name = "godyn-${lane}-xtestsrc-${sanitize importPath}";
-              filter = path: type: type == "directory" || builtins.hasAttr (relTo path) xFiles;
+              files = xFiles;
             };
             directDeps = uniqueInOrder (nl t.imports ++ nl t.xTestImports);
             missing = builtins.filter (d: !(byImport ? ${d})) directDeps;
@@ -1645,22 +1704,18 @@ let
       pkgRoot = pkgRootFor t.dir;
       compileFiles = goFiles ++ testGoFiles ++ xTestGoFiles ++ embedFiles;
       compileFileSet = lib.listToAttrs (map (f: lib.nameValuePair f true) compileFiles);
-      relTo = relToRoot pkgRoot;
-      compileSrc = builtins.path {
-        path = pkgRoot;
+      compileSrc = pathFiltered {
+        root = pkgRoot;
         name = "godyn-testsrc-${sanitize importPath}";
-        filter = path: type: type == "directory" || builtins.hasAttr (relTo path) compileFileSet;
+        files = compileFileSet;
       };
       # The run's cwd: `go test` executes test binaries with cwd = the package dir,
       # so testdata/ (and everything the compile saw) must be present.
-      runSrc = builtins.path {
-        path = pkgRoot;
+      runSrc = pathFiltered {
+        root = pkgRoot;
         name = "godyn-testcwd-${sanitize importPath}";
-        filter =
-          path: type:
-          type == "directory"
-          || builtins.hasAttr (relTo path) compileFileSet
-          || lib.hasPrefix "testdata/" (relTo path);
+        files = compileFileSet;
+        dirs = [ "testdata" ];
       };
       # testFiles: a module-shaped run tree — this package's run files at its dir,
       # plus each declared file at its module-relative path — so relative reads out
@@ -1673,12 +1728,7 @@ let
         ''
         + lib.concatMapStrings (f: ''
           mkdir -p "$(dirname "$out/${f}")"
-          cp -r ${
-            builtins.path {
-              path = src + "/${f}";
-              name = "godyn-testfile-${sanitize f}";
-            }
-          } "$out/${f}"
+          cp -r ${pathWhole "godyn-testfile-${sanitize f}" (src + "/${f}")} "$out/${f}"
         '') extraTestFiles
       );
       runDir =
@@ -1993,95 +2043,98 @@ let
           fixupPhase
         '';
 in
-# Surface the resolved version + assembled ldflags (parity with buildGoApplication,
-# and so eval-time tests can assert without building); set mainProgram for `nix run`.
-installed.overrideAttrs (old: {
-  passthru = (old.passthru or { }) // {
-    # pname/version as attributes (parity with buildGoApplication, e.g. bats'
-    # batsLane reads base.pname) without re-deriving the CA link output.
-    inherit pname race;
-    modes = effectiveModes;
-    # -cover: merged test coverage (null without cover).
-    inherit cover coverage;
-    # The vendored third-party tree godyn builds from (null for an all-local
-    # module), for fixtures that need the same vendor/ (e.g. bats lanes).
-    vendorEnv = resolvedVendorEnv;
-    version = effectiveVersion;
-    ldflags = versionLdflags ++ ldflags ++ ldflagsXFlags;
-    # For downstream godyn→godyn composition: archiveGoPkgs feeds a consumer's
-    # archiveBridges (approach 1). The source route (approach 2) just uses this
-    # module's `src` as a `bridges` value — no passthru needed.
-    inherit archiveGoPkgs;
-    # go test (igloo#32): run derivations by import path (a failing test fails the
-    # build), the linked test binaries (manual -run/-v invocation), and the
-    # all-tests manifest for flake checks. Empty when no test graph was passed.
-    tests = testRuns;
-    inherit testBins checkAll;
-    # The inner test loop (FDR 0008): one tested package's run, by module-relative
-    # dir, with extra test-binary flags (e.g. [ "-test.run=TestX" "-test.v" ]).
-    # Always builds; $out/result is "ok <ip>" or "FAIL <ip>", $out/test.log the output.
-    testWith =
-      {
-        dir,
-        testFlags ? [ ],
-      }:
-      let
-        d = lib.removeSuffix "/" (lib.removePrefix "./" dir);
-        key = if d == "" then "." else d;
-        t =
-          lib.findFirst (t: t.dir == key)
-            (throw "buildGodynModule(${pname}): testWith: no tested package in ${key} (have: ${
-              lib.concatMapStringsSep ", " (t: t.dir) testGraph
-            })")
-            testGraph;
-      in
-      testPairs.${t.importPath}.runWith {
-        extraFlags = testFlags;
-        keepLog = true;
-      };
-    # codegen drift (FDR 0008): { command; nativeBuildInputs; exclude;
-    # codegenIncludes; } — its result carries passthru.codegenPatch (igloo#80).
-    inherit codegenCheck;
-    # the escape hatch (FDR 0008): { command; nativeBuildInputs; } — an impure
-    # derivation running the command against the rendered module (see goRun).
-    inherit goRun;
-    # ingest (FDR 0008): go.nix source text for the module after an escape-hatch
-    # run — `out` is a goRun output path (its go.mod and gomod2nix.toml are read).
-    inherit manifest;
-    ingest = out: godynManifest.ingestGoNix { inherit pname manifest out; };
-    # go.nix staleness (igloo#98): { codegenPrefix ? null; } — a pure check that
-    # go.nix is not behind its bridged producers' go.mod files, carrying
-    # passthru.codegenPatch (see godyn(7)).
-    manifestDrift =
-      args:
-      godynManifest.driftCheck (
+if codegenOnly then
+  { passthru = { inherit codegenCheck; }; }
+else
+  # Surface the resolved version + assembled ldflags (parity with buildGoApplication,
+  # and so eval-time tests can assert without building); set mainProgram for `nix run`.
+  installed.overrideAttrs (old: {
+    passthru = (old.passthru or { }) // {
+      # pname/version as attributes (parity with buildGoApplication, e.g. bats'
+      # batsLane reads base.pname) without re-deriving the CA link output.
+      inherit pname race;
+      modes = effectiveModes;
+      # -cover: merged test coverage (null without cover).
+      inherit cover coverage;
+      # The vendored third-party tree godyn builds from (null for an all-local
+      # module), for fixtures that need the same vendor/ (e.g. bats lanes).
+      vendorEnv = resolvedVendorEnv;
+      version = effectiveVersion;
+      ldflags = versionLdflags ++ ldflags ++ ldflagsXFlags;
+      # For downstream godyn→godyn composition: archiveGoPkgs feeds a consumer's
+      # archiveBridges (approach 1). The source route (approach 2) just uses this
+      # module's `src` as a `bridges` value — no passthru needed.
+      inherit archiveGoPkgs;
+      # go test (igloo#32): run derivations by import path (a failing test fails the
+      # build), the linked test binaries (manual -run/-v invocation), and the
+      # all-tests manifest for flake checks. Empty when no test graph was passed.
+      tests = testRuns;
+      inherit testBins checkAll;
+      # The inner test loop (FDR 0008): one tested package's run, by module-relative
+      # dir, with extra test-binary flags (e.g. [ "-test.run=TestX" "-test.v" ]).
+      # Always builds; $out/result is "ok <ip>" or "FAIL <ip>", $out/test.log the output.
+      testWith =
         {
-          inherit pname manifest goFlakeInputs;
-        }
-        // args
-      );
-    # per-package vet and lint: run derivations for the local packages by import
-    # path (a finding fails the build), and each lane's manifest for flake checks.
-    vet = vetLane.local;
-    vetAll = vetLane.all;
-    vetRuns = vetLane.runs;
-    vetTests = vetLane.tests;
-    vetTestsAll = vetLane.testsAll;
-    vetXTests = vetLane.xtests;
-    vetXTestsAll = vetLane.xtestsAll;
-    lint = lintLane.local;
-    lintAll = lintLane.all;
-    lintRuns = lintLane.runs;
-    lintTests = lintLane.tests;
-    lintTestsAll = lintLane.testsAll;
-    lintXTests = lintLane.xtests;
-    lintXTestsAll = lintLane.xtestsAll;
-    # the lint tool's stdlib vetx lane (type-bearing vetx tools only; igloo#71)
-    lintStdVetx = lintLane.stdVetx;
-    # the graphs this build used: the committed files, or the derived ones (FDR 0008)
-    graphFile = resolvedGraphFile;
-    testGraphFile = resolvedTestGraphFile;
-  };
-  meta =
-    (old.meta or { }) // lib.optionalAttrs (mainPkg != null) { mainProgram = binNameOf mainPkg; };
-})
+          dir,
+          testFlags ? [ ],
+        }:
+        let
+          d = lib.removeSuffix "/" (lib.removePrefix "./" dir);
+          key = if d == "" then "." else d;
+          t =
+            lib.findFirst (t: t.dir == key)
+              (throw "buildGodynModule(${pname}): testWith: no tested package in ${key} (have: ${
+                lib.concatMapStringsSep ", " (t: t.dir) testGraph
+              })")
+              testGraph;
+        in
+        testPairs.${t.importPath}.runWith {
+          extraFlags = testFlags;
+          keepLog = true;
+        };
+      # codegen drift (FDR 0008): { command; nativeBuildInputs; exclude;
+      # codegenIncludes; } — its result carries passthru.codegenPatch (igloo#80).
+      inherit codegenCheck;
+      # the escape hatch (FDR 0008): { command; nativeBuildInputs; } — an impure
+      # derivation running the command against the rendered module (see goRun).
+      inherit goRun;
+      # ingest (FDR 0008): go.nix source text for the module after an escape-hatch
+      # run — `out` is a goRun output path (its go.mod and gomod2nix.toml are read).
+      inherit manifest;
+      ingest = out: godynManifest.ingestGoNix { inherit pname manifest out; };
+      # go.nix staleness (igloo#98): { codegenPrefix ? null; } — a pure check that
+      # go.nix is not behind its bridged producers' go.mod files, carrying
+      # passthru.codegenPatch (see godyn(7)).
+      manifestDrift =
+        args:
+        godynManifest.driftCheck (
+          {
+            inherit pname manifest goFlakeInputs;
+          }
+          // args
+        );
+      # per-package vet and lint: run derivations for the local packages by import
+      # path (a finding fails the build), and each lane's manifest for flake checks.
+      vet = vetLane.local;
+      vetAll = vetLane.all;
+      vetRuns = vetLane.runs;
+      vetTests = vetLane.tests;
+      vetTestsAll = vetLane.testsAll;
+      vetXTests = vetLane.xtests;
+      vetXTestsAll = vetLane.xtestsAll;
+      lint = lintLane.local;
+      lintAll = lintLane.all;
+      lintRuns = lintLane.runs;
+      lintTests = lintLane.tests;
+      lintTestsAll = lintLane.testsAll;
+      lintXTests = lintLane.xtests;
+      lintXTestsAll = lintLane.xtestsAll;
+      # the lint tool's stdlib vetx lane (type-bearing vetx tools only; igloo#71)
+      lintStdVetx = lintLane.stdVetx;
+      # the graphs this build used: the committed files, or the derived ones (FDR 0008)
+      graphFile = resolvedGraphFile;
+      testGraphFile = resolvedTestGraphFile;
+    };
+    meta =
+      (old.meta or { }) // lib.optionalAttrs (mainPkg != null) { mainProgram = binNameOf mainPkg; };
+  })

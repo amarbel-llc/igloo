@@ -21,10 +21,15 @@
   buildGoRace,
   godynSystems,
   godynManifest,
+  godynGenerators,
 }:
 {
   pname,
   src,
+  # generators (FDR 0014): [ { name; command; nativeBuildInputs ? [ ]; } ] run in
+  # order in derivation space over src; both backends build the generated tree.
+  # Nothing generated is committed. See godyn(7).
+  generators ? [ ],
   graphFile ? null, # committed graph.json (godyn backend, single platform)
   graphFiles ? null, # { "<system>" = ./godyn-graph.<system>.json; … } — per-system graphs (igloo#33)
   modules ? null, # gomod2nix.toml — both backends (bga builds from it; godyn derives its vendorEnv)
@@ -113,13 +118,33 @@ let
     }
     // lib.optionalAttrs (moduleDir != "") { inherit moduleDir; }
   );
+  # generators run over the rendered tree (go.mod included, which the stages'
+  # patches never carry); the build then uses the generated tree in its place
+  generatorArgs = {
+    inherit pname;
+    inherit (fromManifest) src goFlakeInputs;
+  }
+  // lib.optionalAttrs (version != null) { inherit version; }
+  // lib.optionalAttrs (fromManifest.modules != null) { inherit (fromManifest) modules; }
+  // lib.optionalAttrs (moduleDir != "") { inherit moduleDir; };
+  generation =
+    if generators == [ ] then
+      null
+    else
+      godynGenerators.generate {
+        inherit generators;
+        args = generatorArgs;
+      };
+  buildSrc = if generation == null then fromManifest.src else generation.generated;
+
   common = {
     inherit
       pname
       ldflags
       ldflagsX
       ;
-    inherit (fromManifest) src goFlakeInputs;
+    src = buildSrc;
+    inherit (fromManifest) goFlakeInputs;
   }
   // lib.optionalAttrs (version != null) { inherit version; }
   // lib.optionalAttrs (fromManifest.modules != null) { inherit (fromManifest) modules; }
@@ -177,13 +202,13 @@ let
     # A module below src's root (igloo#73): buildGoApplication reads go.mod at pwd
     # and its hooks cd into modRoot.
     // lib.optionalAttrs (moduleDir != "") {
-      pwd = "${fromManifest.src}/${moduleDir}";
+      pwd = "${buildSrc}/${moduleDir}";
       modRoot = moduleDir;
     }
     // bgaArgs
     # With a manifest the checkout has no go.mod, so a bgaArgs.pwd pointing at it
     # (the version.env / go.mod anchor) must point at the rendered tree instead.
-    // lib.optionalAttrs (manifest != null && bgaArgs ? pwd) { pwd = fromManifest.src; }
+    // lib.optionalAttrs (manifest != null && bgaArgs ? pwd) { pwd = buildSrc; }
   );
   bga =
     if race then
@@ -215,30 +240,43 @@ let
   chosen = if backend == "native" then native else bga;
 in
 chosen.overrideAttrs (old: {
-  passthru = (old.passthru or { }) // {
-    inherit
-      native
-      bga
-      strategy
-      backend
-      ;
-    # the codegen drift check (FDR 0008) is backend-independent: it runs in the
-    # vendored module tree, never against a compiled package.
-    inherit (native.passthru) codegenCheck goRun;
-    # ingest (FDR 0008) from this call's manifest: the native backend is built
-    # from the manifest's rendered args, not the manifest itself.
-    inherit manifest;
-    ingest = out: godynManifest.ingestGoNix { inherit pname manifest out; };
-    # go.nix staleness (igloo#98), from this call's manifest and resolved flake
-    # inputs — no backend, no package graph involved.
-    manifestDrift =
-      args:
-      godynManifest.driftCheck (
-        {
-          inherit pname manifest;
-          inherit (fromManifest) goFlakeInputs;
-        }
-        // args
-      );
-  };
+  passthru =
+    (old.passthru or { })
+    // {
+      inherit
+        native
+        bga
+        strategy
+        backend
+        ;
+      # the codegen drift check (FDR 0008) is backend-independent: it runs in the
+      # vendored module tree, never against a compiled package.
+      inherit (native.passthru) codegenCheck goRun;
+      # ingest (FDR 0008) from this call's manifest: the native backend is built
+      # from the manifest's rendered args, not the manifest itself.
+      inherit manifest;
+      ingest = out: godynManifest.ingestGoNix { inherit pname manifest out; };
+      # go.nix staleness (igloo#98), from this call's manifest and resolved flake
+      # inputs — no backend, no package graph involved.
+      manifestDrift =
+        args:
+        godynManifest.driftCheck (
+          {
+            inherit pname manifest;
+            inherit (fromManifest) goFlakeInputs;
+          }
+          // args
+        );
+    }
+    // lib.optionalAttrs (generation != null) {
+      # derivation-space generators (FDR 0014)
+      generatedSrc = generation.generated;
+      generatorStages = generation.stages;
+      generatorPatches = generation.patches;
+      generatorsFixedPoint = godynGenerators.fixedPoint {
+        inherit pname;
+        inherit (generation) generated;
+        args = generatorArgs;
+      };
+    };
 })

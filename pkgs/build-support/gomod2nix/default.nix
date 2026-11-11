@@ -970,6 +970,25 @@ let
                 );
               name = "go-workspace-dep-files";
             }
+          else if
+            !(builtins.isPath depFilesSrc || lib.hasPrefix "${builtins.storeDir}/" (toString depFilesSrc))
+          then
+            # A source downstream of a content-addressed derivation (godyn
+            # generators, FDR 0014) is a deferred path at eval time and
+            # cleanSourceWith (builtins.path) cannot read it: copy the three
+            # files in a derivation instead.
+            runCommand "go-dep-files"
+              {
+                __contentAddressed = true;
+                outputHashMode = "recursive";
+                outputHashAlgo = "sha256";
+              }
+              ''
+                mkdir -p "$out"
+                for f in go.mod go.sum gomod2nix.toml; do
+                  if [ -e ${depFilesSrc}/$f ]; then cp ${depFilesSrc}/$f "$out/$f"; fi
+                done
+              ''
           else
             lib.cleanSourceWith {
               src = depFilesSrc;
