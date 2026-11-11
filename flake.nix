@@ -1645,6 +1645,14 @@
             godyn-manifest-drift-fail-test
             godyn-manifest-drift-unpinned-test
             ;
+          # derivation-space generators (FDR 0014): stub content-addressed
+          # generators, stage order, the stamp-only bump, the fixed point.
+          inherit (import ./pkgs/build-support/godyn/tests/generators.nix { inherit pkgs; })
+            godyn-generators-test
+            godyn-generators-auto-test
+            godyn-generators-order-test
+            godyn-generators-fixed-point-fail-test
+            ;
           # ingest (FDR 0008), the pure half of the escape hatch: from a goRun
           # output captured after `go get github.com/google/go-cmp@v0.7.0` (its
           # go.mod carries the fleet module's sentinel require and store-path
