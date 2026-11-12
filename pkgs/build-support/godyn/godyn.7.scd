@@ -333,7 +333,8 @@ godyn-go [-A <attr>] [-m <go.nix>] [-n] -- go get github.com/google/go-cmp@v0.7.
 godyn-go [-m <go.nix>] -I <dir>
 ```
 
-It builds *<attr>.passthru.goRun* (default *packages.<system>.default*) from a
+It builds *<attr>.passthru.goRun* (*-A* defaults as described under the inner
+loop: *go-module* when exposed, else *default*) from a
 *git+file:* flake ref of the repository — tracked files as they are in the
 working tree, never .git or ignored directories such as .tmp; a NEW file must
 be *git add -N*'d before the run sees it; applies the patch with *git apply --check* then *git apply* (a
@@ -753,6 +754,12 @@ godyn-test [-A <attr>] internal/foo -- -test.run=TestX -test.v
 ```
 
 igloo's *just explore-godyn-test-loop* recipe times this loop.
+
+Without *-A*, *godyn-go* and *godyn-test* use *packages.<system>.go-module* when
+the flake exposes it (the canonical module output of the standard godyn tree,
+RFC 0003, whose *default* may be a wrapper) and fall back to
+*packages.<system>.default* otherwise, so flakes that predate the RFC keep
+working. *-A* always wins.
 
 # VET
 

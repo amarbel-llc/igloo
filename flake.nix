@@ -1772,6 +1772,23 @@
               grep -q '^=== RUN' ${run}/test.log || { echo "no verbose output in test.log:" >&2; cat ${run}/test.log >&2; exit 1; }
               echo OK > $out
             '';
+          # godyn-go / godyn-test default -A (igloo#92, RFC 0003): `go-module` when
+          # the flake's packages expose it, else `default`. The selector is a pure
+          # function both CLIs evaluate, so its table is tested here without nix-in-nix.
+          godyn-cli-pick-attr-test =
+            let
+              pick = import ./pkgs/build-support/godyn/go-cli/pick-attr.nix;
+            in
+            assert
+              pick {
+                go-module = null;
+                default = null;
+              } == "go-module";
+            assert pick { default = null; } == "default";
+            assert pick { } == "default";
+            pkgs.runCommandLocal "godyn-cli-pick-attr-test-check" { } ''
+              echo OK > $out
+            '';
           # NixOS VM test lane (FDR 0011): mkVmChecks boots a guest under TCG with
           # the fleet defaults, the prelude's helpers work, a per-node `defaults`
           # module reaches the guest, and a test may override a default. Empty on

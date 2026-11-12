@@ -49,7 +49,8 @@ writeShellApplication {
       cat >&2 <<'EOF'
     usage: godyn-go [-A <attr>] [-m <go.nix>] [-n] -- <go command...>
            godyn-go [-m <go.nix>] -I <dir>
-      -A <attr>    the module's flake attribute (default: packages.<system>.default)
+      -A <attr>    the module's flake attribute (default: packages.<system>.go-module
+                   when the flake exposes it, else packages.<system>.default)
       -m <go.nix>  the manifest to rewrite (default: ./go.nix)
       -n           build only: print the goRun output path on stdout, apply nothing
       -I <dir>     ingest only: <dir>/go.mod + <dir>/gomod2nix.toml into <go.nix>,
@@ -97,10 +98,15 @@ writeShellApplication {
 
     [ "$#" -gt 0 ] || { usage; exit 2; }
     system=$(nix eval --impure --raw --expr builtins.currentSystem)
-    [ -n "$attr" ] || attr="packages.$system.default"
     # git+file: copies only tracked files (modified contents included), never
     # .git or ignored dirs like .tmp; a new file needs `git add -N` first.
-    flake="(builtins.getFlake \"git+file:$(git rev-parse --show-toplevel)\").$attr.passthru"
+    flakeRef="(builtins.getFlake \"git+file:$(git rev-parse --show-toplevel)\")"
+    # no -A: packages.<system>.go-module when the flake exposes it (RFC 0003),
+    # else packages.<system>.default
+    if [ -z "$attr" ]; then
+      attr="packages.$system.$(nix eval --impure --raw --expr "(import ${./pick-attr.nix}) ($flakeRef.packages.$system or { })")"
+    fi
+    flake="$flakeRef.$attr.passthru"
     # the command, shell-quoted for the derivation's bash
     command=$(printf '%q ' "$@")
     expr="$flake.goRun { command = $(printf '%s' "$command" | jq -Rs .); }"

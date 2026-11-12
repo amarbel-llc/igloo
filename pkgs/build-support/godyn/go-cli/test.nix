@@ -22,7 +22,8 @@ writeShellApplication {
     usage() {
       cat >&2 <<'EOF'
     usage: godyn-test [-A <attr>] <dir> [-- <test binary flags...>]
-      -A <attr>  the module's flake attribute (default: packages.<system>.default)
+      -A <attr>  the module's flake attribute (default: packages.<system>.go-module
+                 when the flake exposes it, else packages.<system>.default)
       <dir>      the tested package, module-relative ("." for the root package)
       flags      test binary flags, e.g. -test.run=TestX -test.v
     EOF
@@ -42,13 +43,18 @@ writeShellApplication {
     [ "''${1:-}" != "--" ] || shift
 
     system=$(nix eval --impure --raw --expr builtins.currentSystem)
-    [ -n "$attr" ] || attr="packages.$system.default"
     # each flag as a nix string literal (json-escaped), space-separated
     flags=""
     for f in "$@"; do flags+="$(printf '%s' "$f" | jq -Rs .) "; done
     # git+file: copies only tracked files (modified contents included), never
     # .git or ignored dirs like .tmp; a new file needs `git add -N` first.
-    expr="(builtins.getFlake \"git+file:$(git rev-parse --show-toplevel)\").$attr.passthru.testWith {
+    flakeRef="(builtins.getFlake \"git+file:$(git rev-parse --show-toplevel)\")"
+    # no -A: packages.<system>.go-module when the flake exposes it (RFC 0003),
+    # else packages.<system>.default
+    if [ -z "$attr" ]; then
+      attr="packages.$system.$(nix eval --impure --raw --expr "(import ${./pick-attr.nix}) ($flakeRef.packages.$system or { })")"
+    fi
+    expr="$flakeRef.$attr.passthru.testWith {
       dir = $(printf '%s' "$dir" | jq -Rs .);
       testFlags = [ $flags];
     }"
